@@ -1,0 +1,31 @@
+# Dependencies and generated builds
+node_modules/
+out/
+dist/
+release/
+resources/bundled/
+
+# Local app, QA, and agent data
+.claude/
+.codex-remote-attachments/
+.qa-appdata/
+.qa-browser-data/
+.qa-user-data/
+.tmp-*/
+pi-studio-gates/
+
+# Secrets and logs
+.env
+.env.*
+!.env.example
+*.log
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local QA output
+qa-*.png
+nul
