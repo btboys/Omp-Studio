@@ -9,7 +9,7 @@ When redistributing a built application, keep this notice together with the appl
 ### Pi coding agent
 
 - Package: `@earendil-works/pi-coding-agent`
-- Version in the 0.2.1 build: `0.82.1`
+- Version in the 0.2.2 build: `0.82.1`
 - License: MIT
 - Copyright: Mario Zechner
 - Source: <https://github.com/earendil-works/pi/tree/main/packages/coding-agent>
@@ -19,7 +19,7 @@ Pi Studio launches the Pi coding agent as a bundled runtime. Pi's own source, tr
 
 ### Node.js
 
-- Runtime in the 0.2.1 build: Node.js `v24.14.0`
+- Runtime in the 0.2.2 build: Node.js `v24.14.0`
 - License and attribution: <https://github.com/nodejs/node/blob/v24.14.0/LICENSE>
 - Project: <https://nodejs.org/>
 

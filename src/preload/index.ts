@@ -30,6 +30,9 @@ const api = {
     readPreview: (absPath: string, projectRoot?: string) => ipcRenderer.invoke("app:readPreview", absPath, projectRoot),
     showFileContextMenu: (absPath: string) => ipcRenderer.invoke("app:showFileContextMenu", absPath),
     updatePi: () => ipcRenderer.invoke("app:updatePi"),
+    checkAppUpdate: () => ipcRenderer.invoke("app:checkAppUpdate"),
+    downloadAppUpdate: () => ipcRenderer.invoke("app:downloadAppUpdate"),
+    installAppUpdate: () => ipcRenderer.invoke("app:installAppUpdate"),
     checkCoreUpdate: () => ipcRenderer.invoke("app:checkCoreUpdate"),
     relaunch: () => ipcRenderer.invoke("app:relaunch"),
     editAction: (action: "copy" | "cut" | "paste" | "delete" | "selectAll") => ipcRenderer.invoke("app:editAction", action),
@@ -103,6 +106,7 @@ const api = {
     error: (cb: (p: { threadId: string; message: string }) => void) => on("pi:error", cb),
     automation: (cb: (p: { type: "start" | "done"; taskId: string; name: string; ok?: boolean; error?: string }) => void) =>
       on("pi:automation", cb),
+    appUpdate: (cb: (p: { stage: string; message: string; pct?: number }) => void) => on("pi:appUpdate", cb),
     coreUpdate: (cb: (p: { stage: string; message: string; pct?: number }) => void) => on("pi:coreUpdate", cb),
   },
 };

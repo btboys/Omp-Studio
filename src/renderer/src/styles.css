@@ -674,70 +674,24 @@ body.sidebar-resizing * {
   margin-top: 8px;
 }
 .skill-invocation {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
   margin: 0 0 2px;
-  overflow: hidden;
+  padding: 6px 9px;
   border: 1px solid rgba(79, 91, 77, .18);
   border-radius: 9px;
   background: rgba(255, 255, 255, .42);
-}
-.skill-invocation-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 30px;
-  padding: 6px 8px;
-  border: 0;
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.skill-invocation-toggle:hover {
-  background: rgba(255, 255, 255, .52);
-}
-.skill-invocation-chevron {
-  flex: 0 0 auto;
-  color: var(--accent);
-  transition: transform .12s ease;
-}
-.skill-invocation-chevron.open {
-  transform: rotate(90deg);
 }
 .skill-invocation-label {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
+  font-size: 12px;
   font-family: var(--mono);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.skill-invocation-status {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: var(--text-faint);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.skill-invocation-content {
-  max-height: 360px;
-  overflow: auto;
-  padding: 8px 10px 10px;
-  border-top: 1px solid rgba(79, 91, 77, .14);
-  background: rgba(250, 249, 244, .78);
-}
-.skill-invocation-content .md {
-  font-size: 13px;
-  line-height: 1.5;
-}
-.skill-invocation-content .md > :first-child {
-  margin-top: 0;
-}
-.skill-invocation-content .md > :last-child {
-  margin-bottom: 0;
 }
 .msg-user-actions {
   position: absolute;
@@ -2064,21 +2018,22 @@ body.sidebar-resizing * {
   bottom: 42px;
   left: 50%;
   right: auto;
-  margin-left: -92px;
-  width: 184px;
+  margin-left: -64px;
+  width: 128px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 8px;
   border-radius: 10px;
   text-align: center;
 }
 .usage-pop .usage-pop-head {
-  margin-bottom: 6px;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
+  gap: 4px;
+  margin-bottom: 5px;
+  font-size: 9px;
+  letter-spacing: 0.02em;
 }
 .usage-pop .ctx-refresh {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 .ctx-pop-head,
 .usage-pop-head {
@@ -2173,18 +2128,22 @@ body.sidebar-resizing * {
 }
 .usage-bignum {
   font-family: var(--mono);
-  font-size: 23px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--accent);
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .usage-sub {
-  font-size: 11px;
+  font-size: 9.5px;
   color: var(--text-faint);
   margin-top: 2px;
+  white-space: nowrap;
 }
 .usage-cost {
-  font-size: 11px;
+  font-size: 9.5px;
   color: var(--text-dim);
   margin-top: 5px;
   padding-top: 5px;
@@ -2784,6 +2743,19 @@ textarea.modal-input {
   color: var(--text-faint);
   text-align: center;
   padding: 40px;
+}
+.empty-state-app-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.empty-state-app-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .empty-state h2 {
   color: var(--text-dim);
@@ -4297,10 +4269,6 @@ mark.hl {
   border-color: rgba(153, 190, 160, 0.25);
   background: rgba(49, 69, 54, 0.5);
 }
-:root[data-theme="dark"] .skill-invocation-toggle:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-:root[data-theme="dark"] .skill-invocation-content,
 :root[data-theme="dark"] .msg.system .msg-body,
 :root[data-theme="dark"] .thinking-body,
 :root[data-theme="dark"] .tool-args,

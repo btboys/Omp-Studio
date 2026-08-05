@@ -13,6 +13,7 @@ import { PluginsPanel } from "./components/PluginsPanel";
 import { AutomationPanel } from "./components/AutomationPanel";
 import { Folder, Plus } from "./components/icons";
 import { LanguageBridge } from "./components/LanguageBridge";
+import appIconUrl from "../../../resources/icon.png";
 
 export default function App() {
   const bootstrap = useStore((s) => s.bootstrap);
@@ -80,8 +81,8 @@ export default function App() {
           <section className="main">
             <div className="empty-state">
               <div>
-                <div style={{ fontSize: 34, marginBottom: 8 }}>
-                  <span style={{ display: "inline-grid", placeItems: "center", width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg,#2e7d52,#6fbf8c)", color: "#fff" }}>π</span>
+                <div className="empty-state-app-icon">
+                  <img src={appIconUrl} alt="" aria-hidden="true" />
                 </div>
                 <h2>Pi Studio</h2>
                 <p style={{ maxWidth: 420, margin: "0 auto 16px" }}>

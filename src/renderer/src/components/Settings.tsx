@@ -615,6 +615,25 @@ export function Settings() {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updatedTo, setUpdatedTo] = useState<string | null>(null);
 
+  // ---- Pi Studio application update ----
+  const [appUpdating, setAppUpdating] = useState(false);
+  const [appUpdateStatus, setAppUpdateStatus] = useState<{
+    current: string;
+    latest: string | null;
+    hasUpdate: boolean;
+    source: string | null;
+    releaseUrl: string | null;
+    assetName: string | null;
+    supported: boolean;
+    installable: boolean;
+    downloaded: boolean;
+    note?: string | null;
+    error?: string;
+  } | null>(null);
+  const [appUpdateProgress, setAppUpdateProgress] = useState<{ stage: string; message: string; pct?: number } | null>(null);
+  const [appUpdateError, setAppUpdateError] = useState<string | null>(null);
+  const [appUpdateReady, setAppUpdateReady] = useState(false);
+
   // Track the in-app core updater with a single state object so the progress
   // bar updates in place instead of appending one line per percentage point.
   useEffect(() => {
@@ -626,13 +645,77 @@ export function Settings() {
     return off;
   }, [updating]);
 
+  useEffect(() => {
+    const off = window.pi.on.appUpdate((p) => {
+      setAppUpdateProgress(p);
+      if (p.stage === "error") setAppUpdateError(p.message);
+    });
+    return off;
+  }, []);
+
   const refreshUpdateState = async () => {
     try {
-      const [d, s] = await Promise.all([window.pi.settings.getDiagnostics(), window.pi.app.checkCoreUpdate()]);
+      const [d, s, a] = await Promise.all([
+        window.pi.settings.getDiagnostics(),
+        window.pi.app.checkCoreUpdate(),
+        window.pi.app.checkAppUpdate(),
+      ]);
       setDiag(d as any);
       setUpdateStatus(s as any);
+      setAppUpdateStatus(a as any);
+      setAppUpdateReady(Boolean((a as any)?.downloaded));
     } catch {
       /* keep stale values; not worth a toast */
+    }
+  };
+
+  const checkAppRelease = async () => {
+    setAppUpdating(true);
+    setAppUpdateError(null);
+    setAppUpdateProgress({ stage: "checking", message: language === "zh" ? "正在检查 GitHub Releases 最新版本…" : "Checking the latest GitHub Release…" });
+    try {
+      const status: any = await window.pi.app.checkAppUpdate();
+      setAppUpdateStatus(status);
+      setAppUpdateReady(Boolean(status?.downloaded));
+      if (status?.error) setAppUpdateError(status.error);
+    } catch (e: any) {
+      setAppUpdateError(e?.message || String(e));
+    } finally {
+      setAppUpdating(false);
+    }
+  };
+
+  const downloadAppRelease = async () => {
+    setAppUpdating(true);
+    setAppUpdateProgress(null);
+    setAppUpdateError(null);
+    try {
+      const result: any = await window.pi.app.downloadAppUpdate();
+      if (result?.ok && result?.downloaded) {
+        setAppUpdateReady(true);
+        pushToast("success", language === "zh" ? result.message : `Pi Studio v${result.version || ""} is ready to install.`);
+      } else if (result?.ok) {
+        pushToast("info", language === "zh" ? result.message : "Pi Studio is already up to date.");
+      } else {
+        setAppUpdateError(result?.message || (language === "zh" ? "应用更新失败" : "App update failed"));
+      }
+      const status: any = await window.pi.app.checkAppUpdate();
+      setAppUpdateStatus(status);
+      setAppUpdateReady(Boolean(result?.downloaded || status?.downloaded));
+    } catch (e: any) {
+      setAppUpdateError(e?.message || String(e));
+    } finally {
+      setAppUpdating(false);
+    }
+  };
+
+  const installAppRelease = async () => {
+    setAppUpdateError(null);
+    try {
+      const result: any = await window.pi.app.installAppUpdate();
+      if (!result?.ok) setAppUpdateError(result?.message || (language === "zh" ? "启动安装程序失败" : "Could not start the installer"));
+    } catch (e: any) {
+      setAppUpdateError(e?.message || String(e));
     }
   };
 
@@ -694,6 +777,11 @@ export function Settings() {
     setProgress(null);
     setUpdateError(null);
     setUpdatedTo(null);
+    setAppUpdating(false);
+    setAppUpdateStatus(null);
+    setAppUpdateProgress(null);
+    setAppUpdateError(null);
+    setAppUpdateReady(false);
     setAppVersion(null);
     (async () => {
       try {
@@ -718,6 +806,13 @@ export function Settings() {
       window.pi.app
         .checkCoreUpdate()
         .then((s: any) => setUpdateStatus(s))
+        .catch(() => undefined);
+      window.pi.app
+        .checkAppUpdate()
+        .then((s: any) => {
+          setAppUpdateStatus(s);
+          setAppUpdateReady(Boolean(s?.downloaded));
+        })
         .catch(() => undefined);
     })();
   }, [open, pushToast]);
@@ -911,7 +1006,7 @@ export function Settings() {
               ["thinking", "思考默认值"],
               ["archive", "已归档项目"],
               ["diag", "诊断与配置"],
-              ["update", "更新 Pi"],
+              ["update", language === "zh" ? "应用更新" : "App updates"],
               ["about", language === "zh" ? "关于" : "About"],
             ] as [Tab, string][]).map(([id, label]) => (
               <button key={id} className={`set-tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>
@@ -949,10 +1044,12 @@ export function Settings() {
                 ? "模型与提供商"
                 : tab === "thinking"
                   ? "思考默认值"
-                  : tab === "archive"
-                    ? "已归档项目"
-                    : tab === "update"
-                      ? "更新 Pi"
+                    : tab === "archive"
+                      ? "已归档项目"
+                      : tab === "update"
+                      ? language === "zh"
+                        ? "应用更新"
+                        : "App updates"
                       : tab === "about"
                         ? language === "zh"
                           ? "关于"
@@ -1243,7 +1340,80 @@ export function Settings() {
             )}
 
             {tab === "update" && (
-              <div className="set-card">
+              <>
+                <div className="set-card">
+                  <div className="set-card-title">{language === "zh" ? "Pi Studio 应用更新" : "Pi Studio app update"}</div>
+                  <div className="set-hint" style={{ marginBottom: 12 }}>
+                    {language === "zh"
+                      ? "从 GitHub Releases 检查最新正式版本。发现新版本后，可在此下载 Windows 安装包并安装重启。"
+                      : "Check the latest stable release from GitHub Releases. Download and install a Windows update here, then restart Pi Studio."}
+                  </div>
+                  <div className="set-diag-grid" style={{ marginBottom: 12 }}>
+                    <div className="set-diag-k">{language === "zh" ? "当前版本" : "Current version"}</div>
+                    <div className="set-diag-v">{appUpdateStatus?.current ? `v${appUpdateStatus.current}` : appVersion ? `v${appVersion}` : "—"}</div>
+                    <div className="set-diag-k">{language === "zh" ? "最新版本" : "Latest version"}</div>
+                    <div className="set-diag-v">
+                      {appUpdateStatus?.error ? (
+                        <span className="set-diag-err" style={{ display: "inline-block", margin: 0 }}>
+                          {language === "zh" ? "检查失败：" : "Check failed: "}{appUpdateStatus.error}
+                        </span>
+                      ) : (
+                        <>
+                          {appUpdateStatus?.latest ? `v${appUpdateStatus.latest}` : "—"}
+                          {appUpdateStatus?.hasUpdate && <span className="set-tag-new">{language === "zh" ? "可更新" : "Update available"}</span>}
+                        </>
+                      )}
+                    </div>
+                    <div className="set-diag-k">{language === "zh" ? "来源" : "Source"}</div>
+                    <div className="set-diag-v">GitHub Releases</div>
+                  </div>
+                  {appUpdateStatus?.note && <div className="set-hint" style={{ marginBottom: 12 }}>{appUpdateStatus.note}</div>}
+                  <div className="set-diag-btns">
+                    <button className="set-btn ghost" onClick={checkAppRelease} disabled={appUpdating}>
+                      {appUpdating && appUpdateProgress?.stage === "checking"
+                        ? language === "zh"
+                          ? "检查中…"
+                          : "Checking…"
+                        : language === "zh"
+                          ? "检查最新版本"
+                          : "Check for updates"}
+                    </button>
+                    {appUpdateStatus?.hasUpdate && !appUpdateReady && (
+                      <button
+                        className="set-btn primary"
+                        onClick={downloadAppRelease}
+                        disabled={appUpdating || !appUpdateStatus.supported || !appUpdateStatus.installable}
+                      >
+                        {appUpdating && appUpdateProgress?.stage === "downloading"
+                          ? language === "zh"
+                            ? "下载中…"
+                            : "Downloading…"
+                          : language === "zh"
+                            ? `下载 v${appUpdateStatus.latest}`
+                            : `Download v${appUpdateStatus.latest}`}
+                      </button>
+                    )}
+                    {appUpdateReady && (
+                      <button className="set-btn primary" onClick={installAppRelease} disabled={!appUpdateStatus?.installable}>
+                        {language === "zh" ? "安装并重启" : "Install and restart"}
+                      </button>
+                    )}
+                  </div>
+                  {appUpdateProgress && (appUpdating || appUpdateReady) && (
+                    <div className="upd-progress">
+                      <div className="upd-progress-head">
+                        <span className="upd-progress-label">{appUpdateProgress.message}</span>
+                        {appUpdateProgress.pct != null && <span className="upd-progress-pct">{appUpdateProgress.pct}%</span>}
+                      </div>
+                      <div className={"upd-bar" + (appUpdateProgress.pct == null ? " indeterminate" : "")}>
+                        <div className="upd-bar-fill" style={appUpdateProgress.pct != null ? { width: `${appUpdateProgress.pct}%` } : undefined} />
+                      </div>
+                    </div>
+                  )}
+                  {appUpdateError && !appUpdating && <div className="set-diag-err">⚠ {appUpdateError}</div>}
+                </div>
+
+                <div className="set-card">
                 <div className="set-card-title">更新 Pi 核心</div>
                 <div className="set-hint" style={{ marginBottom: 12 }}>
                   {diag?.bundled ? (
@@ -1298,7 +1468,8 @@ export function Settings() {
                   </div>
                 )}
                 {updateError && !updating && <div className="set-diag-err">⚠ {updateError}</div>}
-              </div>
+                </div>
+              </>
             )}
 
             {tab === "about" && (

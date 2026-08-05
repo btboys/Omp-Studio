@@ -7,7 +7,7 @@ import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
-import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch, ChevronRight } from "./icons";
+import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch } from "./icons";
 import appIconUrl from "../../../../resources/icon.png";
 
 export function Chat() {
@@ -412,7 +412,7 @@ function MessageGroupInner({
             )}
             {skillBlock ? (
               <>
-                <SkillInvocation name={skillBlock.name} content={skillBlock.content} />
+                <SkillInvocation name={skillBlock.name} />
                 {skillBlock.userMessage && <div className="msg-user-text msg-user-skill-request">{skillBlock.userMessage}</div>}
               </>
             ) : (
@@ -582,27 +582,10 @@ function BlockView({ block, toolRuns }: { block: ContentBlock; toolRuns: Record<
   return <ToolCard id={block.id} name={block.name} run={toolRuns[block.id]} />;
 }
 
-const SkillInvocation = memo(function SkillInvocation({ name, content }: { name: string; content: string }) {
-  const [open, setOpen] = useState(false);
+const SkillInvocation = memo(function SkillInvocation({ name }: { name: string }) {
   return (
-    <div className="skill-invocation">
-      <button
-        type="button"
-        className="skill-invocation-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronRight className={`skill-invocation-chevron ${open ? "open" : ""}`} size={13} />
+    <div className="skill-invocation" role="status" aria-label={`skill: ${name}`}>
         <span className="skill-invocation-label">skill: {name}</span>
-        <span className="skill-invocation-status">
-          {open ? "点击收起" : `内容已折叠 · ${content.length} 字`}
-        </span>
-      </button>
-      {open && (
-        <div className="skill-invocation-content">
-          <Markdown text={content} />
-        </div>
-      )}
     </div>
   );
 });

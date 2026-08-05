@@ -353,7 +353,7 @@ export function Composer({ threadId }: { threadId: string }) {
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => chooseSlashCommand(command)}
                   >
-                    <span className="slash-command-name">/{displayName}</span>
+                    <span className="slash-command-name">{displayName}</span>
                     <span className={`slash-command-kind ${command.source || "command"}`}>{kind}</span>
                     {!isSkill && command.description && (
                       <span className="slash-command-description">{command.description}</span>
@@ -480,7 +480,7 @@ export function Composer({ threadId }: { threadId: string }) {
                         taRef.current?.focus();
                       }}
                     >
-                      <span className="o1">/{c.source === "skill" ? String(c.name).replace(/^skill:/, "") : c.name}</span>
+                        <span className="o1">{c.source === "skill" ? String(c.name).replace(/^skill:/, "") : c.name}</span>
                       {c.source !== "skill" && c.description && <span className="o2">{c.description}</span>}
                     </button>
                   ))}

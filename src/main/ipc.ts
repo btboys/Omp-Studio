@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { checkForAppUpdate, downloadAppUpdate, installAppUpdate } from "./app-updater";
 import { checkForCoreUpdate, installCoreUpdate } from "./core-updater";
 import { getConfig, getConfigDir, updateConfig, type AutomationTask } from "./config";
 import { listDir } from "./fs-service";
@@ -822,6 +823,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   });
 
   // ---- update pi core -----------------------------------------------------
+  ipcMain.handle("app:checkAppUpdate", () => checkForAppUpdate());
+  ipcMain.handle("app:downloadAppUpdate", async () => downloadAppUpdate((p) => send("pi:appUpdate", p)));
+  ipcMain.handle("app:installAppUpdate", () => installAppUpdate());
   ipcMain.handle("app:checkCoreUpdate", () => checkForCoreUpdate());
 
   ipcMain.handle("app:updatePi", async () => {
