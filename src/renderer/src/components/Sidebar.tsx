@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Folder, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Sidebar as SidebarIcon } from "./icons";
+import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Sidebar as SidebarIcon } from "./icons";
 
 const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
 const SIDEBAR_WIDTH_KEY = "pi-studio.sidebar-width";
@@ -134,6 +134,7 @@ export function Sidebar() {
   const openProjectFolder = useStore((s) => s.openProjectFolder);
   const unpinProject = useStore((s) => s.unpinProject);
   const archiveProject = useStore((s) => s.archiveProject);
+  const archiveThread = useStore((s) => s.archiveThread);
   const setSidebarTab = useStore((s) => s.setSidebarTab);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
 
@@ -268,22 +269,44 @@ export function Sidebar() {
                       {p.threads.length === 0 && <div className="ft-empty">暂无线程</div>}
                       {p.threads.map((t) => {
                         const running = runningSet.has(t.file);
+                        const openThread = () => onThreadClick(p.cwd, t.file);
                         return (
-                          <button
+                          <div
                             key={t.file}
                             className={`thread ${activeThreadId === t.file ? "active" : ""}`}
-                            onClick={() => onThreadClick(p.cwd, t.file)}
+                            role="button"
+                            tabIndex={0}
+                            onClick={openThread}
+                            onKeyDown={(event) => {
+                              if (event.target !== event.currentTarget) return;
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openThread();
+                              }
+                            }}
                             title={t.title}
                           >
                             <div className="thread-title">
                               {running && <span className="thread-running" />}
                               <span className="tt-text">{t.title}</span>
+                              <button
+                                type="button"
+                                className="thread-archive-btn"
+                                title="归档线程"
+                                aria-label={`归档线程：${t.title}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void archiveThread(p.cwd, t.file, t.title);
+                                }}
+                              >
+                                <Archive size={13} />
+                              </button>
                             </div>
                             {t.preview && t.preview !== t.title && <div className="thread-preview">{t.preview}</div>}
                             <div className="thread-meta">
                               {t.messageCount} 条 · {new Date(t.updatedAt).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>

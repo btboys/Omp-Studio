@@ -163,9 +163,6 @@ export function collectFileArtifacts(
         }
         continue;
       }
-      if (block.type === "text") {
-        for (const rawPath of outputPathsFromText(block.text, true)) addArtifact(rawPath, "created");
-      }
     }
   }
 
@@ -173,6 +170,8 @@ export function collectFileArtifacts(
   // the command arguments (for example `python build_dashboard.py` writing an
   // HTML dashboard internally). Recover explicit output paths printed by that
   // command, but only for command tools belonging to this assistant round.
+  // Do not scan ordinary assistant prose: mentioning an older output file is
+  // not evidence that the file changed in this round.
   for (const id of roundToolIds) {
     const run = toolRuns[id];
     if (!run?.completed || run.running || run.isError || !COMMAND_TOOL.test(run.name || "")) continue;

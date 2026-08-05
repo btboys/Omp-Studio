@@ -343,7 +343,13 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const scanned = await scanProjects();
     const pinned = getConfig().pinnedProjects || [];
     const archived = new Set((getConfig().archivedProjects || []).map((cwd) => cwd.toLowerCase()));
-    const visibleScanned = scanned.filter((project) => !archived.has(project.cwd.toLowerCase()));
+    const archivedThreads = new Set((getConfig().archivedThreads || []).map((thread) => thread.file.toLowerCase()));
+    const visibleScanned = scanned
+      .filter((project) => !archived.has(project.cwd.toLowerCase()))
+      .map((project) => ({
+        ...project,
+        threads: project.threads.filter((thread) => !archivedThreads.has(thread.file.toLowerCase())),
+      }));
     const visiblePinned = pinned.filter((cwd) => !archived.has(cwd.toLowerCase()));
     const byCwd = new Map(visibleScanned.map((p) => [p.cwd, p]));
     const result: ProjectSummary[] = [];
@@ -358,7 +364,10 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   ipcMain.handle("app:searchThreads", async (_e, query: string): Promise<ThreadSearchHit[]> => {
     const archived = new Set((getConfig().archivedProjects || []).map((cwd) => cwd.toLowerCase()));
-    return (await searchThreads(query)).filter((hit) => !archived.has(hit.cwd.toLowerCase()));
+    const archivedThreads = new Set((getConfig().archivedThreads || []).map((thread) => thread.file.toLowerCase()));
+    return (await searchThreads(query)).filter(
+      (hit) => !archived.has(hit.cwd.toLowerCase()) && !archivedThreads.has(hit.file.toLowerCase()),
+    );
   });
 
   ipcMain.handle("app:getTotalUsage", () => getTotalUsage());

@@ -16,6 +16,12 @@ export interface ProjectSummary {
   threads: ThreadSummary[];
 }
 
+export interface ArchivedThread {
+  file: string;
+  cwd: string;
+  title: string;
+}
+
 /** A full-text search hit across session transcripts. */
 export interface ThreadSearchHit {
   file: string;
@@ -201,6 +207,7 @@ export interface AppConfig {
   piCliPath: string;
   pinnedProjects: string[];
   archivedProjects: string[];
+  archivedThreads: ArchivedThread[];
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };
   theme: "dark" | "light" | "system";
   language: "en" | "zh";

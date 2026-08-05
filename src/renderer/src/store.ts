@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AppConfig,
   AppRuntime,
+  ArchivedThread,
   AutomationTask,
   ContentBlock,
   ExtUiRequest,
@@ -86,15 +87,21 @@ function mergeLiveThreadsIntoProjects(
   projects: ProjectSummary[],
   live: Record<string, ThreadState>,
   archivedProjects: string[] = [],
+  archivedThreads: ArchivedThread[] = [],
 ): ProjectSummary[] {
-  const next = projects.map((project) => ({ ...project, threads: [...project.threads] }));
-  const byCwd = new Map(next.map((project) => [project.cwd.toLowerCase(), project]));
   const archived = new Set(archivedProjects.map((cwd) => cwd.toLowerCase()));
+  const archivedThreadFiles = new Set(archivedThreads.map((thread) => thread.file.toLowerCase()));
+  const next = projects.map((project) => ({
+    ...project,
+    threads: project.threads.filter((thread) => !archivedThreadFiles.has(thread.file.toLowerCase())),
+  }));
+  const byCwd = new Map(next.map((project) => [project.cwd.toLowerCase(), project]));
 
   for (const [threadId, thread] of Object.entries(live)) {
     if (archived.has(thread.cwd.toLowerCase())) continue;
     const file = thread.sessionFile || threadId;
     if (!file || file.startsWith("opening-") || file.startsWith("boot:")) continue;
+    if (archivedThreadFiles.has(file.toLowerCase())) continue;
     const firstUser = thread.messages.find((message) => message.role === "user");
     if (!firstUser) continue;
 
@@ -511,6 +518,8 @@ interface PiStore {
   unpinProject: (cwd: string) => Promise<void>;
   archiveProject: (cwd: string) => Promise<void>;
   restoreProject: (cwd: string) => Promise<void>;
+  archiveThread: (cwd: string, file: string, title?: string) => Promise<void>;
+  restoreThread: (file: string) => Promise<void>;
   toggleProject: (cwd: string) => void;
   setActiveProject: (cwd: string) => void;
 
@@ -761,7 +770,13 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
 
     if (projectsResult.status === "fulfilled") {
-      const projects = projectsResult.value;
+      const appConfig = configResult.status === "fulfilled" ? configResult.value : null;
+      const projects = mergeLiveThreadsIntoProjects(
+        projectsResult.value,
+        {},
+        appConfig?.archivedProjects || [],
+        appConfig?.archivedThreads || [],
+      );
       set((state) => ({
         projects,
         activeProjectCwd: state.activeProjectCwd || projects[0]?.cwd || null,
@@ -787,7 +802,12 @@ export const useStore = create<PiStore>()((set, get) => ({
       const diskProjects = await window.pi.app.getProjects();
       // Include prompts accepted by Pi even before its delayed JSONL flush.
       set((s) => ({
-        projects: mergeLiveThreadsIntoProjects(diskProjects, s.threads, s.config?.archivedProjects || []),
+        projects: mergeLiveThreadsIntoProjects(
+          diskProjects,
+          s.threads,
+          s.config?.archivedProjects || [],
+          s.config?.archivedThreads || [],
+        ),
       }));
     } catch (e: any) {
       get().pushToast("error", "Failed to load projects: " + (e?.message || e));
@@ -855,6 +875,53 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("success", "项目已恢复到侧栏。");
     } catch (e: any) {
       get().pushToast("error", "恢复项目失败：" + (e?.message || e));
+    }
+  },
+  archiveThread: async (cwd, file, title) => {
+    try {
+      const current = get().config;
+      if (!current || !file || file.startsWith("opening-") || file.startsWith("boot:")) return;
+      const archived = current.archivedThreads || [];
+      const alreadyArchived = archived.some((thread) => thread.file.toLowerCase() === file.toLowerCase());
+      if (!alreadyArchived) {
+        const config = await window.pi.app.setConfig({
+          archivedThreads: [
+            ...archived,
+            {
+              file,
+              cwd,
+              title: title?.trim() || file.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || file,
+            },
+          ],
+        });
+        set({ config });
+      }
+
+      // Close an open view without touching its JSONL session file. The
+      // session remains available and can be restored from Settings.
+      const ids = Object.entries(get().threads)
+        .filter(([id, thread]) => (thread.sessionFile || id).toLowerCase() === file.toLowerCase())
+        .map(([id]) => id);
+      for (const id of ids) await get().closeThread(id);
+      await get().refreshProjects();
+      get().pushToast("info", "线程已归档，可在设置的“归档线程”中恢复。");
+    } catch (e: any) {
+      get().pushToast("error", "归档线程失败：" + (e?.message || e));
+    }
+  },
+  restoreThread: async (file) => {
+    try {
+      const current = get().config;
+      if (!current || !file) return;
+      const archived = current.archivedThreads || [];
+      const next = archived.filter((thread) => thread.file.toLowerCase() !== file.toLowerCase());
+      if (next.length === archived.length) return;
+      const config = await window.pi.app.setConfig({ archivedThreads: next });
+      set({ config });
+      await get().refreshProjects();
+      get().pushToast("success", "线程已恢复到侧栏。");
+    } catch (e: any) {
+      get().pushToast("error", "恢复线程失败：" + (e?.message || e));
     }
   },
 

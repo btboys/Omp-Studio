@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getDisplayThreadTitle, parseSkillBlock, useStore } from "../store";
 import { Markdown } from "../lib/markdown";
 import { formatClock, formatTokens } from "../lib/format";
@@ -592,13 +592,18 @@ const SkillInvocation = memo(function SkillInvocation({ name }: { name: string }
 
 const Thinking = memo(function Thinking({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  const displayText = normalizeTranscriptText(text);
   return (
     <div className="thinking">
       <button className="thinking-toggle" onClick={() => setOpen((v) => !v)}>
         <span style={{ transform: open ? "rotate(90deg)" : "none", display: "inline-block", transition: "transform .12s" }}>›</span>
-        思考过程 · {text.length} 字
+        思考过程 · {displayText.length} 字
       </button>
-      {open && <div className="thinking-body">{text}</div>}
+      {open && (
+        <div className="thinking-body">
+          <Markdown text={displayText} />
+        </div>
+      )}
     </div>
   );
 });
@@ -606,7 +611,7 @@ const Thinking = memo(function Thinking({ text }: { text: string }) {
 const ToolCard = memo(function ToolCard({ id, name, run }: { id: string; name: string; run?: ToolRun }) {
   const [open, setOpen] = useState(false);
   const running = run?.running;
-  const args = run?.args && Object.keys(run.args).length ? JSON.stringify(run.args, null, 2) : run?.argsStr || "";
+  const argsView = renderToolArgs(name, run);
   const result = run?.resultText ?? run?.partialText ?? "";
   const status = running ? "running" : run?.isError ? "error" : run ? "done" : "queued";
   return (
@@ -618,8 +623,189 @@ const ToolCard = memo(function ToolCard({ id, name, run }: { id: string; name: s
           {running ? <span className="spinner" /> : status}
         </span>
       </div>
-      {open && args && <div className="tool-args">{args}</div>}
-      {open && result && <div className={`tool-result ${run?.isError ? "err" : ""}`}>{result}</div>}
+      {open && argsView && <div className="tool-args">{argsView}</div>}
+      {open && result && (
+        <div className={`tool-result ${run?.isError ? "err" : ""}`}>
+          <ToolCode text={normalizeTranscriptText(result)} />
+        </div>
+      )}
     </div>
   );
 });
+
+/**
+ * Tool arguments arrive in two forms: a parsed object after toolcall_end, or
+ * an escaped JSON fragment while the call is still streaming. Keep the
+ * session data untouched and normalize only the visible representation.
+ */
+function normalizeTranscriptText(value: unknown): string {
+  if (value == null) return "";
+  let text = typeof value === "string" ? value : String(value);
+  text = text.replace(/\r\n?/g, "\n");
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") text = parsed.replace(/\r\n?/g, "\n");
+    } catch {
+      /* Keep the original text when it is not a complete JSON string. */
+    }
+  }
+
+  // A partial toolcall or older transcript may still contain transport-level
+  // escape sequences. Decode them only when there are no real line breaks, so
+  // source code containing a literal "\\n" remains intact.
+  if (!text.includes("\n") && /\\(?:r\\n|n|r|t|\")/.test(text)) {
+    text = text
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, '"');
+  }
+  return text;
+}
+
+function parseToolArgs(run?: ToolRun): Record<string, unknown> | null {
+  const candidate = run?.args;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    if (Object.keys(candidate).length > 0 || !run?.argsStr) return candidate as Record<string, unknown>;
+  }
+
+  const raw = typeof candidate === "string" ? candidate : run?.argsStr;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function toolArg(args: Record<string, unknown> | null, names: string[]): unknown {
+  if (!args) return undefined;
+  for (const name of names) {
+    if (Object.prototype.hasOwnProperty.call(args, name)) return args[name];
+  }
+  return undefined;
+}
+
+function matchesTool(name: string, names: string[]): boolean {
+  const normalized = name.toLowerCase();
+  return names.some((candidate) =>
+    new RegExp(`(^|[-_:])${candidate}(?:$|[-_:])`, "i").test(normalized),
+  );
+}
+
+function languageForPath(path: string): string | undefined {
+  const ext = path.toLowerCase().split(/[./\\]/).pop() || "";
+  const languages: Record<string, string> = {
+    js: "javascript",
+    jsx: "jsx",
+    ts: "typescript",
+    tsx: "tsx",
+    json: "json",
+    html: "html",
+    htm: "html",
+    css: "css",
+    scss: "scss",
+    less: "less",
+    py: "python",
+    sh: "bash",
+    bash: "bash",
+    zsh: "bash",
+    ps1: "powershell",
+    md: "markdown",
+    yml: "yaml",
+    yaml: "yaml",
+    xml: "xml",
+    sql: "sql",
+    java: "java",
+    go: "go",
+    rs: "rust",
+  };
+  return languages[ext];
+}
+
+function languageForTool(name: string): string | undefined {
+  if (matchesTool(name, ["python"])) return "python";
+  if (matchesTool(name, ["bash", "shell", "sh", "zsh", "powershell", "pwsh"])) return "bash";
+  return undefined;
+}
+
+function codeFence(text: string, language?: string): string {
+  const normalized = normalizeTranscriptText(text);
+  const longest = Math.max(2, ...((normalized.match(/`+/g) || []).map((part) => part.length)));
+  const fence = "`".repeat(longest + 1);
+  return `${fence}${language || ""}\n${normalized}${normalized.endsWith("\n") ? "" : "\n"}${fence}`;
+}
+
+function ToolCode({ text, language }: { text: string; language?: string }) {
+  return <Markdown text={codeFence(text, language)} />;
+}
+
+function renderToolArgs(name: string, run?: ToolRun): ReactNode {
+  if (!run) return null;
+  const args = parseToolArgs(run);
+  const command = toolArg(args, ["command", "cmd", "script"]);
+  if (matchesTool(name, ["bash", "shell", "sh", "zsh", "exec", "execute", "command", "run", "python"])) {
+    const text = typeof command === "string" ? normalizeTranscriptText(command) : typeof run.argsStr === "string" ? normalizeTranscriptText(run.argsStr) : "";
+    return text ? <ToolCode text={text} language={languageForTool(name)} /> : null;
+  }
+
+  const isEdit = matchesTool(name, ["edit", "patch", "replace", "update"]);
+  const isWrite = matchesTool(name, ["write", "create", "save", "export"]);
+  if (isEdit || isWrite) {
+    const path = normalizeTranscriptText(toolArg(args, ["path", "filePath", "file_path", "filename", "file"]));
+    const oldText = normalizeTranscriptText(toolArg(args, ["oldText", "old_text", "old", "before", "original"]));
+    const newText = normalizeTranscriptText(toolArg(args, ["newText", "new_text", "new", "after", "replacement", "content", "text"]));
+    const patch = normalizeTranscriptText(toolArg(args, ["patch", "diff"]));
+    const content = isEdit ? newText || patch : normalizeTranscriptText(toolArg(args, ["content", "text", "data", "newText", "new_text"]));
+    const language = languageForPath(path);
+    const sections: ReactNode[] = [];
+    if (isEdit && oldText) {
+      sections.push(
+        <div className="tool-code-section" key="old">
+          <div className="tool-code-label removed">原内容</div>
+          <ToolCode text={oldText} language={language} />
+        </div>,
+      );
+    }
+    if (content) {
+      sections.push(
+        <div className="tool-code-section" key="new">
+          <div className="tool-code-label">{isEdit ? "新内容" : "写入内容"}</div>
+          <ToolCode text={content} language={language} />
+        </div>,
+      );
+    }
+    if (!sections.length && run.argsStr) {
+      return <ToolCode text={normalizeTranscriptText(run.argsStr)} language="json" />;
+    }
+    return (
+      <div className="tool-operation">
+        <div className="tool-operation-title">{isEdit ? "编辑" : "写入"}{path ? ` · ${path}` : ""}</div>
+        {sections}
+      </div>
+    );
+  }
+
+  if (args && Object.keys(args).length > 0) {
+    const generic = Object.entries(args)
+      .map(([key, value]) => {
+        if (typeof value === "string") return `${key}:\n${normalizeTranscriptText(value)}`;
+        let rendered = "";
+        try {
+          rendered = JSON.stringify(value, null, 2);
+        } catch {
+          rendered = String(value);
+        }
+        return `${key}: ${rendered}`;
+      })
+      .join("\n\n");
+    return <ToolCode text={generic} />;
+  }
+
+  return run.argsStr ? <ToolCode text={normalizeTranscriptText(run.argsStr)} language="json" /> : null;
+}

@@ -32,6 +32,12 @@ export const Folder = (p: P) => (
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
   </svg>
 );
+export const Archive = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 8h16v11H4z" />
+    <path d="M3 4h18v4H3zM9 12h6" />
+  </svg>
+);
 export const Check = (p: P) => (
   <svg {...base(p)}>
     <path d="m5 12 4 4L19 6" />

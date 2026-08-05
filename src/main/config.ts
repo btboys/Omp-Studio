@@ -6,6 +6,15 @@ import { dirname, join } from "node:path";
  * independent from pi's own ~/.pi/agent config (which we intentionally share
  * with the terminal pi for models / extensions / auth).
  */
+export interface ArchivedThread {
+  /** Stable session file path used as the thread id. */
+  file: string;
+  /** Project folder that owns the session. */
+  cwd: string;
+  /** Title captured when the thread was archived, for the restore list. */
+  title: string;
+}
+
 export interface AppConfig {
   /**
    * Path to pi's cli.js, or empty string to auto-detect via `npm root -g`.
@@ -17,6 +26,8 @@ export interface AppConfig {
   pinnedProjects: string[];
   /** Project folders hidden from normal navigation until restored in Settings. */
   archivedProjects: string[];
+  /** Individual sessions hidden from normal navigation until restored in Settings. */
+  archivedThreads: ArchivedThread[];
   /** Last window geometry, restored on launch. */
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };
   /** "dark" | "light" | "system". */
@@ -62,6 +73,7 @@ const DEFAULTS: AppConfig = {
   piCliPath: "",
   pinnedProjects: [],
   archivedProjects: [],
+  archivedThreads: [],
   theme: "light",
   language: "en",
   threadPermissions: {},

@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import type { ApiType, Diagnostics, ModelDef, ModelsFile, ProviderDef, ThinkingDefaults } from "../lib/types";
 import { cleanOutput, hasLibuvAssertion, lastLine, stripAnsi } from "../lib/update";
 import { reasoningLevelLabel } from "../lib/reasoning";
-import { Check, Close, Edit, Plus, Refresh, Folder } from "./icons";
+import { Archive, Check, Close, Edit, Plus, Refresh, Folder } from "./icons";
 import appIconUrl from "../../../../resources/icon.png";
 
 /* ------------------------------------------------------------------ *
@@ -584,6 +584,7 @@ export function Settings() {
   const pushToast = useStore((s) => s.pushToast);
   const config = useStore((s) => s.config);
   const restoreProject = useStore((s) => s.restoreProject);
+  const restoreThread = useStore((s) => s.restoreThread);
   const refreshOpenThreadModels = useStore((s) => s.refreshOpenThreadModels);
   const language = config?.language || "en";
 
@@ -1284,6 +1285,31 @@ export function Settings() {
                     })}
                   </div>
                 )}
+                <div className="archived-thread-section">
+                  <div className="set-card-title">已归档线程</div>
+                  <div className="set-hint archived-project-hint">
+                    归档只会隐藏线程，不会删除会话文件；恢复后线程会重新出现在所属项目下。
+                  </div>
+                  {(config?.archivedThreads || []).length === 0 ? (
+                    <div className="set-empty">暂无归档线程。</div>
+                  ) : (
+                    <div className="archived-thread-list">
+                      {(config?.archivedThreads || []).map((thread) => {
+                        const projectName = thread.cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || thread.cwd;
+                        return (
+                          <div className="archived-thread-row" key={thread.file}>
+                            <Archive size={17} />
+                            <div className="archived-thread-main">
+                              <div className="archived-thread-name" title={thread.title}>{thread.title || thread.file}</div>
+                              <div className="archived-thread-path" title={thread.file}>{projectName} · {thread.file}</div>
+                            </div>
+                            <button className="set-btn" onClick={() => restoreThread(thread.file)}>恢复线程</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
