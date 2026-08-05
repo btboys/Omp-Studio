@@ -24,9 +24,15 @@ export interface AutomationNotify {
   error?: string;
 }
 
+interface AssistantMessageSummary {
+  stopReason?: unknown;
+  errorMessage?: unknown;
+}
+
 let timer: NodeJS.Timeout | null = null;
 let bootTimer: NodeJS.Timeout | null = null;
 const running = new Set<string>();
+const activeBridges = new Set<PiBridge>();
 let notify: ((p: AutomationNotify) => void) | null = null;
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -81,23 +87,77 @@ export function stopScheduler(): void {
   bootTimer = null;
 }
 
+/** Stop currently running automation child processes during app shutdown. */
+export function stopAutomations(): void {
+  for (const bridge of activeBridges) {
+    try {
+      bridge.stop();
+    } catch {
+      /* ignore shutdown races */
+    }
+  }
+}
+
 const RUN_TIMEOUT_MS = 30 * 60 * 1000;
+
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Return a failure only when the final assistant message proves that the run
+ * did not finish normally. `agent_settled` alone is not enough: pi emits it
+ * from a finally block even when a prompt throws or is aborted.
+ */
+function getAssistantFailure(message: AssistantMessageSummary | null): string | null {
+  if (!message) return "Pi 未返回最终助手消息，任务未完成";
+
+  const reason = textValue(message.stopReason);
+  const detail = textValue(message.errorMessage);
+  if (reason === "error") return detail ? `Pi 返回错误：${detail}` : "Pi 返回错误";
+  if (reason === "aborted") {
+    return detail && detail !== "Request was aborted" ? `任务被中止：${detail}` : "任务被中止";
+  }
+  if (reason === "length") return "模型输出达到最大长度限制，结果可能不完整";
+  if (reason !== "stop") {
+    return reason ? `Pi 在未完成任务时结束（stopReason=${reason}）` : "Pi 未返回有效的完成原因";
+  }
+  return null;
+}
+
+function formatProcessExit(info: { code: number | null; signal: NodeJS.Signals | null; stderr: string }): string {
+  const code = info.code === null ? "null" : String(info.code);
+  const signal = info.signal ? `, signal=${info.signal}` : "";
+  const stderr = textValue(info.stderr);
+  const detail = stderr ? `：${stderr.slice(-4000)}` : "";
+  return `Pi 进程在任务完成前退出（code=${code}${signal}）${detail}`;
+}
 
 async function execute(task: AutomationTask): Promise<void> {
   running.add(task.id);
+  patchTask(task.id, { lastStatus: undefined, lastError: undefined });
   notify?.({ type: "start", taskId: task.id, name: task.name });
   let bridge: PiBridge | null = null;
   let gateModeFile: string | null = null;
   try {
     await new Promise<void>((resolve, reject) => {
       let done = false;
+      let lastAssistantMessage: AssistantMessageSummary | null = null;
+      let cancelledUiMethod: string | null = null;
       const finish = (fn: () => void) => {
         if (done) return;
         done = true;
         clearTimeout(timeout);
         fn();
       };
-      const timeout = setTimeout(() => finish(() => reject(new Error("运行超时（30 分钟）"))), RUN_TIMEOUT_MS);
+      const timeout = setTimeout(() => {
+        finish(() => reject(new Error("运行超时（30 分钟），任务已停止")));
+        try {
+          bridge?.stop();
+        } catch {
+          /* cleanup in finally */
+        }
+      }, RUN_TIMEOUT_MS);
 
       const permission = task.permission === "full" ? "full" : "sandbox";
       gateModeFile = createGateModeFile(getConfigDir(), permission);
@@ -108,15 +168,37 @@ async function execute(task: AutomationTask): Promise<void> {
         gateModeFile,
         name: `自动化: ${task.name}`,
         onEvent: (e: any) => {
-          if (e?.type === "agent_settled") finish(() => resolve());
+          if (e?.type === "message_end" && e.message?.role === "assistant") {
+            lastAssistantMessage = {
+              stopReason: e.message.stopReason,
+              errorMessage: e.message.errorMessage,
+            };
+            return;
+          }
+          if (e?.type !== "agent_settled") return;
+
+          finish(() => {
+            if (cancelledUiMethod) {
+              reject(new Error(`自动化任务需要人工交互（${cancelledUiMethod}），无人值守运行已停止`));
+              return;
+            }
+            const failure = getAssistantFailure(lastAssistantMessage);
+            if (failure) reject(new Error(failure));
+            else resolve();
+          });
         },
         onExtUi: (r: any) => {
-          // Unattended run: cancel any dialog immediately so the task never hangs.
+          // Unattended runs cannot answer dialogs. Cancel it immediately and
+          // surface a failure after the agent settles instead of reporting a
+          // misleading success.
+          const method = textValue(r?.method) || "extension UI";
+          if (method !== "notify" && !cancelledUiMethod) cancelledUiMethod = method;
           bridge?.respondExtUi(r.id, { cancelled: true });
         },
-        onExit: (info) => finish(() => (info.code === 0 ? resolve() : reject(new Error(`pi 退出（code ${info.code}）`)))),
+        onExit: (info) => finish(() => reject(new Error(formatProcessExit(info)))),
         onError: (err) => finish(() => reject(err)),
       });
+      activeBridges.add(bridge);
 
       bridge
         .start()
@@ -128,6 +210,9 @@ async function execute(task: AutomationTask): Promise<void> {
   } catch (e: any) {
     const msg = e?.message || String(e);
     patchTask(task.id, { lastStatus: "error", lastError: msg });
+    // Keep failures visible in the main-process log as well as the settings UI.
+    // eslint-disable-next-line no-console
+    console.error(`[automation] ${task.name}: ${msg}`);
     notify?.({ type: "done", taskId: task.id, name: task.name, ok: false, error: msg });
   } finally {
     const b = bridge as PiBridge | null;
@@ -136,6 +221,7 @@ async function execute(task: AutomationTask): Promise<void> {
     } catch {
       /* ignore */
     }
+    if (b) activeBridges.delete(b);
     if (gateModeFile) removeGateModeFile(gateModeFile);
     running.delete(task.id);
   }

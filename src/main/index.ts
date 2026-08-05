@@ -5,7 +5,7 @@ import { loadConfig, getConfig, updateConfig } from "./config";
 import { cleanupOldRuntimes } from "./core-updater";
 import { registerHtmlPreviewProtocol, registerHtmlPreviewScheme } from "./html-preview-protocol";
 import { registerIpc, stopAllBridges } from "./ipc";
-import { stopScheduler } from "./automation";
+import { stopAutomations, stopScheduler } from "./automation";
 
 const APP_USER_MODEL_ID = "com.pi-studio.app";
 
@@ -193,11 +193,13 @@ app.on("before-quit", () => {
     /* ignore */
   }
   stopScheduler();
+  stopAutomations();
   stopAllBridges();
 });
 
 app.on("window-all-closed", () => {
   stopScheduler();
+  stopAutomations();
   stopAllBridges();
   if (process.platform !== "darwin") app.quit();
 });

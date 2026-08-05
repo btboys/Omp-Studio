@@ -430,7 +430,7 @@ export function Composer({ threadId }: { threadId: string }) {
             <button className="iconbtn" title="Add files" onClick={addFiles}>
               <Plus size={17} />
             </button>
-            <div className="pill perm-pill" ref={permRef}>
+            <div className="pill perm-pill composer-optional-action" ref={permRef}>
               <button
                 className={`pill-btn perm-btn ${permission === "full" ? "perm-full" : ""}`}
                 title="权限级别：sandbox 仅自动放行明确只读的 shell 命令，并限制项目外写入；完全权限为 pi 默认 unrestricted 模式"
@@ -463,7 +463,7 @@ export function Composer({ threadId }: { threadId: string }) {
                 </div>
               )}
             </div>
-            <div className="pill" ref={cmdRef}>
+            <div className="pill composer-optional-action" ref={cmdRef}>
               <button className="pill-btn" title="Slash commands / skills" onClick={() => setCmdOpen((v) => !v)}>
                 <At size={14} /> 命令
               </button>
@@ -490,7 +490,7 @@ export function Composer({ threadId }: { threadId: string }) {
           </div>
 
           <div className="cb-right">
-            <div className="pill" ref={modelRef}>
+            <div className="pill composer-model-pill" ref={modelRef}>
               <button className="pill-btn" onClick={() => setModelOpen((v) => !v)} title="模型与思考等级">
                 {modelShort(model)}
                 {thinkLabel && <span className="pill-think-tag">{thinkLabel}</span>}

@@ -489,6 +489,8 @@ body.sidebar-resizing * {
   flex-direction: column;
   min-width: 0;
   background: var(--bg);
+  container-name: thread-panel;
+  container-type: inline-size;
 }
 .chat-head {
   height: 46px;
@@ -1756,15 +1758,21 @@ body.sidebar-resizing * {
   align-items: center;
   gap: 8px;
   padding: 6px 10px 10px;
+  min-width: 0;
 }
 .cb-left,
 .cb-right {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+.cb-left {
+  flex: 0 1 auto;
 }
 .cb-right {
   margin-left: auto;
+  flex: 0 1 auto;
 }
 .iconbtn {
   background: transparent;
@@ -1794,9 +1802,64 @@ body.sidebar-resizing * {
   padding: 5px 11px;
   font-size: 12.5px;
   color: var(--text);
+  min-height: 30px;
+  white-space: nowrap;
 }
 .pill-btn:hover {
   background: #ececdf;
+}
+.composer-model-pill {
+  min-width: 0;
+}
+.composer-model-pill .pill-btn {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-model-pill .pill-think-tag,
+.composer-model-pill .pill-caret {
+  flex: 0 0 auto;
+}
+
+/*
+ * The preview pane changes the thread panel's width without changing the
+ * viewport width, so this is intentionally a container query rather than a
+ * viewport media query. Keep the file action and model/send controls usable,
+ * while removing secondary text pills before they can wrap vertically.
+ */
+@container thread-panel (max-width: 680px) {
+  .composer-wrap {
+    padding-inline: 14px;
+  }
+
+  .composer-bar {
+    gap: 4px;
+    padding-inline: 8px;
+  }
+
+  .cb-left,
+  .cb-right {
+    gap: 4px;
+  }
+
+  .cb-left .composer-optional-action {
+    display: none;
+  }
+}
+
+@container thread-panel (max-width: 500px) {
+  .composer-wrap {
+    padding-inline: 8px;
+  }
+
+  .composer-model-pill .pill-btn {
+    padding-inline: 8px;
+  }
+
+  .composer-model-pill .pill-think-tag {
+    display: none;
+  }
 }
 .pill-pop {
   position: absolute;
