@@ -19,7 +19,7 @@ Pi Studio launches the Pi coding agent as a bundled runtime. Pi's own source, tr
 
 ### Node.js
 
-- Runtime in the 0.2.4 build: Node.js `v24.14.0`
+- Runtime in the current standalone release: Node.js `v24.14.0`
 - License and attribution: <https://github.com/nodejs/node/blob/v24.14.0/LICENSE>
 - Project: <https://nodejs.org/>
 

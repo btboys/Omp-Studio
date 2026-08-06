@@ -869,8 +869,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     if (managed) {
       // App-managed runtime (bundled or a previous in-app update): pi's own
       // `update` refuses these installs, so run our updater instead. It
-      // installs the new tree under userData/runtime/pi, which resolution
-      // prefers over the bundled copy; new threads pick it up.
+      // installs the new tree under userData/runtime/versions/<version> and
+      // switches current.json; new threads pick it up without replacing files
+      // held by the currently running app.
       const result = await installCoreUpdate((p) => send("pi:coreUpdate", p));
       if (result.updated) {
         dropWarmBridge(); // standby runs the old version; respawn from the new tree

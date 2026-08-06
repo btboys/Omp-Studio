@@ -7,6 +7,7 @@ resources/bundled/
 runtime-release/
 resources/runtime-manifest.json
 .runtime-stage/
+.legacy-resources-bundled-*/
 
 # Local app, QA, and agent data
 .claude/

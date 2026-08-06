@@ -2,7 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { ensureRuntimePackage, getActiveRuntimeRoot, runtimePathsForRoot } from "./runtime-package";
+import { ensureRuntimePackage, getActiveRuntimeRoot, getRuntimePackageManifest, runtimePathsForRoot } from "./runtime-package";
 
 /**
  * PiBridge
@@ -164,9 +164,17 @@ function locateUserDataRuntime(): ResolvedRuntime | null {
   if (packaged) return packaged;
 
   // Existing userData/runtime/pi installations contain only pi and relied on
-  // the old bundled Node binary. Keep them usable during migration.
+  // the old bundled Node binary. Dev mode and old app builds keep using them;
+  // a new packaged build promotes them through the standalone path below.
   const cli = join(root, "dist", "cli.js");
   if (!existsSync(cli)) return null;
+
+  // A packaged release with a runtime manifest owns the runtime lifecycle.
+  // Do not let a legacy runtime plus a system Node short-circuit the standalone
+  // bootstrap; otherwise the app would keep using the old layout forever and
+  // a later in-app Pi update would have no managed node.exe to copy forward.
+  if (getRuntimePackageManifest()) return null;
+
   const node = getBundledRuntime()?.node || locateNode();
   return node ? { node, cli } : null;
 }
@@ -227,6 +235,13 @@ export async function resolvePiRuntime(cliOverride?: string): Promise<ResolvedRu
       resolvedRuntime = bundled;
       resolvedKind = "bundled";
       return resolvedRuntime;
+    }
+
+    // In a packaged release, a failed standalone bootstrap must not silently
+    // fall through to a global PATH install. That would make the app-managed
+    // update button operate on a different Pi installation than the app uses.
+    if (runtimeBootstrapError && getRuntimePackageManifest()) {
+      throw new Error(`Pi runtime package could not be installed: ${(runtimeBootstrapError as Error)?.message || String(runtimeBootstrapError)}`);
     }
 
     // 5. Fall back to PATH scanning (dev mode or user-installed pi).
