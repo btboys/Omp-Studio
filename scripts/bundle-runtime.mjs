@@ -1,169 +1,238 @@
 #!/usr/bin/env node
 /**
- * bundle-runtime.mjs
+ * Build the standalone Pi Studio runtime asset.
  *
- * Copies the Node.js binary and the pi-coding-agent package (with all runtime
- * dependencies) into resources/bundled/ so that the packaged Electron app is
- * fully self-contained — no external Node.js or pi installation required.
- *
- * Usage:  node scripts/bundle-runtime.mjs
- *
- * The script:
- *  1. Locates the current node binary and copies it to resources/bundled/node/
- *  2. Copies pi-coding-agent dist/ + node_modules/ + package.json to resources/bundled/pi/
- *  3. Prunes source maps, type declarations, @types, test dirs, and docs to reduce size
+ * The Electron installer intentionally does not contain Node.js or pi. This
+ * script creates a versioned runtime archive that is published beside the
+ * app installer and writes a small manifest into resources/ for first-launch
+ * bootstrap. All pruning is implemented with Node's filesystem APIs so it is
+ * deterministic on Windows (where `find` is not GNU find and `rm` is absent).
  */
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
-import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(ROOT, "resources", "bundled");
-const NODE_OUT = join(OUT, "node");
-const PI_OUT = join(OUT, "pi");
+const APP_PACKAGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+const EXPECTED_PI_VERSION = process.env.PI_RUNTIME_VERSION || APP_PACKAGE.piRuntimeVersion || "0.83.0";
+const STAGE = join(ROOT, ".runtime-stage");
+const RUNTIME_OUT = join(ROOT, "runtime-release");
+const MANIFEST_OUT = join(ROOT, "resources", "runtime-manifest.json");
 
-function log(msg) {
-  console.log(`[bundle-runtime] ${msg}`);
+function log(message) {
+  console.log(`[bundle-runtime] ${message}`);
 }
 
-function du(dir) {
+function nodeExe() {
+  return process.platform === "win32" ? "node.exe" : "node";
+}
+
+function tarBinary() {
+  if (process.platform === "win32") return join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+  return "tar";
+}
+
+function npmBinary() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function directoryStats(root) {
+  let files = 0;
+  let bytes = 0;
+  const walk = (dir) => {
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) walk(abs);
+      else if (entry.isFile()) {
+        files++;
+        try {
+          bytes += statSync(abs).size;
+        } catch {
+          /* best effort stats only */
+        }
+      }
+    }
+  };
+  walk(root);
+  return { files, bytes };
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function pruneTree(root) {
+  const removableDirs = new Set([
+    ".github",
+    "__mocks__",
+    "__tests__",
+    "benchmark",
+    "benchmarks",
+    "coverage",
+    "docs",
+    "example",
+    "examples",
+    "test",
+    "tests",
+  ]);
+
+  const shouldRemoveFile = (name) =>
+    /\.(?:map|d\.ts|d\.mts|d\.cts|ts|mts|cts)$/i.test(name) ||
+    /^(?:README|CHANGELOG|HISTORY|CONTRIBUTING)(?:\.(?:md|markdown|txt|rst)|$)/i.test(name);
+
+  const walk = (dir) => {
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "@types" || removableDirs.has(entry.name)) {
+          rmSync(abs, { recursive: true, force: true });
+          continue;
+        }
+        walk(abs);
+      } else if (entry.isFile() && shouldRemoveFile(entry.name)) {
+        rmSync(abs, { force: true });
+      }
+    }
+    try {
+      if (readdirSync(dir).length === 0) rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* a concurrent scanner may briefly hold the directory */
+    }
+  };
+
+  walk(root);
+}
+
+function readPiVersion(dir) {
   try {
-    const out = execSync(`du -sh "${dir}"`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-    return out.trim().split("\t")[0];
+    const packageJson = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    return typeof packageJson.version === "string" ? packageJson.version : null;
   } catch {
-    return "?";
+    return null;
   }
 }
 
-// --- 1. Node binary ---------------------------------------------------------
-
-function bundleNode() {
-  const nodePath = process.execPath;
-  const nodeExe = process.platform === "win32" ? "node.exe" : "node";
-  const dest = join(NODE_OUT, nodeExe);
-
-  if (existsSync(dest) && statSync(dest).size === statSync(nodePath).size && statSync(dest).mtimeMs >= statSync(nodePath).mtimeMs) {
-    log(`node already bundled (${du(NODE_OUT)}), skipping`);
-    return;
-  }
-
-  log(`copying node binary: ${nodePath} → ${dest}`);
-  mkdirSync(NODE_OUT, { recursive: true });
-  cpSync(nodePath, dest);
-  log(`node bundled: ${du(NODE_OUT)}`);
+function isExpectedPiPackage(dir) {
+  return existsSync(join(dir, "dist", "cli.js")) && readPiVersion(dir) === EXPECTED_PI_VERSION;
 }
-
-// --- 2. pi-coding-agent package ---------------------------------------------
 
 function locatePiPackage() {
-  // Try to resolve from the global npm install
-  try {
-    const out = execSync("npm root -g", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
-    const pkg = join(out, "@earendil-works", "pi-coding-agent");
-    if (existsSync(join(pkg, "dist", "cli.js"))) return pkg;
-  } catch { /* ignore */ }
+  const explicit = process.env.PI_PACKAGE_DIR?.trim();
+  if (explicit) {
+    if (isExpectedPiPackage(explicit)) return explicit;
+    const actualVersion = readPiVersion(explicit) || "unknown";
+    throw new Error(`PI_PACKAGE_DIR must contain Pi v${EXPECTED_PI_VERSION}; found v${actualVersion}: ${explicit}`);
+  }
 
-  // Fallback: scan PATH for pi shim and resolve from there
+  try {
+    const globalRoot = execFileSync(npmBinary(), ["root", "-g"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const globalPackage = join(globalRoot, "@earendil-works", "pi-coding-agent");
+    if (isExpectedPiPackage(globalPackage)) return globalPackage;
+  } catch {
+    /* fall through to PATH scan */
+  }
+
   const pathDirs = (process.env.PATH || "").split(process.platform === "win32" ? ";" : ":");
   for (const dir of pathDirs) {
     const shim = join(dir, process.platform === "win32" ? "pi.cmd" : "pi");
-    if (existsSync(shim)) {
-      const pkg = join(dir, "node_modules", "@earendil-works", "pi-coding-agent");
-      if (existsSync(join(pkg, "dist", "cli.js"))) return pkg;
-    }
+    const candidate = join(dir, "node_modules", "@earendil-works", "pi-coding-agent");
+    if (existsSync(shim) && isExpectedPiPackage(candidate)) return candidate;
   }
   return null;
 }
 
-function pruneDir(dir, patterns) {
-  for (const pat of patterns) {
-    try {
-      const matches = execSync(`find "${dir}" -name "${pat}" -type f`, {
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      }).trim();
-      if (matches) {
-        for (const f of matches.split("\n")) {
-          try { rmSync(f); } catch { /* ignore */ }
-        }
-      }
-    } catch { /* ignore */ }
-  }
-  // Remove empty dirs left behind
-  try {
-    execSync(`find "${dir}" -type d -empty -delete`, { stdio: ["pipe", "pipe", "pipe"] });
-  } catch { /* ignore */ }
+function bundleNode() {
+  const dest = join(STAGE, "node", nodeExe());
+  mkdirSync(dirname(dest), { recursive: true });
+  log(`copying Node.js: ${process.execPath} -> ${dest}`);
+  cpSync(process.execPath, dest);
 }
 
-function bundlePi() {
-  const src = locatePiPackage();
-  if (!src) {
-    log("ERROR: pi-coding-agent not found. Install it first: npm i -g @earendil-works/pi-coding-agent");
-    process.exit(1);
-  }
-  log(`source pi package: ${src} (${du(src)})`);
+function bundlePi(source) {
+  const destination = join(STAGE, "pi");
+  mkdirSync(destination, { recursive: true });
+  log(`copying pi dist and dependencies from ${source}`);
+  cpSync(join(source, "dist"), join(destination, "dist"), { recursive: true });
+  cpSync(join(source, "node_modules"), join(destination, "node_modules"), { recursive: true });
+  cpSync(join(source, "package.json"), join(destination, "package.json"));
 
-  const srcPackage = join(src, "package.json");
-  const destPackage = join(PI_OUT, "package.json");
-  const srcCli = join(src, "dist", "cli.js");
-  const destCli = join(PI_OUT, "dist", "cli.js");
-  if (existsSync(destPackage) && existsSync(destCli)) {
-    try {
-      const srcVersion = JSON.parse(readFileSync(srcPackage, "utf8")).version;
-      const destVersion = JSON.parse(readFileSync(destPackage, "utf8")).version;
-      const srcCliStat = statSync(srcCli);
-      const destCliStat = statSync(destCli);
-      if (
-        srcVersion === destVersion &&
-        srcCliStat.size === destCliStat.size &&
-        destCliStat.mtimeMs >= srcCliStat.mtimeMs
-      ) {
-        log(`pi ${destVersion} already bundled (${du(PI_OUT)}), skipping`);
-        return;
-      }
-    } catch {
-      // Fall through to a clean refresh if the existing bundle is incomplete.
-    }
-  }
+  const before = directoryStats(destination);
+  pruneTree(destination);
+  const after = directoryStats(destination);
+  log(`pruned pi runtime: ${before.files} files/${formatSize(before.bytes)} -> ${after.files} files/${formatSize(after.bytes)}`);
 
-  // Clean previous bundle
-  if (existsSync(PI_OUT)) rmSync(PI_OUT, { recursive: true, force: true });
-  mkdirSync(PI_OUT, { recursive: true });
-
-  // Copy only what's needed at runtime
-  log("copying dist/ ...");
-  cpSync(join(src, "dist"), join(PI_OUT, "dist"), { recursive: true });
-
-  log("copying node_modules/ ...");
-  cpSync(join(src, "node_modules"), join(PI_OUT, "node_modules"), { recursive: true });
-
-  log("copying package.json ...");
-  cpSync(join(src, "package.json"), join(PI_OUT, "package.json"));
-
-  // Prune unnecessary files
-  log("pruning source maps, type declarations, @types, tests, docs ...");
-  pruneDir(PI_OUT, ["*.map", "*.d.ts", "*.d.ts.map", "*.d.mts", "*.d.cts"]);
-  // Remove @types entirely (not needed at runtime)
-  const typesDir = join(PI_OUT, "node_modules", "@types");
-  if (existsSync(typesDir)) rmSync(typesDir, { recursive: true, force: true });
-  // Remove test directories
-  try {
-    execSync(`find "${PI_OUT}" -type d \\( -name "test" -o -name "tests" -o -name "__tests__" -o -name ".github" \\) -exec rm -rf {} + 2>/dev/null || true`, {
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: true,
-    });
-  } catch { /* ignore */ }
-
-  log(`pi bundled: ${du(PI_OUT)}`);
+  const packageJson = JSON.parse(readFileSync(join(source, "package.json"), "utf8"));
+  if (typeof packageJson.version !== "string" || !packageJson.version) throw new Error("pi package has no version");
+  return packageJson.version;
 }
 
-// --- Main -------------------------------------------------------------------
+function sha512Base64(file) {
+  const hash = createHash("sha512");
+  hash.update(readFileSync(file));
+  return hash.digest("base64");
+}
 
-log("starting ...");
-mkdirSync(OUT, { recursive: true });
-bundleNode();
-bundlePi();
-log(`total bundled size: ${du(OUT)}`);
-log("done.");
+function main() {
+  if (process.platform !== "win32" || process.arch !== "x64") {
+    throw new Error("The standalone runtime builder currently targets Windows x64 only.");
+  }
+
+  const source = locatePiPackage();
+  if (!source) {
+    throw new Error(`Could not locate @earendil-works/pi-coding-agent v${EXPECTED_PI_VERSION}. Set PI_PACKAGE_DIR to a matching package or install that version globally.`);
+  }
+
+  rmSync(STAGE, { recursive: true, force: true });
+  mkdirSync(STAGE, { recursive: true });
+  mkdirSync(RUNTIME_OUT, { recursive: true });
+  bundleNode();
+  const runtimeVersion = bundlePi(source);
+  if (runtimeVersion !== EXPECTED_PI_VERSION) {
+    throw new Error(`Pi runtime version mismatch: expected v${EXPECTED_PI_VERSION}, found v${runtimeVersion}`);
+  }
+  const fileName = `Pi-Studio-Runtime-${runtimeVersion}-win-x64.tar.gz`;
+  const archive = join(RUNTIME_OUT, fileName);
+  rmSync(archive, { force: true });
+
+  log(`creating archive ${archive}`);
+  execFileSync(tarBinary(), ["-czf", archive, "-C", STAGE, "."], { stdio: "inherit" });
+  const size = statSync(archive).size;
+  const appTag = `v${APP_PACKAGE.version}`;
+  const manifest = {
+    schema: 1,
+    runtimeVersion,
+    platform: "win32",
+    arch: "x64",
+    fileName,
+    size,
+    sha512: sha512Base64(archive),
+    downloadUrl: `https://github.com/flowflic/Pi-Studio/releases/download/${appTag}/${fileName}`,
+  };
+  mkdirSync(dirname(MANIFEST_OUT), { recursive: true });
+  writeFileSync(MANIFEST_OUT, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  log(`runtime asset: ${fileName} (${formatSize(size)})`);
+  log(`manifest: ${MANIFEST_OUT}`);
+  log("done.");
+}
+
+try {
+  main();
+} finally {
+  rmSync(STAGE, { recursive: true, force: true });
+}

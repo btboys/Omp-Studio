@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   createReadStream,
   createWriteStream,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -12,29 +13,40 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { getConfigDir } from "./config";
 import { getBundledRuntime, resetPiRuntime } from "./pi-bridge";
+import {
+  activateRuntimeRoot,
+  cleanupRuntimeVersions,
+  getActiveRuntimePaths,
+  getActiveRuntimeRoot,
+  getRuntimePackageManifest,
+  installRuntimePackage,
+  runtimeBaseDir as managedRuntimeBaseDir,
+  runtimeVersionsDir,
+} from "./runtime-package";
 
 /**
  * In-app updater for the pi core that Pi Studio manages itself.
  *
- * The runtime shipped inside the app (resources/bundled) is NOT a global
- * npm/pnpm install, so `pi update` refuses to touch it (detectInstallMethod
- * returns "unknown"). This module implements the equivalent ourselves:
+ * The runtime managed by Pi Studio is NOT a global npm/pnpm install, so
+ * `pi update` refuses to touch it (detectInstallMethod returns "unknown").
+ * New releases publish a standalone runtime archive and use the npm path only
+ * as a compatibility fallback when the archive does not match the latest Pi:
  *
  *   1. Ask https://pi.dev/api/latest-version for the latest release
  *      (the same endpoint pi's own version check uses).
- *   2. Download the npm tarball from the registry (integrity-verified).
- *   3. The tarball does not include node_modules, but it ships
+ *   2. Prefer the standalone runtime archive shipped beside the app release.
+ *   3. Download the npm tarball from the registry (integrity-verified) only
+ *      when no matching standalone archive is available.
+ *   4. The tarball does not include node_modules, but it ships
  *      npm-shrinkwrap.json (a full lockfile with `resolved` + `integrity`
  *      for every transitive dependency). We install each dependency the
  *      way `npm install --ignore-scripts` would: download its tarball,
  *      verify integrity, extract it under node_modules/<key>, skipping
  *      entries whose os/cpu don't match this platform. No npm needed.
- *   4. Activate by swapping the tree into `<userData>/runtime/pi`. That
- *      directory takes precedence over the bundled copy at resolution
- *      time, needs no admin rights (unlike Program Files), and avoids
- *      fighting file locks on the running app's own resources.
+ *   5. Activate by switching `<userData>/runtime/current.json` to a versioned
+ *      tree. The pointer takes precedence over the legacy bundled copy and
+ *      avoids fighting file locks on the running app's own resources.
  *
  * The previously active tree is renamed to `pi.old-<n>` rather than
  * deleted: a running thread may still hold native modules (.node addons)
@@ -62,7 +74,7 @@ export interface CoreUpdateStatus {
   latest: string | null;
   hasUpdate: boolean;
   note?: string | null;
-  /** Where the active app-managed runtime lives (bundled dir or userData runtime). */
+  /** Where the active app-managed runtime lives (legacy bundled dir or userData runtime). */
   source: "userData" | "bundled" | null;
   error?: string;
 }
@@ -81,14 +93,12 @@ type ProgressFn = (p: CoreUpdateProgress) => void;
 
 /** Root of the updatable runtime area under Electron's userData dir. */
 export function runtimeBaseDir(): string {
-  const base = getConfigDir();
-  if (!base) throw new Error("config not loaded; cannot resolve runtime dir");
-  return join(base, "runtime");
+  return managedRuntimeBaseDir();
 }
 
-/** Directory holding the active app-updated pi tree, if any. */
+/** Directory holding the active app-updated runtime, if any. */
 export function activeRuntimeDir(): string {
-  return join(runtimeBaseDir(), "pi");
+  return getActiveRuntimeRoot() || join(runtimeBaseDir(), "pi");
 }
 
 interface LockEntry {
@@ -105,8 +115,13 @@ interface LockEntry {
 
 /** Version of the runtime the app currently uses (userData copy wins over bundled). */
 export function readManagedPiStatus(): { version: string | null; source: "userData" | "bundled" | null } {
-  const activePkg = join(activeRuntimeDir(), "package.json");
-  if (existsSync(activePkg)) {
+  const activeRoot = getActiveRuntimeRoot();
+  const activePkg = activeRoot
+    ? existsSync(join(activeRoot, "pi", "package.json"))
+      ? join(activeRoot, "pi", "package.json")
+      : join(activeRoot, "package.json")
+    : null;
+  if (activePkg && existsSync(activePkg)) {
     try {
       const v = (JSON.parse(readFileSync(activePkg, "utf8")) as { version?: string }).version;
       if (v) return { version: v, source: "userData" };
@@ -265,7 +280,7 @@ function platformMatches(e: LockEntry): boolean {
   return matches(e.os, process.platform) && matches(e.cpu, process.arch);
 }
 
-/** Recursive prune mirroring scripts/bundle-runtime.mjs (maps, d.ts, @types, tests). */
+/** Recursive prune mirroring the standalone runtime builder. */
 function pruneTree(dir: string): void {
   let entries: string[];
   try {
@@ -282,12 +297,28 @@ function pruneTree(dir: string): void {
       continue;
     }
     if (isDir) {
-      if (name === "@types" || name === "test" || name === "tests" || name === "__tests__" || name === ".github") {
+      if (
+        name === "@types" ||
+        name === "test" ||
+        name === "tests" ||
+        name === "__tests__" ||
+        name === ".github" ||
+        name === "docs" ||
+        name === "examples" ||
+        name === "example" ||
+        name === "benchmark" ||
+        name === "benchmarks" ||
+        name === "coverage" ||
+        name === "__mocks__"
+      ) {
         rmSafe(abs);
         continue;
       }
       pruneTree(abs);
-    } else if (/\.map$/.test(name) || /\.d\.[cm]?ts$/.test(name)) {
+    } else if (
+      /\.(?:map|d\.ts|d\.mts|d\.cts|ts|mts|cts)$/i.test(name) ||
+      /^(?:README|CHANGELOG|HISTORY|CONTRIBUTING)(?:\.(?:md|markdown|txt|rst)|$)/i.test(name)
+    ) {
       rmSafe(abs);
     }
   }
@@ -375,7 +406,24 @@ export async function installCoreUpdate(onProgress?: ProgressFn): Promise<CoreUp
       return { ok: true, updated: false, from: status.current, message: `Pi 已是最新版本（v${status.current}）` };
     }
     const targetVersion = status.latest;
+    const runtimeNode = getActiveRuntimePaths()?.node || getBundledRuntime()?.node || null;
     progress({ stage: "checking", message: `发现新版本 v${targetVersion}（当前 v${status.current || "?"}）` });
+
+    // A release built with the standalone runtime already contains a verified
+    // one-archive path. Use it when its Pi version is the requested version;
+    // this avoids the old 139-request npm dependency installation.
+    const standalone = getRuntimePackageManifest();
+    if (standalone?.runtimeVersion === targetVersion) {
+      const root = await installRuntimePackage(standalone, (p) => progress({ stage: p.stage, message: p.message, pct: p.pct }));
+      resetPiRuntime();
+      return {
+        ok: true,
+        updated: true,
+        from: status.current,
+        to: targetVersion,
+        message: `Pi runtime v${targetVersion} installed as a standalone package at ${root}`,
+      };
+    }
 
     // ---- resolve tarball -------------------------------------------------
     const manifest = await fetchJson<{ dist?: { tarball?: string; integrity?: string } }>(
@@ -409,7 +457,8 @@ export async function installCoreUpdate(onProgress?: ProgressFn): Promise<CoreUp
     const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { packages?: Record<string, LockEntry> };
     const packages = lock.packages || {};
     const requiredNode = packages[""]?.engines?.node;
-    const bundled = getBundledRuntime();
+    const bundled = runtimeNode ? { node: runtimeNode } : null;
+    if (!runtimeNode) throw new Error("No managed Node runtime is available to install the Pi update");
     if (!bundled) throw new Error("未找到内置 Node 运行时，无法安装更新");
     if (requiredNode) {
       const min = parseMinNodeVersion(requiredNode);
@@ -454,17 +503,19 @@ export async function installCoreUpdate(onProgress?: ProgressFn): Promise<CoreUp
 
     // ---- prune ------------------------------------------------------------
     progress({ stage: "pruning", message: "正在精简运行时文件…" });
-    pruneTree(join(root, "node_modules"));
+    pruneTree(root);
 
     // ---- activate ---------------------------------------------------------
     progress({ stage: "activating", message: "正在激活新版本…" });
-    const active = activeRuntimeDir();
-    if (existsSync(active)) {
-      const olds = readdirSync(runtimeBaseDir()).filter((n) => /^pi\.old-/.test(n));
-      const maxIdx = olds.reduce((m, n) => Math.max(m, parseInt(n.slice("pi.old-".length), 10) || 0), 0);
-      renameSync(active, join(runtimeBaseDir(), `pi.old-${maxIdx + 1}`));
-    }
-    renameSync(root, active);
+    const targetRoot = join(runtimeVersionsDir(), targetVersion);
+    mkdirSync(runtimeVersionsDir(), { recursive: true });
+    rmSafe(targetRoot);
+    mkdirSync(targetRoot, { recursive: true });
+    renameSync(root, join(targetRoot, "pi"));
+    const nodeName = process.platform === "win32" ? "node.exe" : "node";
+    mkdirSync(join(targetRoot, "node"), { recursive: true });
+    cpSync(runtimeNode, join(targetRoot, "node", nodeName));
+    activateRuntimeRoot(targetRoot, targetVersion);
     rmSafe(staging);
     resetPiRuntime(); // next thread open resolves the new runtime
 
@@ -518,4 +569,5 @@ export function cleanupOldRuntimes(): void {
       rmSafe(join(base, name)); // still locked → silently retried next launch
     }
   }
+  cleanupRuntimeVersions();
 }

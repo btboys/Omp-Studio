@@ -17,10 +17,9 @@ if (process.platform === "win32") app.setAppUserModelId(APP_USER_MODEL_ID);
 
 registerHtmlPreviewScheme();
 
-// Point the pi bridge at the bundled runtime (node + pi) shipped inside the app.
-// In dev mode app.getAppPath() is the project root; in packaged mode
-// process.resourcesPath already covers it, but setting the env var explicitly
-// makes the resolution deterministic in both cases.
+// Keep the legacy resources/bundled lookup available for older developer
+// builds. New packaged releases download the standalone runtime asset into
+// userData on first use, so the app installer no longer carries Node + pi.
 {
   const candidates = [
     join(app.getAppPath(), "resources", "bundled"),

@@ -2,7 +2,7 @@
 
 Pi Studio is an independent Electron desktop client for the [Pi coding agent](https://github.com/earendil-works/pi). It brings Pi projects, threads, model configuration, extensions, permission controls, automation, and file previews into one desktop workspace.
 
-Current release: `0.2.7` (Windows x64 installer).
+Current release: `0.2.8` (Windows x64 installer).
 
 > Pi Studio is an independent community project. It is not affiliated with or endorsed by the Pi maintainers.
 
@@ -14,14 +14,14 @@ Current release: `0.2.7` (Windows x64 installer).
 - Configure providers and models through Pi's shared `models.json` configuration.
 - Use Pi extensions and plugins from the shared Pi agent directory.
 - Run scheduled automations with an explicit sandbox or full-access permission level.
-- Keep a bundled Pi runtime and support app-managed runtime updates.
+- Keep a separately versioned Pi/Node runtime and support app-managed runtime updates.
 - Use a permission gate for shell commands, project boundaries, and extension actions.
 
 ## Download
 
-Download the latest `Pi-Studio-Setup-<version>.exe` from GitHub Releases and install it on a Windows x64 machine. The installer is currently unsigned, so Windows SmartScreen may show a warning.
+Download the latest `Pi-Studio-Setup-<version>.exe` and the matching `Pi-Studio-Runtime-<pi-version>-win-x64.tar.gz` from GitHub Releases, then install it on a Windows x64 machine. The installer is currently unsigned, so Windows SmartScreen may show a warning.
 
-The release package contains a bundled Node.js runtime and Pi coding agent. You do not need a separate Node.js or Pi installation to run the installed application.
+The app installer no longer contains Node.js or Pi. On first launch, Pi Studio downloads and verifies the matching standalone runtime package into the user data directory. Later app updates reuse that runtime without re-extracting it.
 
 ## Development requirements
 
@@ -31,7 +31,7 @@ The release package contains a bundled Node.js runtime and Pi coding agent. You 
 - A global Pi coding agent installation is required by the packaging script:
 
 ```powershell
-npm install -g @earendil-works/pi-coding-agent@0.82.1
+npm install -g @earendil-works/pi-coding-agent@0.83.0
 ```
 
 ## Development
@@ -47,12 +47,12 @@ Useful commands:
 
 ```powershell
 npm run build             # Build the Electron application
-npm run bundle            # Bundle Node.js and the Pi runtime
+npm run bundle             # Build the standalone Node.js + Pi runtime asset
 npm run dist              # Bundle, build, and create the installer
 npm run pack              # Create an unpacked directory build
 ```
 
-Build output is written to `release/`. The packaging script uses the Node.js executable running the command and the installed Pi coding agent, so use pinned versions when reproducible artifacts are required.
+Build output is written to `release/`. `npm run dist` creates both the Electron installer and the standalone runtime archive; publish both assets in the same GitHub release. The repository pins Pi runtime `0.83.0` in `package.json`, and the packaging script verifies that version before creating the archive. To package from a specific local installation, set `PI_PACKAGE_DIR` to its package directory.
 
 ## Configuration and data
 

@@ -2,7 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { getConfigDir } from "./config";
+import { ensureRuntimePackage, getActiveRuntimeRoot, runtimePathsForRoot } from "./runtime-package";
 
 /**
  * PiBridge
@@ -35,9 +35,9 @@ let resolvedKind: RuntimeKind | null = null;
 let resolvingRuntime: Promise<ResolvedRuntime> | null = null;
 
 /**
- * Locate the bundled Node.js + pi-coding-agent shipped inside the app's
- * resources/bundled/ directory. Returns null when not bundled (dev mode or
- * the bundle was not created).
+ * Locate the legacy bundled Node.js + pi-coding-agent layout. New releases
+ * ship this pair as a standalone runtime package under userData instead; the
+ * legacy lookup remains for older developer builds and installed versions.
  *
  * Search order:
  *  1. PI_BUNDLED_DIR env var (set by the app at startup for dev convenience)
@@ -151,24 +151,24 @@ function locateNode(shimDir?: string): string | null {
 }
 
 /**
- * Locate the app-updated runtime installed by the in-app core updater under
- * `<userData>/runtime/pi` (see core-updater.ts). It takes precedence over the
- * bundled copy: an update must win over the version shipped in the app.
- * Runs on the bundled node when available so no system Node.js is required.
+ * Locate the app-managed runtime under `<userData>/runtime/versions/<version>`
+ * (or the legacy `<userData>/runtime/pi` layout). It takes precedence over the
+ * legacy bundled copy: an update must win over the version shipped in the app.
  */
 function locateUserDataRuntime(): ResolvedRuntime | null {
-  let base: string;
-  try {
-    base = getConfigDir();
-  } catch {
-    return null; // config not loaded yet
-  }
-  if (!base) return null;
-  const cli = join(base, "runtime", "pi", "dist", "cli.js");
+  const root = getActiveRuntimeRoot();
+  if (!root) return null;
+
+  // Standalone runtime packages contain both node and pi.
+  const packaged = runtimePathsForRoot(root);
+  if (packaged) return packaged;
+
+  // Existing userData/runtime/pi installations contain only pi and relied on
+  // the old bundled Node binary. Keep them usable during migration.
+  const cli = join(root, "dist", "cli.js");
   if (!existsSync(cli)) return null;
   const node = getBundledRuntime()?.node || locateNode();
-  if (!node) return null;
-  return { node, cli };
+  return node ? { node, cli } : null;
 }
 
 /**
@@ -203,7 +203,25 @@ export async function resolvePiRuntime(cliOverride?: string): Promise<ResolvedRu
       return resolvedRuntime;
     }
 
-    // 3. Bundled runtime (packaged app or dev with resources/bundled/)
+    // 3. First launch of a new packaged app: fetch the standalone runtime
+    // asset described by resources/runtime-manifest.json. The promise is
+    // shared so the warm bridge and renderer diagnostics never download twice.
+    let runtimeBootstrapError: unknown = null;
+    try {
+      const installedRoot = await ensureRuntimePackage();
+      const installed = installedRoot ? runtimePathsForRoot(installedRoot) : null;
+      if (installed) {
+        resolvedRuntime = installed;
+        resolvedKind = "userData";
+        return resolvedRuntime;
+      }
+    } catch (error) {
+      runtimeBootstrapError = error;
+      // eslint-disable-next-line no-console
+      console.error("[pi] standalone runtime bootstrap failed:", (error as Error)?.message || String(error));
+    }
+
+    // 4. Legacy bundled runtime (old packaged app or dev with resources/bundled/)
     const bundled = getBundledRuntime();
     if (bundled) {
       resolvedRuntime = bundled;
@@ -211,9 +229,12 @@ export async function resolvePiRuntime(cliOverride?: string): Promise<ResolvedRu
       return resolvedRuntime;
     }
 
-    // 4. Fall back to PATH scanning (dev mode without bundle, or user-installed pi)
+    // 5. Fall back to PATH scanning (dev mode or user-installed pi).
     const loc = locatePiCli();
     if (!loc) {
+      if (runtimeBootstrapError) {
+        throw new Error(`Pi runtime package could not be installed: ${(runtimeBootstrapError as Error)?.message || String(runtimeBootstrapError)}`);
+      }
       throw new Error(
         "pi was not found. Install it with `npm i -g @earendil-works/pi-coding-agent`, or set a custom cli.js path in Settings.",
       );

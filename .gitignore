@@ -4,6 +4,9 @@ out/
 dist/
 release/
 resources/bundled/
+runtime-release/
+resources/runtime-manifest.json
+.runtime-stage/
 
 # Local app, QA, and agent data
 .claude/

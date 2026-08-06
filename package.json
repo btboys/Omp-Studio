@@ -1,6 +1,7 @@
 {
   "name": "pi-studio",
-  "version": "0.2.7",
+  "version": "0.2.8",
+  "piRuntimeVersion": "0.83.0",
   "private": true,
   "license": "MIT",
   "author": {
@@ -16,8 +17,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
     "test:permission": "node scripts/test-permission-gate.mjs",
     "bundle": "node scripts/bundle-runtime.mjs",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run bundle && npm run build && electron-builder"
+    "finalize-runtime": "node scripts/finalize-runtime.mjs",
+    "pack": "npm run bundle && npm run build && electron-builder --dir && npm run finalize-runtime",
+    "dist": "npm run bundle && npm run build && electron-builder && npm run finalize-runtime"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -68,11 +70,8 @@
     ],
     "extraResources": [
       {
-        "from": "resources/bundled",
-        "to": "bundled",
-        "filter": [
-          "**/*"
-        ]
+        "from": "resources/runtime-manifest.json",
+        "to": "runtime-manifest.json"
       },
       {
         "from": "resources/icon.png",

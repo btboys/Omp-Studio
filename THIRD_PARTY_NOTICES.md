@@ -9,7 +9,7 @@ When redistributing a built application, keep this notice together with the appl
 ### Pi coding agent
 
 - Package: `@earendil-works/pi-coding-agent`
-- Version in the 0.2.4 build: `0.82.1`
+- Version in the current standalone runtime release: `0.83.0`
 - License: MIT
 - Copyright: Mario Zechner
 - Source: <https://github.com/earendil-works/pi/tree/main/packages/coding-agent>
@@ -62,7 +62,7 @@ Build-time packages are listed separately because they are used to create the ap
 The Pi runtime and the Electron application include transitive npm dependencies. Their package manifests and license files are retained in the generated runtime tree where applicable. The authoritative inventories are:
 
 - `package-lock.json` for the Pi Studio source dependencies.
-- `resources/bundled/pi/package.json` and its `node_modules` tree for the bundled Pi runtime.
+- `resources/runtime-manifest.json` and the matching standalone runtime archive for the Pi runtime.
 - The license files distributed beside the corresponding packages in the packaged application.
 
 Common license families in the bundled Pi runtime include MIT, Apache-2.0, BSD-3-Clause, BlueOak-1.0.0, ISC, and 0BSD. Each dependency's own license terms take precedence over this summary.
