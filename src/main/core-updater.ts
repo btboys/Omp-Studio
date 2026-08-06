@@ -30,12 +30,13 @@ import {
  *
  * The runtime managed by Pi Studio is NOT a global npm/pnpm install, so
  * `pi update` refuses to touch it (detectInstallMethod returns "unknown").
- * New releases publish a standalone runtime archive and use the npm path only
- * as a compatibility fallback when the archive does not match the latest Pi:
+ * New releases embed a standalone runtime archive in the installer and use
+ * the npm path only as a compatibility fallback when it does not match the
+ * latest Pi:
  *
  *   1. Ask https://pi.dev/api/latest-version for the latest release
  *      (the same endpoint pi's own version check uses).
- *   2. Prefer the standalone runtime archive shipped beside the app release.
+ *   2. Prefer the standalone runtime archive embedded in the app release.
  *   3. Download the npm tarball from the registry (integrity-verified) only
  *      when no matching standalone archive is available.
  *   4. The tarball does not include node_modules, but it ships

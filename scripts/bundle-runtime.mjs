@@ -2,10 +2,9 @@
 /**
  * Build the standalone Pi Studio runtime asset.
  *
- * The Electron installer intentionally does not contain Node.js or pi. This
- * script creates a versioned runtime archive that is published beside the
- * app installer and writes a small manifest into resources/ for first-launch
- * bootstrap. All pruning is implemented with Node's filesystem APIs so it is
+ * This script creates the versioned Node.js + Pi archive that electron-builder
+ * embeds in the Windows installer and writes its integrity manifest into
+ * resources/. All pruning is implemented with Node's filesystem APIs so it is
  * deterministic on Windows (where `find` is not GNU find and `rm` is absent).
  */
 
@@ -200,6 +199,7 @@ function main() {
 
   rmSync(STAGE, { recursive: true, force: true });
   mkdirSync(STAGE, { recursive: true });
+  rmSync(RUNTIME_OUT, { recursive: true, force: true });
   mkdirSync(RUNTIME_OUT, { recursive: true });
   bundleNode();
   const runtimeVersion = bundlePi(source);
@@ -213,16 +213,15 @@ function main() {
   log(`creating archive ${archive}`);
   execFileSync(tarBinary(), ["-czf", archive, "-C", STAGE, "."], { stdio: "inherit" });
   const size = statSync(archive).size;
-  const appTag = `v${APP_PACKAGE.version}`;
   const manifest = {
-    schema: 1,
+    schema: 2,
+    embedded: true,
     runtimeVersion,
     platform: "win32",
     arch: "x64",
     fileName,
     size,
     sha512: sha512Base64(archive),
-    downloadUrl: `https://github.com/flowflic/Pi-Studio/releases/download/${appTag}/${fileName}`,
   };
   mkdirSync(dirname(MANIFEST_OUT), { recursive: true });
   writeFileSync(MANIFEST_OUT, JSON.stringify(manifest, null, 2) + "\n", "utf8");

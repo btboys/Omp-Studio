@@ -2,7 +2,7 @@
 
 Pi Studio is an independent Electron desktop client for the [Pi coding agent](https://github.com/earendil-works/pi). It brings Pi projects, threads, model configuration, extensions, permission controls, automation, and file previews into one desktop workspace.
 
-Current release: `0.2.9` (Windows x64 installer).
+Current release: `0.3.0` (Windows x64 installer).
 
 > Pi Studio is an independent community project. It is not affiliated with or endorsed by the Pi maintainers.
 
@@ -14,14 +14,14 @@ Current release: `0.2.9` (Windows x64 installer).
 - Configure providers and models through Pi's shared `models.json` configuration.
 - Use Pi extensions and plugins from the shared Pi agent directory.
 - Run scheduled automations with an explicit sandbox or full-access permission level.
-- Keep a separately versioned Pi/Node runtime and support app-managed runtime updates.
+- Keep a versioned Pi/Node runtime embedded in the Windows installer and support app-managed runtime updates.
 - Use a permission gate for shell commands, project boundaries, and extension actions.
 
 ## Download
 
-Download the latest `Pi-Studio-Setup-<version>.exe` and the matching `Pi-Studio-Runtime-<pi-version>-win-x64.tar.gz` from GitHub Releases, then install it on a Windows x64 machine. The installer is currently unsigned, so Windows SmartScreen may show a warning.
+Download the latest `Pi-Studio-Setup-<version>.exe` from GitHub Releases, then install it on a Windows x64 machine. The installer is currently unsigned, so Windows SmartScreen may show a warning.
 
-The app installer no longer contains Node.js or Pi. On first launch, Pi Studio downloads and verifies the matching standalone runtime package into the user data directory. Later app updates reuse that runtime without re-extracting it.
+The Windows installer contains the pinned Node.js + Pi runtime. On first launch, Pi Studio verifies and extracts that embedded runtime into the user data directory. Later app updates reuse the extracted runtime without any runtime download.
 
 ## Development requirements
 
@@ -47,12 +47,12 @@ Useful commands:
 
 ```powershell
 npm run build             # Build the Electron application
-npm run bundle             # Build the standalone Node.js + Pi runtime asset
+npm run bundle             # Build the runtime archive embedded by the installer
 npm run dist              # Bundle, build, and create the installer
 npm run pack              # Create an unpacked directory build
 ```
 
-Build output is written to `release/`. `npm run dist` creates both the Electron installer and the standalone runtime archive; publish both assets in the same GitHub release. The repository pins Pi runtime `0.83.0` in `package.json`, and the packaging script verifies that version before creating the archive. To package from a specific local installation, set `PI_PACKAGE_DIR` to its package directory.
+Build output is written to `release/`. `npm run dist` creates the Electron installer with the runtime archive embedded inside it; the generated archive in `release/` is retained for QA and does not need to be uploaded separately. The repository pins Pi runtime `0.83.0` in `package.json`, and the packaging script verifies that version before creating the archive. To package from a specific local installation, set `PI_PACKAGE_DIR` to its package directory.
 
 ## Configuration and data
 

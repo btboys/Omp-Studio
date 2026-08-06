@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -12,23 +13,23 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
-import { finished } from "node:stream/promises";
 import { app } from "electron";
 import { getConfigDir } from "./config";
 
 /**
- * The runtime is deliberately distributed separately from the Electron app.
- * An app update must not overwrite or re-extract Node + pi on every release.
+ * The runtime archive is embedded in the Windows installer and extracted once
+ * into userData. Keeping the extracted copy versioned still lets app-managed
+ * Pi updates switch runtimes without replacing files held by live processes.
  */
 export interface RuntimeManifest {
-  schema: 1;
+  schema: 2;
+  embedded: true;
   runtimeVersion: string;
   platform: "win32";
   arch: "x64";
   fileName: string;
   size: number;
   sha512: string;
-  downloadUrl: string;
 }
 
 export interface RuntimePaths {
@@ -36,7 +37,7 @@ export interface RuntimePaths {
   cli: string;
 }
 
-export type RuntimeProgressStage = "checking" | "downloading" | "installing" | "activating" | "done" | "error";
+export type RuntimeProgressStage = "checking" | "installing" | "activating" | "done" | "error";
 
 export interface RuntimeProgress {
   stage: RuntimeProgressStage;
@@ -180,7 +181,8 @@ export function getRuntimePackageManifest(): RuntimeManifest | null {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<RuntimeManifest>;
     if (
-      parsed.schema !== 1 ||
+      parsed.schema !== 2 ||
+      parsed.embedded !== true ||
       parsed.platform !== "win32" ||
       parsed.arch !== "x64" ||
       typeof parsed.runtimeVersion !== "string" ||
@@ -189,9 +191,7 @@ export function getRuntimePackageManifest(): RuntimeManifest | null {
       !/^[A-Za-z0-9._+-]+\.tar\.gz$/.test(parsed.fileName) ||
       typeof parsed.size !== "number" ||
       parsed.size <= 0 ||
-      typeof parsed.sha512 !== "string" ||
-      typeof parsed.downloadUrl !== "string" ||
-      !/^https?:\/\//i.test(parsed.downloadUrl)
+      typeof parsed.sha512 !== "string"
     ) {
       return null;
     }
@@ -199,6 +199,18 @@ export function getRuntimePackageManifest(): RuntimeManifest | null {
   } catch {
     return null;
   }
+}
+
+function embeddedRuntimeArchivePath(manifest: RuntimeManifest): string {
+  const resourcesPath = (process as any).resourcesPath as string | undefined;
+  if (!app.isPackaged || !resourcesPath) {
+    throw new Error("embedded Pi runtime is only available in a packaged app");
+  }
+  const archive = join(resourcesPath, "runtime-package", manifest.fileName);
+  if (!existsSync(archive)) {
+    throw new Error(`embedded Pi runtime package is missing: ${archive}`);
+  }
+  return archive;
 }
 
 function rmSafe(target: string): void {
@@ -229,44 +241,6 @@ function runCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-async function downloadFile(url: string, destination: string, onPct?: (pct: number) => void): Promise<void> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(15 * 60_000) });
-  if (!response.ok) throw new Error(`HTTP ${response.status} downloading runtime package`);
-  if (!response.body) throw new Error("runtime package response has no body");
-
-  const total = Number(response.headers.get("content-length")) || 0;
-  const reader = response.body.getReader();
-  const output = createWriteStream(destination);
-  let received = 0;
-  let lastPct = -1;
-  try {
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) break;
-      if (!part.value) continue;
-      const chunk = Buffer.from(part.value);
-      received += chunk.length;
-      if (!output.write(chunk)) await new Promise<void>((resolvePromise, reject) => {
-        output.once("drain", resolvePromise);
-        output.once("error", reject);
-      });
-      if (total && onPct) {
-        const pct = Math.min(99, Math.floor((received / total) * 100));
-        if (pct !== lastPct) {
-          lastPct = pct;
-          onPct(pct);
-        }
-      }
-    }
-    output.end();
-    await finished(output);
-  } catch (error) {
-    output.destroy();
-    throw error;
-  }
-  onPct?.(100);
-}
-
 async function sha512File(file: string): Promise<string> {
   const hash = createHash("sha512");
   const input = createReadStream(file);
@@ -284,7 +258,7 @@ function archiveRoot(extracted: string): string {
   throw new Error("runtime archive is missing node/node.exe or pi/dist/cli.js");
 }
 
-/** Download, verify, extract and activate a standalone runtime package. */
+/** Verify, extract and activate the runtime archive embedded in the installer. */
 export async function installRuntimePackage(manifest: RuntimeManifest, onProgress?: ProgressFn): Promise<string> {
   if (process.platform !== "win32" || process.arch !== "x64") throw new Error("standalone Pi runtime is currently Windows x64 only");
   const progress = onProgress || (() => undefined);
@@ -296,23 +270,21 @@ export async function installRuntimePackage(manifest: RuntimeManifest, onProgres
   }
 
   const base = runtimeBaseDir();
+  const embeddedArchive = embeddedRuntimeArchivePath(manifest);
   const staging = join(base, `.runtime-staging-${process.pid}-${Date.now()}`);
   const archive = join(staging, manifest.fileName);
   const extracted = join(staging, "extracted");
   try {
     rmSafe(staging);
     mkdirSync(extracted, { recursive: true });
-    progress({ stage: "checking", message: `Preparing Pi runtime v${manifest.runtimeVersion}` });
-    progress({ stage: "downloading", message: `Downloading Pi runtime v${manifest.runtimeVersion}`, pct: 0 });
-    await downloadFile(manifest.downloadUrl, archive, (pct) =>
-      progress({ stage: "downloading", message: `Downloading Pi runtime v${manifest.runtimeVersion}`, pct }),
-    );
+    progress({ stage: "checking", message: `Preparing embedded Pi runtime v${manifest.runtimeVersion}` });
+    copyFileSync(embeddedArchive, archive);
     const actualSize = statSync(archive).size;
     if (actualSize !== manifest.size) throw new Error(`runtime package size mismatch: expected ${manifest.size}, got ${actualSize}`);
     const actualHash = await sha512File(archive);
     if (actualHash !== manifest.sha512) throw new Error("runtime package integrity check failed");
 
-    progress({ stage: "installing", message: "Extracting Pi runtime" });
+    progress({ stage: "installing", message: "Extracting embedded Pi runtime", pct: 0 });
     await runCommand(tarBinary(), ["-xzf", archive, "-C", extracted]);
     const root = archiveRoot(extracted);
     mkdirSync(runtimeVersionsDir(), { recursive: true });
@@ -328,7 +300,7 @@ export async function installRuntimePackage(manifest: RuntimeManifest, onProgres
   }
 }
 
-/** Ensure the runtime shipped as a release asset is present on first launch. */
+/** Ensure the runtime embedded in the installer is present on first launch. */
 export function ensureRuntimePackage(onProgress?: ProgressFn): Promise<string | null> {
   const active = getActiveRuntimePaths();
   if (active) return Promise.resolve(getActiveRuntimeRoot());

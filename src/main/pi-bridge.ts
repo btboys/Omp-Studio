@@ -36,8 +36,9 @@ let resolvingRuntime: Promise<ResolvedRuntime> | null = null;
 
 /**
  * Locate the legacy bundled Node.js + pi-coding-agent layout. New releases
- * ship this pair as a standalone runtime package under userData instead; the
- * legacy lookup remains for older developer builds and installed versions.
+ * ship this pair as an embedded standalone runtime archive and extract it
+ * under userData instead; the legacy lookup remains for older developer
+ * builds and installed versions.
  *
  * Search order:
  *  1. PI_BUNDLED_DIR env var (set by the app at startup for dev convenience)
@@ -211,9 +212,10 @@ export async function resolvePiRuntime(cliOverride?: string): Promise<ResolvedRu
       return resolvedRuntime;
     }
 
-    // 3. First launch of a new packaged app: fetch the standalone runtime
-    // asset described by resources/runtime-manifest.json. The promise is
-    // shared so the warm bridge and renderer diagnostics never download twice.
+    // 3. First launch of a new packaged app: extract and verify the embedded
+    // standalone runtime described by resources/runtime-manifest.json. The
+    // promise is shared so the warm bridge and renderer diagnostics never
+    // install it twice.
     let runtimeBootstrapError: unknown = null;
     try {
       const installedRoot = await ensureRuntimePackage();

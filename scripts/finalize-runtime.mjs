@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Copy the standalone runtime asset next to the Electron artifacts. */
+/** Copy the embedded runtime asset next to the Electron artifacts for QA. */
 
 import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

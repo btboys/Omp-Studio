@@ -1,6 +1,6 @@
 {
   "name": "pi-studio",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "piRuntimeVersion": "0.83.0",
   "private": true,
   "license": "MIT",
@@ -72,6 +72,10 @@
       {
         "from": "resources/runtime-manifest.json",
         "to": "runtime-manifest.json"
+      },
+      {
+        "from": "runtime-release",
+        "to": "runtime-package"
       },
       {
         "from": "resources/icon.png",

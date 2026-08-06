@@ -18,8 +18,8 @@ if (process.platform === "win32") app.setAppUserModelId(APP_USER_MODEL_ID);
 registerHtmlPreviewScheme();
 
 // Keep the legacy resources/bundled lookup available for older developer
-// builds. New packaged releases download the standalone runtime asset into
-// userData on first use, so the app installer no longer carries Node + pi.
+// builds. New packaged releases carry the standalone runtime archive in the
+// installer and extract it into userData on first use.
 {
   const candidates = [
     join(app.getAppPath(), "resources", "bundled"),
