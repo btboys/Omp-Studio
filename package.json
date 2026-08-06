@@ -1,6 +1,6 @@
 {
   "name": "pi-studio",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "license": "MIT",
   "author": {
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.9",
     "highlight.js": "^11.10.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
@@ -50,6 +51,14 @@
   "build": {
     "appId": "com.pi-studio.app",
     "productName": "Pi Studio",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "flowflic",
+        "repo": "Pi-Studio",
+        "releaseType": "release"
+      }
+    ],
     "icon": "resources/icon.png",
     "directories": {
       "output": "release"

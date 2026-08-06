@@ -42,7 +42,7 @@ const api = {
     setPackageEnabled: (source: string, enabled: boolean) => ipcRenderer.invoke("plugins:setPackageEnabled", { source, enabled }),
     installPackage: (source: string) => ipcRenderer.invoke("plugins:installPackage", source),
     removePackage: (source: string) => ipcRenderer.invoke("plugins:removePackage", source),
-    getSkills: () => ipcRenderer.invoke("plugins:getSkills"),
+    getSkills: (cwd?: string) => ipcRenderer.invoke("plugins:getSkills", cwd),
     setSkillEnabled: (path: string, enabled: boolean) => ipcRenderer.invoke("plugins:setSkillEnabled", { path, enabled }),
     updatePackages: (source?: string) => ipcRenderer.invoke("plugins:updatePackages", source),
   },

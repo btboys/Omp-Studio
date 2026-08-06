@@ -23,7 +23,16 @@ import { PiBridge, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtim
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { readPreview } from "./preview-service";
 import { getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit } from "./session-store";
-import { listPackages, listSkills, probePiStartup, removePackageEntry, runPiCli, setPackageEnabled, setSkillEnabled } from "./plugins";
+import {
+  getAdditionalSkillPaths,
+  listPackages,
+  listSkills,
+  probePiStartup,
+  removePackageEntry,
+  runPiCli,
+  setPackageEnabled,
+  setSkillEnabled,
+} from "./plugins";
 import { runTaskNow, startScheduler } from "./automation";
 
 type PermissionLevel = "sandbox" | "full";
@@ -128,6 +137,9 @@ function createHandle(
     // The gate extension is always loaded; its sandbox/full behaviour is decided
     // at runtime by the per-thread mode file, so permission can change live.
     extensions: [ensureGateExtension(getConfigDir())],
+    // Keep pi's runtime in sync with the Plugins inventory, including the
+    // singular `.pi/agent/skill` compatibility path and other local roots.
+    skills: getAdditionalSkillPaths(cwd),
     gateModeFile,
     onEvent: (e) => send("pi:event", { threadId: id, event: e }),
     onExtUi: (r) => send("pi:extui", { threadId: id, request: r }),
@@ -795,9 +807,13 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     ensureWarmBridge();
     return { ok: true, output: (res.stdout + res.stderr).trim() };
   });
-  ipcMain.handle("plugins:getSkills", () => listSkills());
+  ipcMain.handle("plugins:getSkills", (_e, cwd?: string) => listSkills(typeof cwd === "string" ? cwd : undefined));
   ipcMain.handle("plugins:setSkillEnabled", (_e, args: { path: string; enabled: boolean }) => {
     setSkillEnabled(args.path, args.enabled);
+    // A skill is loaded during pi startup. Recreate the warm spare so newly
+    // opened tasks immediately observe enable/disable changes.
+    dropWarmBridge();
+    ensureWarmBridge();
     return { ok: true };
   });
   // Update installed extension packages. With no source, updates all of them

@@ -57,6 +57,7 @@ export function Composer({ threadId }: { threadId: string }) {
   const [modelOpen, setModelOpen] = useState(false);
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
   const [permOpen, setPermOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState("");
@@ -255,6 +256,19 @@ export function Composer({ threadId }: { threadId: string }) {
         .slice(0, 30),
     [commands, slashQuery],
   );
+  const commandItems = useMemo(() => {
+    const query = commandQuery.trim().toLowerCase();
+    return (commands || [])
+      .filter((command: any) => {
+        const rawName = String(command.name || "");
+        const displayName = command.source === "skill" ? rawName.replace(/^skill:/, "") : rawName;
+        const haystack = [rawName, displayName, String(command.description || ""), String(command.source || "")]
+          .join(" ")
+          .toLowerCase();
+        return !query || haystack.includes(query);
+      })
+      .slice(0, 50);
+  }, [commands, commandQuery]);
   const slashMenuOpen = !!slashMatch && !slashDismissed && slashItems.length > 0;
 
   useEffect(() => {
@@ -265,6 +279,13 @@ export function Composer({ threadId }: { threadId: string }) {
     setText(`/${command.name} `);
     setSlashDismissed(true);
     requestAnimationFrame(() => taRef.current?.focus());
+  };
+
+  const toggleCommands = () => {
+    setCmdOpen((open) => {
+      if (open) setCommandQuery("");
+      return !open;
+    });
   };
 
   const chooseProject = async (nextCwd: string) => {
@@ -464,26 +485,40 @@ export function Composer({ threadId }: { threadId: string }) {
               )}
             </div>
             <div className="pill composer-optional-action" ref={cmdRef}>
-              <button className="pill-btn" title="Slash commands / skills" onClick={() => setCmdOpen((v) => !v)}>
+              <button className="pill-btn" title="Slash commands / skills" onClick={toggleCommands}>
                 <At size={14} /> 命令
               </button>
               {cmdOpen && (
-                <div className="pill-pop">
-                  {(commands || []).length === 0 && <div className="ft-empty">无可用命令</div>}
-                  {(commands || []).map((c: any) => (
-                    <button
-                      key={c.name}
-                      className="opt"
-                      onClick={() => {
-                        setText((t) => (t ? t + " " : "") + `/${c.name} `);
-                        setCmdOpen(false);
-                        taRef.current?.focus();
-                      }}
-                    >
+                <div className="pill-pop command-pop">
+                  <label className="command-search">
+                    <Search size={13} />
+                    <input
+                      autoFocus
+                      value={commandQuery}
+                      onChange={(event) => setCommandQuery(event.target.value)}
+                      placeholder="搜索命令、插件或 skill"
+                      aria-label="搜索命令、插件或 skill"
+                    />
+                  </label>
+                  <div className="command-list">
+                    {(commands || []).length === 0 && <div className="ft-empty">无可用命令</div>}
+                    {(commands || []).length > 0 && commandItems.length === 0 && <div className="ft-empty">没有匹配的命令</div>}
+                    {commandItems.map((c: any) => (
+                      <button
+                        key={`${c.source || "command"}:${c.name}`}
+                        className="opt"
+                        onClick={() => {
+                          setText((t) => (t ? t + " " : "") + `/${c.name} `);
+                          setCommandQuery("");
+                          setCmdOpen(false);
+                          taRef.current?.focus();
+                        }}
+                      >
                         <span className="o1">{c.source === "skill" ? String(c.name).replace(/^skill:/, "") : c.name}</span>
-                      {c.source !== "skill" && c.description && <span className="o2">{c.description}</span>}
-                    </button>
-                  ))}
+                        {c.source !== "skill" && c.description && <span className="o2">{c.description}</span>}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

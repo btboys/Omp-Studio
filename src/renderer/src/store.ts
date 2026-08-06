@@ -1500,7 +1500,8 @@ export const useStore = create<PiStore>()((set, get) => ({
   loadPlugins: async () => {
     set({ pluginsLoading: true });
     try {
-      const [packages, skills] = await Promise.all([window.pi.plugins.getPackages(), window.pi.plugins.getSkills()]);
+      const activeProjectCwd = get().activeProjectCwd || undefined;
+      const [packages, skills] = await Promise.all([window.pi.plugins.getPackages(), window.pi.plugins.getSkills(activeProjectCwd)]);
       set({ packages, skills, pluginsLoading: false });
     } catch (e: any) {
       set({ pluginsLoading: false });

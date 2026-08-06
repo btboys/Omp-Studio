@@ -1955,6 +1955,45 @@ body.sidebar-resizing * {
   font-size: 11px;
   color: var(--text-faint);
 }
+.command-pop {
+  min-width: 286px;
+  max-height: 360px;
+  overflow: hidden;
+}
+.command-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  margin: 0 0 5px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--text-faint);
+}
+.command-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.command-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.command-search input::placeholder {
+  color: var(--text-faint);
+}
+.command-list {
+  min-height: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
 
 /* ---------- combined model + thinking menu ---------- */
 .pill-think-tag {
@@ -4096,6 +4135,60 @@ mark.hl {
   margin-bottom: 12px;
   line-height: 1.5;
 }
+.plugins-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.plugins-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text-faint);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.plugins-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.plugins-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.plugins-search input::placeholder {
+  color: var(--text-faint);
+}
+.plugins-search-clear {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+}
+.plugins-search-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
 .plugins-section {
   margin-bottom: 22px;
 }
@@ -4386,7 +4479,8 @@ mark.hl {
 :root[data-theme="dark"] .modal-input,
 :root[data-theme="dark"] .set-input,
 :root[data-theme="dark"] .set-select,
-:root[data-theme="dark"] .set-language select {
+:root[data-theme="dark"] .set-language select,
+:root[data-theme="dark"] .plugins-search {
   background: var(--surface-muted);
   color: var(--text);
 }

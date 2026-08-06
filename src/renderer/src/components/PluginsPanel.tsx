@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../store";
-import { Close, Plus, At, Refresh } from "./icons";
+import { Close, Plus, At, Refresh, Search } from "./icons";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -22,6 +22,7 @@ export function PluginsPanel() {
   const installPackage = useStore((s) => s.installPackage);
   const removePackage = useStore((s) => s.removePackage);
   const updatePackages = useStore((s) => s.updatePackages);
+  const loadPlugins = useStore((s) => s.loadPlugins);
   const toggleSkill = useStore((s) => s.toggleSkill);
   const language = useStore((s) => s.config?.language || "en");
 
@@ -29,6 +30,23 @@ export function PluginsPanel() {
   const [busy, setBusy] = useState(false);
   const [updatingAll, setUpdatingAll] = useState(false);
   const [updatingOne, setUpdatingOne] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredPackages = useMemo(
+    () =>
+      packages.filter((p) =>
+        !normalizedQuery || [p.name, p.source, p.kind].some((value) => value.toLowerCase().includes(normalizedQuery)),
+      ),
+    [packages, normalizedQuery],
+  );
+  const filteredSkills = useMemo(
+    () =>
+      skills.filter((sk) =>
+        !normalizedQuery || [sk.name, sk.path, sk.root].some((value) => value.toLowerCase().includes(normalizedQuery)),
+      ),
+    [skills, normalizedQuery],
+  );
 
   if (!open) return null;
 
@@ -74,11 +92,36 @@ export function PluginsPanel() {
         </header>
 
         <div className="plugins-body">
-          <div className="muted plugins-note">开关写入 ~/.pi/agent/settings.json，与终端 pi 共享；更改在下次启动 pi 会话时生效。</div>
+          <div className="muted plugins-note">
+            开关写入 ~/.pi/agent/settings.json，与终端 pi 共享；自动扫描 ~/.pi/agent/skills、~/.pi/agent/skill 和当前项目的 .pi skill 目录。
+          </div>
+
+          <div className="plugins-toolbar">
+            <div className="plugins-search">
+              <Search size={15} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索插件或 skill"
+                aria-label="搜索插件或 skill"
+              />
+              {query && (
+                <button type="button" className="plugins-search-clear" onClick={() => setQuery("")} aria-label="清除搜索">
+                  ×
+                </button>
+              )}
+            </div>
+            <button className="set-iconbtn" onClick={() => loadPlugins()} disabled={loading} title="刷新插件和 skill">
+              {loading ? <span className="spinner" /> : <Refresh size={15} />}
+            </button>
+          </div>
 
           <section className="plugins-section">
             <div className="plugins-section-head plugins-section-head-row">
-              <span>Extension 包（{packages.length}）</span>
+              <span>
+                Extension 包（{filteredPackages.length}
+                {normalizedQuery ? ` / ${packages.length}` : ""}）
+              </span>
               <button className="set-btn" onClick={updateAll} disabled={updating || packages.length === 0} title="检查并更新所有扩展（pi update --extensions）">
                 {updatingAll ? <span className="spinner" /> : <Refresh size={13} />}
                 更新全部
@@ -100,7 +143,8 @@ export function PluginsPanel() {
 
             {loading && packages.length === 0 && <div className="set-empty-mini">加载中…</div>}
             {!loading && packages.length === 0 && <div className="set-empty-mini">尚未安装任何 extension 包。</div>}
-            {packages.map((p) => (
+            {packages.length > 0 && filteredPackages.length === 0 && <div className="set-empty-mini">没有匹配的 extension 包。</div>}
+            {filteredPackages.map((p) => (
               <div className="plugins-row" key={p.source}>
                 <div className="plugins-row-main">
                   <span className="plugins-row-name" title={p.source}>
@@ -138,10 +182,14 @@ export function PluginsPanel() {
           </section>
 
           <section className="plugins-section">
-            <div className="plugins-section-head">Skills（{skills.length}）</div>
+            <div className="plugins-section-head">
+              Skills（{filteredSkills.length}
+              {normalizedQuery ? ` / ${skills.length}` : ""}）
+            </div>
             {loading && skills.length === 0 && <div className="set-empty-mini">加载中…</div>}
             {!loading && skills.length === 0 && <div className="set-empty-mini">未在 ~/.pi/agent/skills 等目录发现独立 skill。</div>}
-            {skills.map((sk) => (
+            {skills.length > 0 && filteredSkills.length === 0 && <div className="set-empty-mini">没有匹配的 skill。</div>}
+            {filteredSkills.map((sk) => (
               <div className="plugins-row" key={sk.path}>
                 <div className="plugins-row-main">
                   <span className="plugins-row-name" title={sk.path}>
@@ -157,7 +205,7 @@ export function PluginsPanel() {
                 </div>
               </div>
             ))}
-            <div className="muted plugins-note">停用 skill 会将其入口文件重命名为 *.disabled（可逆）。</div>
+            <div className="muted plugins-note">停用 skill 会将其入口文件重命名为 *.disabled（可逆）；新增文件后可点击右上角刷新。</div>
           </section>
         </div>
       </div>

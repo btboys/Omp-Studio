@@ -262,6 +262,8 @@ export interface PiBridgeOptions {
   name?: string;
   /** Absolute paths to extension files loaded for this run (e.g. the sandbox permission gate). */
   extensions?: string[];
+  /** Additional skill directories/files that are outside pi's default locations. */
+  skills?: string[];
   /** Per-thread gate mode file exposed to the gate extension as
    * PI_STUDIO_GATE_MODE_FILE so sandbox/full can be toggled without a restart. */
   gateModeFile?: string;
@@ -306,6 +308,7 @@ export class PiBridge {
     if (this.opts.name) args.push("--name", this.opts.name);
     if (this.opts.sessionFile) args.push("--session", this.opts.sessionFile);
     for (const ext of this.opts.extensions || []) args.push("--extension", ext);
+    for (const skill of this.opts.skills || []) args.push("--skill", skill);
 
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (this.opts.gateModeFile) env.PI_STUDIO_GATE_MODE_FILE = this.opts.gateModeFile;

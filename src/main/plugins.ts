@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { getConfig } from "./config";
 import { resolvePiRuntime } from "./pi-bridge";
 import { getAgentDir } from "./session-store";
@@ -219,42 +219,92 @@ export function probePiStartup(timeoutMs = 20_000): Promise<{ ok: boolean; outpu
 
 /* ----------------------------- skills ----------------------------- */
 
-function skillRoots(): string[] {
-  return [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills")];
+function pathKey(path: string): string {
+  const normalized = resolve(path);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-export function listSkills(): SkillInfo[] {
+/**
+ * Pi's native locations are `~/.pi/agent/skills` and `<project>/.pi/skills`.
+ * Keep the singular `skill` variants for existing local installs, and include
+ * the commonly used `~/.agents/skills` location. The latter is passed to pi as
+ * an explicit skill path so the Plugins list and Commands menu describe the
+ * same runtime.
+ */
+function skillRoots(cwd?: string): string[] {
+  const roots = [
+    join(getAgentDir(), "skills"),
+    join(getAgentDir(), "skill"),
+    join(homedir(), ".agents", "skills"),
+    join(homedir(), ".agents", "skill"),
+  ];
+  if (cwd) {
+    roots.push(
+      join(cwd, ".pi", "skills"),
+      join(cwd, ".pi", "skill"),
+      join(cwd, ".pi", "agent", "skills"),
+      join(cwd, ".pi", "agent", "skill"),
+    );
+  }
+  const seen = new Set<string>();
+  return roots.filter((root) => {
+    const key = pathKey(root);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Return non-default skill directories that must be passed to `pi --skill`. */
+export function getAdditionalSkillPaths(cwd?: string): string[] {
+  const nativeRoots = new Set<string>([pathKey(join(getAgentDir(), "skills"))]);
+  if (cwd) nativeRoots.add(pathKey(join(cwd, ".pi", "skills")));
+  return skillRoots(cwd).filter((root) => existsSync(root) && !nativeRoots.has(pathKey(root)));
+}
+
+export function listSkills(cwd?: string): SkillInfo[] {
   const out: SkillInfo[] = [];
-  const roots = skillRoots();
-  roots.forEach((root, ri) => {
-    if (!existsSync(root)) return;
-    const allowRootMd = ri === 0; // ~/.pi/agent/skills: root .md files count; ~/.agents/skills: they don't
-    let entries: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (name: string, path: string, root: string, enabled: boolean) => {
+    const key = pathKey(path);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, path, root, enabled });
+  };
+
+  /** Match pi's recursive discovery: a directory containing SKILL.md is a
+   * skill root and stops traversal; otherwise nested directories are scanned. */
+  const scan = (dir: string, root: string, includeRootFiles: boolean) => {
+    if (!existsSync(dir)) return;
+    let entries: import("node:fs").Dirent[];
     try {
-      entries = readdirSync(root);
+      entries = readdirSync(dir, { withFileTypes: true });
     } catch {
       return;
     }
-    for (const name of entries) {
-      const abs = join(root, name);
-      let isDir = false;
-      try {
-        isDir = statSync(abs).isDirectory();
-      } catch {
-        continue;
-      }
-      if (isDir) {
-        const hasMd = existsSync(join(abs, "SKILL.md"));
-        const hasDisabled = existsSync(join(abs, "SKILL.md.disabled"));
-        if (hasMd) out.push({ name, path: abs, root, enabled: true });
-        else if (hasDisabled) out.push({ name, path: abs, root, enabled: false });
-      } else if (allowRootMd && name.endsWith(".md")) {
-        out.push({ name: name.replace(/\.md$/, ""), path: abs, root, enabled: true });
-      } else if (allowRootMd && name.endsWith(".md.disabled")) {
-        out.push({ name: name.replace(/\.md\.disabled$/, ""), path: abs, root, enabled: false });
+
+    const enabledEntry = entries.find((entry) => entry.name === "SKILL.md" && entry.isFile());
+    const disabledEntry = entries.find((entry) => entry.name === "SKILL.md.disabled" && entry.isFile());
+    if (enabledEntry || disabledEntry) {
+      add(basename(dir), dir, root, !!enabledEntry);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(abs, root, false);
+      } else if (includeRootFiles && entry.isFile() && entry.name.endsWith(".md")) {
+        add(entry.name.replace(/\.md$/, ""), abs, root, true);
+      } else if (includeRootFiles && entry.isFile() && entry.name.endsWith(".md.disabled")) {
+        add(entry.name.replace(/\.md\.disabled$/, ""), abs, root, false);
       }
     }
-  });
+  };
+
+  for (const root of skillRoots(cwd)) scan(root, root, true);
   return out;
 }
 
