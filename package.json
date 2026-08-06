@@ -1,6 +1,6 @@
 {
   "name": "pi-studio",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "license": "MIT",
   "author": {
@@ -99,6 +99,7 @@
     "nsis": {
       "oneClick": false,
       "perMachine": true,
+      "packElevateHelper": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
