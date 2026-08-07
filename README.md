@@ -2,7 +2,7 @@
 
 Pi Studio is an independent Electron desktop client for the [Pi coding agent](https://github.com/earendil-works/pi). It brings Pi projects, threads, model configuration, extensions, permission controls, automation, and file previews into one desktop workspace.
 
-Current release: `0.3.0` (Windows x64 installer).
+Current release: `0.3.1` (Windows x64 and macOS arm64 installers).
 
 > Pi Studio is an independent community project. It is not affiliated with or endorsed by the Pi maintainers.
 
@@ -14,19 +14,19 @@ Current release: `0.3.0` (Windows x64 installer).
 - Configure providers and models through Pi's shared `models.json` configuration.
 - Use Pi extensions and plugins from the shared Pi agent directory.
 - Run scheduled automations with an explicit sandbox or full-access permission level.
-- Keep a versioned Pi/Node runtime embedded in the Windows installer and support app-managed runtime updates.
+- Keep a versioned Pi/Node runtime embedded in each installer and support app-managed runtime updates.
 - Use a permission gate for shell commands, project boundaries, and extension actions.
 
 ## Download
 
-Download the latest `Pi-Studio-Setup-<version>.exe` from GitHub Releases, then install it on a Windows x64 machine. The installer is currently unsigned, so Windows SmartScreen may show a warning.
+Download the latest `Pi-Studio-Setup-<version>.exe` for Windows x64 or `Pi-Studio-<version>-arm64.dmg` for Apple Silicon macOS from GitHub Releases. The installers are currently unsigned, so Windows SmartScreen or macOS Gatekeeper may show a warning.
 
-The Windows installer contains the pinned Node.js + Pi runtime. On first launch, Pi Studio verifies and extracts that embedded runtime into the user data directory. Later app updates reuse the extracted runtime without any runtime download.
+Each installer contains a native pinned Node.js + Pi runtime. On first launch, Pi Studio verifies and extracts that embedded runtime into the user data directory. Later app updates reuse the extracted runtime without any runtime download.
 
 ## Development requirements
 
-- Windows x64 is the primary tested target.
-- Node.js `22.19.0` or newer for development and packaging.
+- Windows x64 and macOS arm64 are the supported packaging targets.
+- Node.js `24.14.0` or newer within the Node 24 major version for development and packaging.
 - npm.
 - A global Pi coding agent installation is required by the packaging script:
 

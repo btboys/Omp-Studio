@@ -1,13 +1,16 @@
 {
   "name": "pi-studio",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "piRuntimeVersion": "0.83.0",
   "private": true,
   "license": "MIT",
   "author": {
     "name": "Pi Studio"
   },
-  "description": "Pi Studio - a Windows desktop client for the pi coding agent (models, harness, extensions, sessions).",
+  "description": "Pi Studio - a cross-platform desktop client for the pi coding agent (models, harness, extensions, sessions).",
+  "engines": {
+    "node": ">=24.14.0 <25"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
