@@ -17,7 +17,7 @@ import { app } from "electron";
 import { getConfigDir } from "./config";
 
 /**
- * The runtime archive is embedded in the Windows installer and extracted once
+ * The runtime archive is embedded in the desktop installer and extracted once
  * into userData. Keeping the extracted copy versioned still lets app-managed
  * Pi updates switch runtimes without replacing files held by live processes.
  */
@@ -25,11 +25,21 @@ export interface RuntimeManifest {
   schema: 2;
   embedded: true;
   runtimeVersion: string;
-  platform: "win32";
-  arch: "x64";
+  platform: RuntimePlatform;
+  arch: RuntimeArch;
   fileName: string;
   size: number;
   sha512: string;
+}
+
+type RuntimePlatform = "win32" | "darwin";
+type RuntimeArch = "x64" | "arm64";
+
+function supportsEmbeddedRuntime(): boolean {
+  return (
+    (process.platform === "win32" || process.platform === "darwin") &&
+    (process.arch === "x64" || process.arch === "arm64")
+  );
 }
 
 export interface RuntimePaths {
@@ -170,7 +180,7 @@ export function activateRuntimeRoot(root: string, version: string): void {
 }
 
 function runtimeManifestPath(): string | null {
-  if (!app.isPackaged || process.platform !== "win32" || process.arch !== "x64") return null;
+  if (!app.isPackaged || !supportsEmbeddedRuntime()) return null;
   const resourcesPath = (process as any).resourcesPath as string | undefined;
   return resourcesPath ? join(resourcesPath, "runtime-manifest.json") : null;
 }
@@ -183,8 +193,9 @@ export function getRuntimePackageManifest(): RuntimeManifest | null {
     if (
       parsed.schema !== 2 ||
       parsed.embedded !== true ||
-      parsed.platform !== "win32" ||
-      parsed.arch !== "x64" ||
+      !supportsEmbeddedRuntime() ||
+      parsed.platform !== process.platform ||
+      parsed.arch !== process.arch ||
       typeof parsed.runtimeVersion !== "string" ||
       !isValidRuntimeVersion(parsed.runtimeVersion) ||
       typeof parsed.fileName !== "string" ||
@@ -260,7 +271,9 @@ function archiveRoot(extracted: string): string {
 
 /** Verify, extract and activate the runtime archive embedded in the installer. */
 export async function installRuntimePackage(manifest: RuntimeManifest, onProgress?: ProgressFn): Promise<string> {
-  if (process.platform !== "win32" || process.arch !== "x64") throw new Error("standalone Pi runtime is currently Windows x64 only");
+  if (!supportsEmbeddedRuntime()) {
+    throw new Error("standalone Pi runtime supports Windows and macOS on x64 or arm64");
+  }
   const progress = onProgress || (() => undefined);
   const target = runtimeRootForVersion(manifest.runtimeVersion);
   if (isUsableRuntimeRoot(target)) {

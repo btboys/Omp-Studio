@@ -3,13 +3,13 @@
  * Build the standalone Pi Studio runtime asset.
  *
  * This script creates the versioned Node.js + Pi archive that electron-builder
- * embeds in the Windows installer and writes its integrity manifest into
+ * embeds in the desktop installer and writes its integrity manifest into
  * resources/. All pruning is implemented with Node's filesystem APIs so it is
  * deterministic on Windows (where `find` is not GNU find and `rm` is absent).
  */
 
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,8 @@ const EXPECTED_PI_VERSION = process.env.PI_RUNTIME_VERSION || APP_PACKAGE.piRunt
 const STAGE = join(ROOT, ".runtime-stage");
 const RUNTIME_OUT = join(ROOT, "runtime-release");
 const MANIFEST_OUT = join(ROOT, "resources", "runtime-manifest.json");
+const PLATFORM_SLUGS = { win32: "win", darwin: "mac" };
+const SUPPORTED_ARCHES = new Set(["x64", "arm64"]);
 
 function log(message) {
   console.log(`[bundle-runtime] ${message}`);
@@ -161,6 +163,9 @@ function bundleNode() {
   mkdirSync(dirname(dest), { recursive: true });
   log(`copying Node.js: ${process.execPath} -> ${dest}`);
   cpSync(process.execPath, dest);
+  if (process.platform !== "win32") {
+    chmodSync(dest, statSync(process.execPath).mode & 0o777);
+  }
 }
 
 function bundlePi(source) {
@@ -188,8 +193,9 @@ function sha512Base64(file) {
 }
 
 function main() {
-  if (process.platform !== "win32" || process.arch !== "x64") {
-    throw new Error("The standalone runtime builder currently targets Windows x64 only.");
+  const platformSlug = PLATFORM_SLUGS[process.platform];
+  if (!platformSlug || !SUPPORTED_ARCHES.has(process.arch)) {
+    throw new Error(`Unsupported standalone runtime target: ${process.platform}/${process.arch}. Use Windows or macOS on x64 or arm64.`);
   }
 
   const source = locatePiPackage();
@@ -206,7 +212,7 @@ function main() {
   if (runtimeVersion !== EXPECTED_PI_VERSION) {
     throw new Error(`Pi runtime version mismatch: expected v${EXPECTED_PI_VERSION}, found v${runtimeVersion}`);
   }
-  const fileName = `Pi-Studio-Runtime-${runtimeVersion}-win-x64.tar.gz`;
+  const fileName = `Pi-Studio-Runtime-${runtimeVersion}-${platformSlug}-${process.arch}.tar.gz`;
   const archive = join(RUNTIME_OUT, fileName);
   rmSync(archive, { force: true });
 
@@ -217,8 +223,8 @@ function main() {
     schema: 2,
     embedded: true,
     runtimeVersion,
-    platform: "win32",
-    arch: "x64",
+    platform: process.platform,
+    arch: process.arch,
     fileName,
     size,
     sha512: sha512Base64(archive),

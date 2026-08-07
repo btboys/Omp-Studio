@@ -1,0 +1,100 @@
+name: Build Installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            runner: windows-latest
+            target: win
+            platform: win32
+            arch: x64
+          - name: macos-arm64
+            runner: macos-15
+            target: mac
+            platform: darwin
+            arch: arm64
+
+    # These are unsigned CI artifacts. Configure signing secrets and remove
+    # this setting for production distribution builds.
+    env:
+      PI_RUNTIME_VERSION: 0.83.0
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up native Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - name: Verify runner architecture
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: >-
+          node -e "const actual={platform:process.platform,arch:process.arch,execPath:process.execPath};
+          const expected={platform:process.env.EXPECTED_PLATFORM,arch:process.env.EXPECTED_ARCH};
+          console.log({actual,expected});
+          if(actual.platform!==expected.platform||actual.arch!==expected.arch)throw new Error(JSON.stringify({expected,actual}));"
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install the pinned Pi runtime
+        run: npm install --global --no-audit --no-fund @earendil-works/pi-coding-agent@${{ env.PI_RUNTIME_VERSION }}
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run Windows permission gate
+        if: matrix.platform == 'win32'
+        run: npm run test:permission
+
+      - name: Bundle native Node.js and Pi runtime
+        run: npm run bundle
+
+      - name: Verify runtime manifest
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: >-
+          node -e "const fs=require('node:fs');
+          const manifest=JSON.parse(fs.readFileSync('resources/runtime-manifest.json','utf8'));
+          console.log(manifest);
+          if(manifest.platform!==process.env.EXPECTED_PLATFORM||manifest.arch!==process.env.EXPECTED_ARCH)throw new Error(JSON.stringify(manifest));"
+
+      - name: Build renderer and main process
+        run: npm run build
+
+      - name: Build installer for the native runner
+        run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+
+      - name: Copy runtime assets next to installer
+        run: npm run finalize-runtime
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-studio-${{ matrix.name }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
