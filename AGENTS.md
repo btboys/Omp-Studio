@@ -50,7 +50,7 @@ Requires Node `>=24.14.0 <25` and npm. No global agent install is needed: `npm r
 | `npm run bundle` | Build the embedded Node.js + omp runtime tar.gz → `runtime-release/` + write `resources/runtime-manifest.json` (SHA-512) |
 | `npm run pack` | `bundle` + `build` + `electron-builder --dir` + `finalize-runtime` (unpacked dir) |
 | `npm run dist` | `bundle` + `build` + `electron-builder` + `finalize-runtime` (installers in `release/`) |
-| `python scripts/generate-icon.py` | Regenerate `resources/icon.png|ico|icns` (manual, Pillow/numpy) |
+| `python scripts/generate-icon.py` | Regenerate `resources/icon.png|ico|icns` (manual, Pillow) |
 
 Env vars used by packaging: `PI_RUNTIME_VERSION` (overrides the pinned runtime version), `PI_PACKAGE_DIR` (package a specific local pi install), `CSC_IDENTITY_AUTO_DISCOVERY=false` (CI, unsigned builds).
 
