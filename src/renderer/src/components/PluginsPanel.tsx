@@ -36,7 +36,8 @@ export function PluginsPanel() {
   const filteredPackages = useMemo(
     () =>
       packages.filter((p) =>
-        !normalizedQuery || [p.name, p.source, p.kind].some((value) => value.toLowerCase().includes(normalizedQuery)),
+        !normalizedQuery ||
+        [p.name, p.source, p.kind, p.version || ""].some((value) => value.toLowerCase().includes(normalizedQuery)),
       ),
     [packages, normalizedQuery],
   );
@@ -93,7 +94,7 @@ export function PluginsPanel() {
 
         <div className="plugins-body">
           <div className="muted plugins-note">
-            扩展扫描 ~/.omp/agent/extensions（停用即重命名为 *.disabled）；skill 扫描 ~/.omp/agent/skills 与项目 .omp/.pi skills 目录，停用通过 SKILL.md 的 enabled: false 标记实现。
+            npm/git 插件来自 ~/.omp/plugins（与 `omp plugin list` 一致）；本地扩展扫描 ~/.omp/agent/extensions（停用即重命名为 *.disabled）。skill 扫描 ~/.omp/agent/skills 与项目 .omp/.pi skills 目录，停用通过 SKILL.md 的 enabled: false 标记实现。
           </div>
 
           <div className="plugins-toolbar">
@@ -152,12 +153,13 @@ export function PluginsPanel() {
                 <div className="plugins-row-main">
                   <span className="plugins-row-name" title={p.source}>
                     {p.name}
+                    {p.version ? <span className="plugins-version">@{p.version}</span> : null}
                   </span>
                   <span className="plugins-kind">{KIND_LABEL[p.kind] || p.kind}</span>
                   {!p.enabled && <span className="plugins-off">已停用</span>}
                 </div>
                 <div className="plugins-row-sub" title={p.source}>
-                  {p.source}
+                  {p.kind === "local" ? p.source : `omp plugin · ${p.source}`}
                 </div>
                 <div className="plugins-row-actions">
                   <button

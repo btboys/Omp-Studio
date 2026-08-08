@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { getConfig } from "./config";
 import { resolvePiRuntime } from "./pi-bridge";
 import { getAgentDir } from "./session-store";
@@ -10,14 +10,14 @@ import { getAgentDir } from "./session-store";
 /**
  * Manage omp extension files and standalone skills.
  *
- * Extensions: omp discovers `*.ts` and `*.js` modules (plus subdirectory
- * `index.{ts,js}` files and `package.json` packages) from
- * `~/.omp/agent/extensions/` (and the project `.omp/extensions/`). We list the
- * agent-level ones. Because discovery globs `*.{ts,js}` at the top level, a
- * file renamed to `*.disabled` disappears from discovery — that is our
- * enable/disable mechanism for file extensions (reversible). Directory
- * packages are listed but not toggleable in-app; manage those with `omp
- * plugin`.
+ * Managed plugins: `omp plugin` installs packages into `~/.omp/plugins/` and
+ * records them in `omp-plugins.lock.json`. Studio lists those first so the UI
+ * matches `omp plugin list`.
+ *
+ * Local extensions: omp also discovers `*.ts` / `*.js` modules (plus subdirectory
+ * packages) from `~/.omp/agent/extensions/`. File extensions can be toggled by
+ * renaming to `*.disabled`. Directory packages and npm plugins are toggled with
+ * `omp plugin enable/disable`.
  *
  * Skills: omp loads `<skillsDir>/<name>/SKILL.md` and honours the frontmatter
  * flag `enabled: false` (there is no rename-based disable). We toggle that
@@ -29,6 +29,7 @@ export interface PluginPackage {
   name: string;
   kind: "npm" | "git" | "local";
   enabled: boolean;
+  version?: string;
 }
 
 export interface SkillInfo {
@@ -42,13 +43,73 @@ function extensionsDir(): string {
   return join(getAgentDir(), "extensions");
 }
 
+function ompPluginsDir(): string {
+  return join(homedir(), ".omp", "plugins");
+}
+
+/** True when `source` is a filesystem path under agent extensions (not an npm name). */
+export function isLocalExtensionSource(source: string): boolean {
+  if (!source) return false;
+  if (isAbsolute(source)) return true;
+  // Relative paths are uncommon; treat existing files as local extensions.
+  try {
+    return existsSync(source) && (statSync(source).isFile() || statSync(source).isDirectory());
+  } catch {
+    return false;
+  }
+}
+
 /** A file extension is "enabled" when it exists without a .disabled suffix. */
 function extState(name: string): { base: string; enabled: boolean } {
   if (name.endsWith(".disabled")) return { base: name.slice(0, -".disabled".length), enabled: false };
   return { base: name, enabled: true };
 }
 
-export function listPackages(): PluginPackage[] {
+function kindFromDependencySpec(spec: string | undefined): "npm" | "git" {
+  if (!spec) return "npm";
+  const s = spec.trim();
+  if (/^(git\+|git:|ssh:\/\/|git@)/i.test(s)) return "git";
+  if (/^https?:\/\//i.test(s) && /github\.com|gitlab\.com|bitbucket\.org/i.test(s)) return "git";
+  return "npm";
+}
+
+function readJsonFile<T>(path: string): T | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Packages managed by `omp plugin` under ~/.omp/plugins. */
+function listManagedPackages(): PluginPackage[] {
+  const dir = ompPluginsDir();
+  const lock = readJsonFile<{ plugins?: Record<string, { version?: string; enabled?: boolean }> }>(join(dir, "omp-plugins.lock.json"));
+  const pkg = readJsonFile<{ dependencies?: Record<string, string> }>(join(dir, "package.json"));
+  const deps = pkg?.dependencies || {};
+  const lockPlugins = lock?.plugins || {};
+
+  const names = new Set<string>([...Object.keys(lockPlugins), ...Object.keys(deps)]);
+  const out: PluginPackage[] = [];
+  for (const name of names) {
+    const entry = lockPlugins[name];
+    let version = entry?.version;
+    if (!version) {
+      const nested = readJsonFile<{ version?: string }>(join(dir, "node_modules", ...name.split("/"), "package.json"));
+      version = nested?.version;
+    }
+    out.push({
+      source: name,
+      name,
+      kind: kindFromDependencySpec(deps[name]),
+      enabled: entry?.enabled !== false,
+      version,
+    });
+  }
+  return out;
+}
+
+function listLocalPackages(managedNames: Set<string>): PluginPackage[] {
   const dir = extensionsDir();
   if (!existsSync(dir)) return [];
   let entries: Dirent[];
@@ -60,36 +121,72 @@ export function listPackages(): PluginPackage[] {
   const out: PluginPackage[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
-    const abs = join(dir, entry.name);
     const { base, enabled } = extState(entry.name);
+    const absEntry = join(dir, entry.name);
+    const enabledPath = join(dir, base);
     const isFileExt = /\.(ts|js)$/i.test(base);
-    const isPkgDir = entry.isDirectory() && (existsSync(join(abs, "package.json")) || existsSync(join(abs, "index.ts")) || existsSync(join(abs, "index.js")));
+    const isPkgDir =
+      entry.isDirectory() &&
+      (existsSync(join(absEntry, "package.json")) || existsSync(join(absEntry, "index.ts")) || existsSync(join(absEntry, "index.js")));
     if (!isFileExt && !isPkgDir) continue;
-    // Directory packages are always "enabled" (renaming the dir does not hide
-    // it from omp's `*/package.json` glob) — manage them with `omp plugin`.
-    out.push({ source: abs, name: basename(base), kind: "local", enabled: isPkgDir ? true : enabled });
+
+    const displayName = basename(base).replace(/\.(ts|js)$/i, "");
+    // Prefer the managed npm/git entry when the same plugin also exists as a
+    // local copy under agent/extensions (common for linked installs).
+    if (managedNames.has(displayName.toLowerCase()) || managedNames.has(base.toLowerCase())) continue;
+
+    out.push({
+      // Always point at the enabled path so toggle/remove don't accumulate
+      // `.disabled` suffixes after a reload.
+      source: enabledPath,
+      name: displayName,
+      kind: "local",
+      enabled: isPkgDir ? true : enabled,
+    });
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
 }
 
-export function setPackageEnabled(path: string, enabled: boolean): void {
-  const st = statSync(path);
-  if (st.isDirectory()) {
-    // Directory packages cannot be disabled by rename; surface a clear error.
-    throw new Error("Directory extensions are managed with `omp plugin enable/disable`.");
+export function listPackages(): PluginPackage[] {
+  const managed = listManagedPackages();
+  const managedNames = new Set(managed.map((p) => p.name.toLowerCase()));
+  const local = listLocalPackages(managedNames);
+  return [...managed, ...local].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function setPackageEnabled(source: string, enabled: boolean): Promise<void> {
+  if (isLocalExtensionSource(source)) {
+    const on = source.endsWith(".disabled") ? source.slice(0, -".disabled".length) : source;
+    const off = `${on}.disabled`;
+    const target = existsSync(on) ? on : existsSync(off) ? off : null;
+    if (!target) throw new Error("Extension not found: " + source);
+    if (statSync(target).isDirectory()) {
+      throw new Error("Directory extensions are managed with `omp plugin enable/disable`.");
+    }
+    if (enabled && existsSync(off)) renameSync(off, on);
+    else if (!enabled && existsSync(on)) renameSync(on, off);
+    return;
   }
-  const on = path;
-  const off = `${path}.disabled`;
-  if (enabled && existsSync(off)) renameSync(off, on);
-  else if (!enabled && existsSync(on)) renameSync(on, off);
+
+  const action = enabled ? "enable" : "disable";
+  const res = await runOmpCli(["plugin", action, source]);
+  if (res.code !== 0) {
+    const detail = (res.stdout + res.stderr).trim() || `omp plugin ${action} exited with code ${res.code}`;
+    throw new Error(detail);
+  }
 }
 
 export function removePackageEntry(path: string): void {
-  const st = statSync(path);
-  if (st.isDirectory()) {
-    throw new Error("Directory extensions are managed with `omp plugin uninstall`.");
+  const on = path.endsWith(".disabled") ? path.slice(0, -".disabled".length) : path;
+  const candidates = [on, `${on}.disabled`].filter((p) => existsSync(p));
+  if (candidates.length === 0) throw new Error("Extension not found: " + path);
+  for (const candidate of candidates) {
+    const st = statSync(candidate);
+    if (st.isDirectory()) {
+      throw new Error("Directory extensions are managed with `omp plugin uninstall`.");
+    }
+    renameSync(candidate, `${candidate}.removed-${Date.now()}`);
   }
-  renameSync(path, `${path}.removed-${Date.now()}`);
 }
 
 /** Run an omp CLI command (plugin install/uninstall/upgrade, update) and capture its output. */
