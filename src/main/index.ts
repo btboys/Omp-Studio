@@ -1,6 +1,7 @@
 import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, Menu, shell } from "electron";
+import { startBackgroundAppUpdate } from "./app-updater";
 import { loadConfig, getConfig, updateConfig } from "./config";
 import { cleanupOldRuntimes } from "./core-updater";
 import { registerHtmlPreviewProtocol, registerHtmlPreviewScheme } from "./html-preview-protocol";
@@ -192,6 +193,7 @@ if (!gotLock) {
     cleanupOldRuntimes();
     registerIpc(getWin);
     createWindow();
+    startBackgroundAppUpdate(getWin);
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

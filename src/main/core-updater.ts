@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { resetPiRuntime } from "./pi-bridge";
+import { getOmpVersion, resetPiRuntime, resolvePiRuntime } from "./pi-bridge";
 import {
   activateRuntimeRoot,
   cleanupRuntimeVersions,
@@ -90,14 +90,46 @@ export function readManagedPiStatus(): { version: string | null; source: "userDa
 
 /* ------------------------------- helpers ------------------------------- */
 
+/** Strip `omp/` / leading `v` and keep the numeric core (e.g. `17.2.9`). */
+function normalizeVersion(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const value = String(raw).trim().replace(/^omp\//i, "").replace(/^v/i, "").split(/\s+/)[0] || "";
+  if (!value) return null;
+  const match = /^(\d+(?:\.\d+){0,3})(?:[-+].*)?$/.exec(value);
+  return match?.[1] || value;
+}
+
 function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const na = normalizeVersion(a) || "";
+  const nb = normalizeVersion(b) || "";
+  if (na === nb) return 0;
+  const pa = na.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = nb.split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const d = (pa[i] || 0) - (pb[i] || 0);
     if (d !== 0) return d > 0 ? 1 : -1;
   }
   return 0;
+}
+
+/**
+ * Resolve the version shown to the user for update comparison.
+ * Prefer `omp --version` (same as diagnostics) so Settings never claims
+ * "可更新" while displaying equal current/latest strings.
+ */
+async function resolveCurrentCoreVersion(): Promise<{ version: string | null; source: CoreUpdateStatus["source"] }> {
+  const managed = readManagedPiStatus();
+  try {
+    const rt = await resolvePiRuntime();
+    const binary = normalizeVersion(await getOmpVersion(rt.bin));
+    if (binary) return { version: binary, source: managed.source };
+  } catch {
+    /* fall through to managed pointer */
+  }
+  if (managed.version) {
+    return { version: normalizeVersion(managed.version), source: managed.source };
+  }
+  return { version: null, source: managed.source };
 }
 
 async function fetchJson<T>(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<T> {
@@ -190,12 +222,15 @@ function platformAsset(release: ReleaseInfo): ReleaseAsset | null {
 
 /** Check the oh-my-pi GitHub releases feed for the latest omp version. */
 export async function checkForCoreUpdate(): Promise<CoreUpdateStatus> {
-  const { version: current, source } = readManagedPiStatus();
+  const { version: current, source } = await resolveCurrentCoreVersion();
   try {
     const release = await fetchJson<ReleaseInfo>(RELEASES_URL);
-    const latest = typeof release.tag_name === "string" ? release.tag_name.replace(/^v/, "").trim() : "";
+    const latest = normalizeVersion(typeof release.tag_name === "string" ? release.tag_name : "");
     if (!latest) return { current, latest: null, hasUpdate: false, source, error: "版本检查返回为空" };
-    const hasUpdate = current ? compareVersions(latest, current) > 0 : true;
+    // Only mark updatable when we know current AND latest is strictly newer.
+    // Previously `current == null` forced hasUpdate=true, which made Settings show
+    // "可更新" even when the displayed diag.ompVersion already matched latest.
+    const hasUpdate = Boolean(current && compareVersions(latest, current) > 0);
     return { current, latest, hasUpdate, note: release.body?.slice(0, 200) || null, source };
   } catch (e: any) {
     return { current, latest: null, hasUpdate: false, source, error: e?.message || String(e) };
@@ -217,9 +252,11 @@ export async function installCoreUpdate(onProgress?: ProgressFn): Promise<CoreUp
     const status = await checkForCoreUpdate();
     if (status.error) throw new Error(`检查更新失败：${status.error}`);
     if (!status.latest) throw new Error("无法获取最新版本信息");
-    if (!status.hasUpdate) {
+    if (!status.hasUpdate && status.current) {
       return { ok: true, updated: false, from: status.current, message: `omp 已是最新版本（v${status.current}）` };
     }
+    // If current could not be resolved, continue and install latest rather than
+    // falsely claiming we are already up to date.
     const targetVersion = status.latest;
     progress({ stage: "checking", message: `发现新版本 v${targetVersion}（当前 v${status.current || "?"}）` });
 
@@ -269,7 +306,7 @@ export async function installCoreUpdate(onProgress?: ProgressFn): Promise<CoreUp
       updated: true,
       from: status.current,
       to: targetVersion,
-      message: `omp 核心已更新到 v${targetVersion}，新开的线程将使用新版本。`,
+      message: `omp 核心已更新到 v${targetVersion}，新开的会话将使用新版本。`,
     };
   } catch (e: any) {
     rmSafe(staging);

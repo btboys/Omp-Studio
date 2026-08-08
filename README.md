@@ -21,6 +21,12 @@ Current release: `0.3.1` (Windows x64 and macOS arm64 installers).
 
 Download the latest `Omp-Studio-Setup-<version>.exe` for Windows x64 or `Omp-Studio-<version>-arm64.dmg` for Apple Silicon macOS from GitHub Releases. The installers are currently unsigned, so Windows SmartScreen or macOS Gatekeeper may show a warning.
 
+On macOS, after dragging the app into `/Applications`, clear the quarantine flag before first launch:
+
+```bash
+sudo xattr -cr /Applications/Omp\ Studio.app
+```
+
 Each installer contains a pinned native omp runtime binary. On first launch, Omp Studio verifies and copies that embedded runtime into the user data directory. Later app updates reuse the extracted runtime without any runtime download.
 
 ## Development requirements

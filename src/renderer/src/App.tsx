@@ -12,6 +12,7 @@ import { SearchModal } from "./components/SearchModal";
 import { PluginsPanel } from "./components/PluginsPanel";
 import { McpPanel } from "./components/McpPanel";
 import { AutomationPanel } from "./components/AutomationPanel";
+import { AppUpdateModal } from "./components/AppUpdateModal";
 import { Folder, Plus } from "./components/icons";
 import { LanguageBridge } from "./components/LanguageBridge";
 import appIconUrl from "../../../resources/icon.png";
@@ -137,6 +138,7 @@ export default function App() {
       <PluginsPanel />
       <McpPanel />
       <AutomationPanel />
+      <AppUpdateModal />
       <Settings />
     </div>
   );
