@@ -1470,8 +1470,8 @@ export function Settings() {
                   <div className="set-card-title">{language === "zh" ? "Omp Studio 应用更新" : "Omp Studio app update"}</div>
                   <div className="set-hint" style={{ marginBottom: 12 }}>
                     {language === "zh"
-                      ? "从 GitHub Releases 检查最新正式版本。发现新版本后，可在此下载 Windows 安装包并安装重启。"
-                      : "Check the latest stable release from GitHub Releases. Download and install a Windows update here, then restart Omp Studio."}
+                      ? "从 GitHub Releases 检查最新正式版本。应用内下载并安装仅支持 Windows；macOS 请从 GitHub Releases 手动下载 DMG 覆盖安装。"
+                      : "Check the latest stable release from GitHub Releases. In-app download and install is only supported on Windows; on macOS, download the DMG from GitHub Releases and replace the app manually."}
                   </div>
                   <div className="set-diag-grid" style={{ marginBottom: 12 }}>
                     <div className="set-diag-k">{language === "zh" ? "当前版本" : "Current version"}</div>

@@ -103,7 +103,12 @@ function statusNote(supported: boolean, installable: boolean): string {
     return "来源：GitHub Releases，由 electron-updater 管理下载和安装";
   }
   if (supported && !installable) {
+    // Windows platform, but this process is not a packaged installer build.
     return "当前为开发环境，只能检查版本；请使用已安装的 Omp Studio 执行更新";
+  }
+  if (app.isPackaged) {
+    // macOS/Linux packaged installs are real releases; only in-app install is Windows-only.
+    return "当前为已安装的正式版；应用内自动下载/安装目前仅支持 Windows，仍可检查最新版本号，macOS 请从 GitHub Releases 手动下载 DMG";
   }
   return "当前平台没有可用的 Omp Studio Windows 安装包（仍可检查最新版本号）";
 }
