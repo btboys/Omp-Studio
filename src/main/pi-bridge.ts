@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { ensureRuntimePackage, getActiveRuntimeRoot, getRuntimePackageManifest, ompBinaryFileName, runtimePathsForRoot } from "./runtime-package";
@@ -65,6 +65,39 @@ export function getBundledRuntime(): ResolvedRuntime | null {
     if (existsSync(bin)) return { bin };
   }
   return null;
+}
+
+/**
+ * GUI-launched macOS apps inherit PATH from /etc/paths only; Homebrew's
+ * /opt/homebrew/bin (rtk, git-lfs, …) is added by shell rc files that the app
+ * never sources. Merge the common Homebrew prefixes and /etc/paths.d entries
+ * into the omp child's PATH so brew-installed CLIs are visible to the agent
+ * and its extensions (e.g. pi-rtk-optimizer's `rtk` discovery).
+ */
+function augmentChildPath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const sep = process.platform === "win32" ? ";" : ":";
+  const dirs = (env.PATH || env.Path || "").split(sep).filter(Boolean);
+  const extra: string[] = [];
+  if (process.platform === "darwin") {
+    extra.push("/opt/homebrew/bin", "/usr/local/bin");
+    try {
+      for (const file of readdirSync("/etc/paths.d")) {
+        const p = readFileSync(join("/etc/paths.d", file), "utf8").trim();
+        if (p) extra.push(p);
+      }
+    } catch {
+      // Not a launchd system or unreadable; the defaults above still apply.
+    }
+  }
+  const seen = new Set(dirs);
+  for (const dir of extra) {
+    if (dir && !seen.has(dir)) {
+      seen.add(dir);
+      dirs.push(dir);
+    }
+  }
+  env.PATH = dirs.join(sep);
+  return env;
 }
 
 /** Split PATH into directories without spawning anything (cross-platform). */
@@ -306,7 +339,7 @@ export class PiBridge {
     if (this.opts.sessionFile) args.push("--session", this.opts.sessionFile);
     for (const ext of this.opts.extensions || []) args.push("--extension", ext);
 
-    const env: NodeJS.ProcessEnv = { ...process.env };
+    const env: NodeJS.ProcessEnv = augmentChildPath({ ...process.env });
     if (this.opts.gateModeFile) env.PI_STUDIO_GATE_MODE_FILE = this.opts.gateModeFile;
 
     this.proc = spawn(rt.bin, args, {
