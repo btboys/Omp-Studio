@@ -173,9 +173,12 @@ jobs:
 
   # Release cuts and tag builds only: after both platform installers are
   # published, attach a changelog body to the release electron-builder created.
+  # always() is required: skip propagates transitively down the needs chain
+  # (prepare-release is skipped on tag builds), and without it this job is
+  # force-skipped even though its direct dependency (package) succeeded.
   release-notes:
     name: Release notes
-    if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+    if: always() && !cancelled() && needs.package.result == 'success' && (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag')
     needs: package
     runs-on: ubuntu-latest
     steps:
