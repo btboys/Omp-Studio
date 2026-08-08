@@ -17,6 +17,10 @@ Current release: `0.5.0` (Windows x64 and macOS arm64 installers).
 - Keep a versioned omp runtime embedded in each installer and support app-managed runtime updates.
 - Use a permission gate for shell commands, project boundaries, and extension actions.
 
+## Screenshots
+
+![Home and projects](guide-assets/01-home-and-projects.png)
+
 ## Download
 
 Download the latest `Omp-Studio-Setup-<version>.exe` for Windows x64 or `Omp-Studio-<version>-arm64.dmg` for Apple Silicon macOS from GitHub Releases. The installers are currently unsigned, so Windows SmartScreen or macOS Gatekeeper may show a warning.
