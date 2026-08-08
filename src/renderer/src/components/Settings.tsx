@@ -11,7 +11,7 @@ import appIconUrl from "../../../../resources/icon.png";
  * ------------------------------------------------------------------ */
 
 const API_TYPES: ApiType[] = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
-const THINK_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINK_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"] as const;
 function supportedThinkingLevels(model?: ModelDef): readonly string[] {
   // This is a desired global default, not the live model capability list.
   // Keep unmapped levels visible so models without an explicit map can still
@@ -150,7 +150,7 @@ function ThinkingLevelMapEditor({
   return (
     <div className="set-thinking-map">
       <div className="set-thinking-map-head">
-        <span>{language === "zh" ? "Pi 档位" : "Pi level"}</span>
+        <span>{language === "zh" ? "思考档位" : "Thinking level"}</span>
         <span>{language === "zh" ? "提供方设置" : "Provider setting"}</span>
       </div>
       {THINK_LEVELS.map((level) => {
@@ -364,7 +364,7 @@ function ModelRow({
           </Field>
           <Field
             label="thinkingLevelMap"
-            hint={language === "zh" ? "按 Pi 思考档位逐项选择提供方设置" : "Configure the provider setting for each Pi effort level"}
+            hint={language === "zh" ? "按 omp 思考档位逐项选择提供方设置" : "Configure the provider setting for each omp effort level"}
           >
             <ThinkingLevelMapEditor value={m.thinkingLevelMap} language={language} onChange={(v) => patch({ thinkingLevelMap: v })} />
           </Field>
@@ -584,6 +584,7 @@ export function Settings() {
   const pushToast = useStore((s) => s.pushToast);
   const config = useStore((s) => s.config);
   const restoreProject = useStore((s) => s.restoreProject);
+  const deleteProject = useStore((s) => s.deleteProject);
   const restoreThread = useStore((s) => s.restoreThread);
   const refreshOpenThreadModels = useStore((s) => s.refreshOpenThreadModels);
   const language = config?.language || "en";
@@ -593,6 +594,8 @@ export function Settings() {
   const [initialProviders, setInitialProviders] = useState("{}");
   const [thinking, setThinking] = useState<ThinkingDefaults>({});
   const [initialThinking, setInitialThinking] = useState("{}");
+  /** omp's live default session model (config.yml modelRoles.default). */
+  const [defaultRole, setDefaultRole] = useState<{ provider: string; model: string } | null>(null);
   const [invalidJson, setInvalidJson] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<null | "models" | "thinking">(null);
   const [flash, setFlash] = useState<null | "models" | "thinking">(null);
@@ -602,7 +605,7 @@ export function Settings() {
   const [adding, setAdding] = useState(false);
   const [newProvider, setNewProvider] = useState<NewProviderDraft>(emptyNewProvider);
 
-  // ---- pi update ----
+  // ---- omp update ----
   const [updating, setUpdating] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<{
     current: string | null;
@@ -616,7 +619,7 @@ export function Settings() {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updatedTo, setUpdatedTo] = useState<string | null>(null);
 
-  // ---- Pi Studio application update ----
+  // ---- Omp Studio application update ----
   const [appUpdating, setAppUpdating] = useState(false);
   const [appUpdateStatus, setAppUpdateStatus] = useState<{
     current: string;
@@ -694,9 +697,9 @@ export function Settings() {
       const result: any = await window.pi.app.downloadAppUpdate();
       if (result?.ok && result?.downloaded) {
         setAppUpdateReady(true);
-        pushToast("success", language === "zh" ? result.message : `Pi Studio v${result.version || ""} is ready to install.`);
+        pushToast("success", language === "zh" ? result.message : `Omp Studio v${result.version || ""} is ready to install.`);
       } else if (result?.ok) {
-        pushToast("info", language === "zh" ? result.message : "Pi Studio is already up to date.");
+        pushToast("info", language === "zh" ? result.message : "Omp Studio is already up to date.");
       } else {
         setAppUpdateError(result?.message || (language === "zh" ? "应用更新失败" : "App update failed"));
       }
@@ -739,29 +742,29 @@ export function Settings() {
           pushToast("error", res.output);
         }
       } else {
-        // System-installed pi (npm/pnpm global) updated itself via `pi update`.
+        // System-installed omp (npm/pnpm global) updated itself via `omp update`.
         const raw = stripAnsi(res?.output || "");
         const text = cleanOutput(raw);
         const assertion = hasLibuvAssertion(raw);
 
         if (res?.ok) {
-          if (/already up to date/i.test(text)) pushToast("info", "Pi 已是最新版本。");
-          else pushToast("success", "Pi 已更新到最新版本。");
+          if (/already up to date/i.test(text)) pushToast("info", "omp 已是最新版本。");
+          else pushToast("success", "omp 已更新到最新版本。");
         } else if (assertion) {
           if (/already up to date/i.test(text)) {
-            pushToast("info", "Pi 已是最新版本。");
+            pushToast("info", "omp 已是最新版本。");
           } else if (/Updating/i.test(text)) {
-            pushToast("warning", "Pi 更新命令已执行，但进程退出时出现已知 Windows 兼容问题。请重启 Pi Studio 以使用新版本。");
+            pushToast("warning", "omp 更新命令已执行，但进程退出时出现已知 Windows 兼容问题。请重启 Omp Studio 以使用新版本。");
           } else {
-            pushToast("warning", "Pi 更新状态不确定（进程退出异常）。请重启 Pi Studio 后检查版本。");
+            pushToast("warning", "omp 更新状态不确定（进程退出异常）。请重启 Omp Studio 后检查版本。");
           }
         } else {
-          pushToast("error", "Pi 更新失败：" + (lastLine(text) || "未知错误"));
+          pushToast("error", "omp 更新失败：" + (lastLine(text) || "未知错误"));
         }
       }
       await refreshUpdateState();
     } catch (e: any) {
-      pushToast("error", "Pi 更新失败：" + (e?.message || String(e)));
+      pushToast("error", "omp 更新失败：" + (e?.message || String(e)));
     } finally {
       setUpdating(false);
     }
@@ -786,17 +789,19 @@ export function Settings() {
     setAppVersion(null);
     (async () => {
       try {
-        const [models, think, d, p, version] = await Promise.all([
+        const [models, think, d, p, version, role] = await Promise.all([
           window.pi.settings.getModels(),
           window.pi.settings.getThinking(),
           window.pi.settings.getDiagnostics(),
           window.pi.settings.getPaths(),
           window.pi.app.getVersion(),
+          window.pi.settings.getDefaultRole(),
         ]);
         setDraft(clone(models));
         setInitialProviders(JSON.stringify(models.providers || {}));
         setThinking(think || {});
         setInitialThinking(JSON.stringify(think || {}));
+        setDefaultRole(role);
         setDiag(d);
         setPaths(p);
         setAppVersion(typeof version === "string" ? version : null);
@@ -917,8 +922,8 @@ export function Settings() {
       modelDirty &&
       !window.confirm(
         language === "zh"
-          ? "将丢弃未保存的模型编辑并重新读取 models.json，继续？"
-          : "Discard unsaved model changes and reload models.json?",
+          ? "将丢弃未保存的模型编辑并重新读取 models.yml，继续？"
+          : "Discard unsaved model changes and reload models.yml?",
       )
     ) return;
     const models = await window.pi.settings.getModels();
@@ -968,9 +973,9 @@ export function Settings() {
   if (!open) return null;
 
   const providerKeys = Object.keys(draft.providers);
-  const defaultModelDefs = thinking.defaultProvider ? draft.providers[thinking.defaultProvider]?.models || [] : [];
+  const defaultModelDefs = defaultRole?.provider ? draft.providers[defaultRole.provider]?.models || [] : [];
   const defaultModels = defaultModelDefs.map((m) => m.id);
-  const selectedDefaultModel = defaultModelDefs.find((m) => m.id === thinking.defaultModel);
+  const selectedDefaultModel = defaultModelDefs.find((m) => m.id === defaultRole?.model);
   const availableThinkingLevels = supportedThinkingLevels(selectedDefaultModel);
 
   const changeLanguage = async (language: "en" | "zh") => {
@@ -998,7 +1003,7 @@ export function Settings() {
             </span>
             <div>
               <div className="set-brand-title">设置</div>
-              <div className="set-brand-sub">Pi Studio</div>
+              <div className="set-brand-sub">Omp Studio</div>
             </div>
           </div>
           <nav className="set-tabs">
@@ -1034,7 +1039,7 @@ export function Settings() {
                 <option value="zh">中文</option>
               </select>
             </label>
-            编辑会写入 <code>~/.pi/agent</code>，与终端 pi 共享。
+            编辑会写入 <code>~/.omp/agent</code>，与终端 omp 共享。
           </div>
         </aside>
 
@@ -1060,7 +1065,7 @@ export function Settings() {
             <div className="set-head-actions">
               {tab === "models" && (
                 <>
-                  <button className="set-btn ghost" onClick={reloadModels} title="重新读取 models.json">
+                  <button className="set-btn ghost" onClick={reloadModels} title="重新读取 models.yml">
                     <Refresh size={14} /> 重新加载
                   </button>
                   <button className={`set-btn primary ${flash === "models" ? "saved" : ""}`} onClick={saveModels} disabled={!!saving}>
@@ -1231,8 +1236,26 @@ export function Settings() {
                     ))}
                   </select>
                 </Field>
-                <Field label="默认提供商">
-                  <select className="set-select" value={thinking.defaultProvider || ""} onChange={(e) => setThinking((t) => ({ ...t, defaultProvider: e.target.value || undefined, defaultModel: undefined }))}>
+                <Field label="默认提供商" hint="写入 config.yml 的 modelRoles.default，新会话默认使用该提供商">
+                  <select
+                    className="set-select"
+                    value={defaultRole?.provider || ""}
+                    onChange={async (e) => {
+                      const provider = e.target.value || null;
+                      if (!provider) {
+                        // Cleared: delete the default role entirely.
+                        try {
+                          const next = await window.pi.settings.setDefaultRole("", null);
+                          setDefaultRole(next);
+                        } catch (err: unknown) {
+                          pushToast("error", "保存失败：" + (err instanceof Error ? err.message : String(err)));
+                        }
+                        return;
+                      }
+                      // Provider chosen; the model select now drives the write.
+                      setDefaultRole({ provider, model: "" });
+                    }}
+                  >
                     <option value="">（未设）</option>
                     {providerKeys.map((k) => (
                       <option key={k} value={k}>
@@ -1242,7 +1265,20 @@ export function Settings() {
                   </select>
                 </Field>
                 <Field label="默认模型">
-                  <select className="set-select" value={thinking.defaultModel || ""} onChange={(e) => setThinking((t) => ({ ...t, defaultModel: e.target.value || undefined }))} disabled={!thinking.defaultProvider}>
+                  <select
+                    className="set-select"
+                    value={defaultRole?.model || ""}
+                    disabled={!defaultRole?.provider}
+                    onChange={async (e) => {
+                      const model = e.target.value || null;
+                      try {
+                        const next = await window.pi.settings.setDefaultRole(defaultRole?.provider || "", model);
+                        setDefaultRole(next);
+                      } catch (err: unknown) {
+                        pushToast("error", "保存失败：" + (err instanceof Error ? err.message : String(err)));
+                      }
+                    }}
+                  >
                     <option value="">（未设）</option>
                     {defaultModels.map((id) => (
                       <option key={id} value={id}>
@@ -1264,7 +1300,7 @@ export function Settings() {
               <div className="set-card">
                 <div className="set-card-title">已归档项目</div>
                 <div className="set-hint archived-project-hint">
-                  归档只会从侧栏、搜索和新建任务的项目列表中隐藏文件夹，不会删除文件夹或其中的线程。
+                  归档只会从侧栏、搜索和新建任务的项目列表中隐藏文件夹，不会删除文件夹或其中的线程；在「已归档项目」中可彻底删除会话文件，不可恢复。
                 </div>
                 {(config?.archivedProjects || []).length === 0 ? (
                   <div className="set-empty">暂无归档项目。</div>
@@ -1279,7 +1315,21 @@ export function Settings() {
                             <div className="archived-project-name">{name}</div>
                             <div className="archived-project-path" title={cwd}>{cwd}</div>
                           </div>
-                          <button className="set-btn" onClick={() => restoreProject(cwd)}>恢复项目</button>
+                          <div className="archived-project-actions">
+                            <button className="set-btn" onClick={() => restoreProject(cwd)}>恢复项目</button>
+                            <button
+                              className="set-btn danger"
+                              onClick={() => {
+                                const msg =
+                                  language === "zh"
+                                    ? `彻底删除「${name}」的全部会话文件？此操作不可恢复。`
+                                    : `Permanently delete all session files for "${name}"? This cannot be undone.`;
+                                if (window.confirm(msg)) void deleteProject(cwd);
+                              }}
+                            >
+                              彻底删除
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -1316,17 +1366,13 @@ export function Settings() {
             {tab === "diag" && (
               <>
                 <div className="set-card">
-                  <div className="set-card-title">Pi 运行时</div>
+                  <div className="set-card-title">omp 运行时</div>
                   {diag?.error && <div className="set-diag-err">⚠ {diag.error}</div>}
                   <div className="set-diag-grid">
-                    <div className="set-diag-k">node</div>
-                    <div className="set-diag-v">{diag?.node || "—"}</div>
-                    <div className="set-diag-k">node 版本</div>
-                    <div className="set-diag-v">{diag?.nodeVersion || "—"}</div>
-                    <div className="set-diag-k">pi cli.js</div>
-                    <div className="set-diag-v">{diag?.cli || "—"}</div>
-                    <div className="set-diag-k">pi 版本</div>
-                    <div className="set-diag-v">{diag?.piVersion || "—"}</div>
+                    <div className="set-diag-k">omp 二进制</div>
+                    <div className="set-diag-v">{diag?.bin || "—"}</div>
+                    <div className="set-diag-k">omp 版本</div>
+                    <div className="set-diag-v">{diag?.ompVersion || "—"}</div>
                   </div>
                 </div>
 
@@ -1337,7 +1383,7 @@ export function Settings() {
                     <div className="set-diag-v">{paths?.agentDir || diag?.agentDir || "—"}</div>
                     <div className="set-diag-k">settings.json</div>
                     <div className="set-diag-v">{paths?.settings || "—"}</div>
-                    <div className="set-diag-k">models.json</div>
+                    <div className="set-diag-k">models.yml</div>
                     <div className="set-diag-v">{paths?.models || "—"}</div>
                     <div className="set-diag-k">auth.json</div>
                     <div className="set-diag-v">{paths?.auth || "—"}</div>
@@ -1350,7 +1396,7 @@ export function Settings() {
                       打开 settings.json
                     </button>
                     <button className="set-btn ghost" onClick={() => paths && openFile(paths.models)}>
-                      打开 models.json
+                      打开 models.yml
                     </button>
                     {paths && (
                       <button className="set-btn ghost" onClick={() => window.pi.settings.showItem(paths.models)} title="在资源管理器中显示">
@@ -1359,7 +1405,7 @@ export function Settings() {
                     )}
                   </div>
                   <div className="set-hint" style={{ marginTop: 8 }}>
-                    这些文件由桌面端与终端 pi 共享。在此面板保存会原子写回并保留你手写的高级字段；也可用上方按钮直接在外部编辑。
+                    这些文件由桌面端与终端 omp 共享。在此面板保存会原子写回并保留你手写的高级字段；也可用上方按钮直接在外部编辑。
                   </div>
                 </div>
               </>
@@ -1368,11 +1414,11 @@ export function Settings() {
             {tab === "update" && (
               <>
                 <div className="set-card">
-                  <div className="set-card-title">{language === "zh" ? "Pi Studio 应用更新" : "Pi Studio app update"}</div>
+                  <div className="set-card-title">{language === "zh" ? "Omp Studio 应用更新" : "Omp Studio app update"}</div>
                   <div className="set-hint" style={{ marginBottom: 12 }}>
                     {language === "zh"
                       ? "从 GitHub Releases 检查最新正式版本。发现新版本后，可在此下载 Windows 安装包并安装重启。"
-                      : "Check the latest stable release from GitHub Releases. Download and install a Windows update here, then restart Pi Studio."}
+                      : "Check the latest stable release from GitHub Releases. Download and install a Windows update here, then restart Omp Studio."}
                   </div>
                   <div className="set-diag-grid" style={{ marginBottom: 12 }}>
                     <div className="set-diag-k">{language === "zh" ? "当前版本" : "Current version"}</div>
@@ -1440,17 +1486,17 @@ export function Settings() {
                 </div>
 
                 <div className="set-card">
-                <div className="set-card-title">更新 Pi 核心</div>
+                <div className="set-card-title">更新 omp 核心</div>
                 <div className="set-hint" style={{ marginBottom: 12 }}>
                   {diag?.bundled ? (
-                    <>Pi 核心由 Pi Studio 统一管理（内置副本不可被 <code>pi update</code> 原地更新）。点击下方按钮后，Pi Studio 会自行下载并安装新版本到应用数据目录，更新完成后新开的线程使用新版本。扩展请在「插件」面板更新。</>
+                    <>omp 核心由 Omp Studio 统一管理（内置副本不可被 <code>omp update</code> 原地更新）。点击下方按钮后，Omp Studio 会自行下载并安装新版本到应用数据目录，更新完成后新开的线程使用新版本。扩展请在「插件」面板更新。</>
                   ) : (
-                    <>运行 <code>pi update</code> 更新 pi CLI 本体（不含扩展，扩展请在「插件」面板更新）。会先检查是否为最新版本，结果以提示呈现。更新完成后新开的线程使用新版本。</>
+                    <>运行 <code>omp update</code> 更新 omp 本体（不含扩展，扩展请在「插件」面板更新）。会先检查是否为最新版本，结果以提示呈现。更新完成后新开的线程使用新版本。</>
                   )}
                 </div>
                 <div className="set-diag-grid" style={{ marginBottom: 12 }}>
                   <div className="set-diag-k">当前版本</div>
-                  <div className="set-diag-v">{updateStatus?.current || diag?.piVersion || "—"}</div>
+                  <div className="set-diag-v">{updateStatus?.current || diag?.ompVersion || "—"}</div>
                   <div className="set-diag-k">最新版本</div>
                   <div className="set-diag-v">
                     {updateStatus?.error ? (
@@ -1473,12 +1519,12 @@ export function Settings() {
                     ) : updateStatus?.hasUpdate && updateStatus.latest ? (
                       `更新到 v${updateStatus.latest}`
                     ) : (
-                      "检查并更新 Pi"
+                      "检查并更新 omp"
                     )}
                   </button>
                   {updatedTo && (
                     <button className="set-btn" style={{ marginLeft: 8 }} onClick={() => window.pi.app.relaunch()}>
-                      立即重启 Pi Studio
+                      立即重启 Omp Studio
                     </button>
                   )}
                 </div>
@@ -1500,7 +1546,7 @@ export function Settings() {
 
             {tab === "about" && (
               <div className="set-card set-about-card">
-                <div className="set-card-title">{language === "zh" ? "关于 Pi Studio" : "About Pi Studio"}</div>
+                <div className="set-card-title">{language === "zh" ? "关于 Omp Studio" : "About Omp Studio"}</div>
                 <div className="set-about-list">
                   <div className="set-about-row">
                     <span>{language === "zh" ? "软件版本" : "Software version"}</span>

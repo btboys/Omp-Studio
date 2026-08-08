@@ -333,6 +333,40 @@ body.sidebar-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.project.worktree-child {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+}
+.project.worktree-child .project-head {
+  font-weight: 500;
+}
+.project.worktree-group {
+  margin-top: 4px;
+}
+.project.worktree-group .worktree-members {
+  margin: 1px 0 6px 4px;
+}
+.project .pbranch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -3px 8px 3px 26px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-faint);
+  cursor: default;
+}
+.project .pbranch svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.project .pbranch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .project-head .pcount {
   color: var(--text-faint);
   font-size: 11px;
@@ -562,6 +596,35 @@ body.sidebar-resizing * {
   font-weight: 600;
   font-size: 13.5px;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-head-subrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 1px;
+}
+.chat-head-subrow .chat-head-folder {
+  margin-top: 0;
+  min-width: 0;
+}
+.chat-head-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  max-width: 220px;
+}
+.chat-head-branch-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2852,6 +2915,13 @@ textarea.modal-input {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.archived-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .btn {
   border: 1px solid var(--border-strong);
   background: #fff;
@@ -3717,6 +3787,15 @@ textarea.modal-input {
 .set-btn.primary.saved {
   background: var(--accent);
   border-color: var(--accent);
+}
+.set-btn.danger {
+  color: #b23a2c;
+  border-color: rgba(178, 58, 44, 0.4);
+  background: transparent;
+}
+.set-btn.danger:hover {
+  background: rgba(178, 58, 44, 0.08);
+  border-color: rgba(178, 58, 44, 0.6);
 }
 .set-btn:disabled {
   opacity: 0.6;

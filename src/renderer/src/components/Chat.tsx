@@ -34,6 +34,27 @@ export function Chat() {
   const streaming = thread?.streaming;
   const count = (thread?.messages.length || 0) + (streaming ? 1 : 0);
 
+  // git branch of the thread's worktree; refetched when a run ends (the agent
+  // may have switched branches) or the folder changes.
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  useEffect(() => {
+    const cwd = thread?.cwd;
+    if (!cwd) {
+      setGitBranch(null);
+      return;
+    }
+    let alive = true;
+    window.pi.app
+      .getGitBranch(cwd)
+      .then((branch) => {
+        if (alive) setGitBranch(branch);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [thread?.cwd, thread?.isStreaming]);
+
   // auto-scroll to bottom on new content
   useEffect(() => {
     const el = scrollRef.current;
@@ -51,7 +72,7 @@ export function Chat() {
 
   if (!thread || !activeThreadId) return null;
 
-  // Optimistic open: the pi process is still booting. Show the chrome plus a
+  // Optimistic open: the omp process is still booting. Show the chrome plus a
   // spinner immediately instead of leaving the previous view frozen.
   if (thread.loading) {
     return (
@@ -67,7 +88,7 @@ export function Chat() {
         </div>
         <div className="chat-loading">
           <span className="spinner" />
-          正在启动 pi 进程…
+          正在启动 omp 进程…
         </div>
       </section>
     );
@@ -151,22 +172,30 @@ export function Chat() {
                 {title}
               </div>
               {thread.cwd && (
-                <button
-                  className="chat-head-folder"
-                  title={`在文件管理器中打开：${thread.cwd}`}
-                  onClick={() => {
-                    window.pi.settings.openPath(thread.cwd).catch(() => {});
-                  }}
-                >
-                  <Folder size={11} />
-                  <span className="chat-head-folder-path">{thread.cwd}</span>
-                </button>
+                <div className="chat-head-subrow">
+                  <button
+                    className="chat-head-folder"
+                    title={`在文件管理器中打开：${thread.cwd}`}
+                    onClick={() => {
+                      window.pi.settings.openPath(thread.cwd).catch(() => {});
+                    }}
+                  >
+                    <Folder size={11} />
+                    <span className="chat-head-folder-path">{thread.cwd}</span>
+                  </button>
+                  {gitBranch && (
+                    <span className="chat-head-branch" title={`当前 Git 分支：${gitBranch}`}>
+                      <Branch size={11} />
+                      <span className="chat-head-branch-name">{gitBranch}</span>
+                    </span>
+                  )}
+                </div>
               )}
             </>
           )}
         </div>
         {!thread.connected && (
-          <span className="chat-connecting" title="pi 进程连接中；历史已可浏览，发送消息会自动等待连接完成">
+          <span className="chat-connecting" title="omp 进程连接中；历史已可浏览，发送消息会自动等待连接完成">
             <span className="spinner" /> 连接中
           </span>
         )}
@@ -474,7 +503,7 @@ function MessageGroupInner({
   };
   return (
     <div className="msg assistant">
-      <div className="msg-avatar" aria-label="Pi Studio Agent">
+      <div className="msg-avatar" aria-label="Omp Studio Agent">
         <img className="msg-app-icon" src={appIconUrl} alt="" />
       </div>
       <div className="msg-body">
@@ -496,7 +525,7 @@ function MessageGroupInner({
                 <button
                   key={artifact.path.toLowerCase()}
                   className="msg-artifact"
-                  title={`${language === "zh" ? "在 Pi Studio 中查看" : "View in Pi Studio"} · ${artifact.path}`}
+                  title={`${language === "zh" ? "在 Omp Studio 中查看" : "View in Omp Studio"} · ${artifact.path}`}
                   onClick={() => void openArtifact(artifact)}
                   onContextMenu={(event) => {
                     event.preventDefault();

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname } from "node:path";
+import { extname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { checkForAppUpdate, downloadAppUpdate, installAppUpdate } from "./app-updater";
 import { checkForCoreUpdate, installCoreUpdate } from "./core-updater";
@@ -14,22 +15,23 @@ import {
   getModelsPath,
   getSettingsPath,
   readModelsFile,
+  readDefaultRoleModel,
   readThinking,
   testModelAvailability,
+  writeDefaultRoleModel,
   writeModelsProviders,
   writeThinking,
 } from "./models-service";
-import { PiBridge, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
+import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { readPreview } from "./preview-service";
-import { getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit } from "./session-store";
+import { deleteProjectSessions, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit } from "./session-store";
 import {
-  getAdditionalSkillPaths,
   listPackages,
   listSkills,
-  probePiStartup,
+  probeOmpStartup,
   removePackageEntry,
-  runPiCli,
+  runOmpCli,
   setPackageEnabled,
   setSkillEnabled,
 } from "./plugins";
@@ -110,7 +112,6 @@ function processAttachments(attachments: Attachment[] | undefined, text: string)
 function createHandle(
   cwd: string,
   sessionFile: string | undefined,
-  name: string | undefined,
   permission: PermissionLevel,
   send: (ch: string, p: unknown) => void,
 ): BridgeHandle {
@@ -131,15 +132,11 @@ function createHandle(
   };
   handle.bridge = new PiBridge({
     cwd,
-    piCliPath: getConfig().piCliPath,
+    ompBinPath: getConfig().ompBinPath,
     sessionFile,
-    name,
     // The gate extension is always loaded; its sandbox/full behaviour is decided
     // at runtime by the per-thread mode file, so permission can change live.
     extensions: [ensureGateExtension(getConfigDir())],
-    // Keep pi's runtime in sync with the Plugins inventory, including the
-    // singular `.pi/agent/skill` compatibility path and other local roots.
-    skills: getAdditionalSkillPaths(cwd),
     gateModeFile,
     onEvent: (e) => send("pi:event", { threadId: id, event: e }),
     onExtUi: (r) => send("pi:extui", { threadId: id, request: r }),
@@ -151,7 +148,7 @@ function createHandle(
         warmHandle = null;
         if (!info.expected) warmFailures++;
         // eslint-disable-next-line no-console
-        console.log(`[pi] warm spare exited (code=${info.code}, expected=${!!info.expected}, failures=${warmFailures})`);
+        console.log(`[omp] warm spare exited (code=${info.code}, expected=${!!info.expected}, failures=${warmFailures})`);
         // Refill unless the spare keeps dying (avoid a crash loop).
         if (warmFailures < 3) setTimeout(() => ensureWarmBridge(), 500);
       }
@@ -213,17 +210,17 @@ export function ensureWarmBridge(): void {
   if (!warmEnabled || warmHandle || !sendToRenderer) return;
   if (warmFailures >= 3) return; // repeated crashes: stop respawning
   const cwd = warmCwd();
-  const handle = createHandle(cwd, undefined, undefined, "sandbox", sendToRenderer);
+  const handle = createHandle(cwd, undefined, "sandbox", sendToRenderer);
   warmHandle = handle;
   // eslint-disable-next-line no-console
-  console.log("[pi] warm spare spawning (cwd=" + cwd + ")");
+  console.log("[omp] warm spare spawning (cwd=" + cwd + ")");
   handle.bridge
     .start()
     .then(() => handle.bridge.getState()) // wait until pi answers: fully booted
     .then(() => {
       if (warmHandle === handle) {
         // eslint-disable-next-line no-console
-        console.log("[pi] warm spare ready — thread opens are now fast");
+        console.log("[omp] warm spare ready — thread opens are now fast");
       }
     })
     .catch((err) => {
@@ -232,7 +229,7 @@ export function ensureWarmBridge(): void {
       // count spawn-time failures here to avoid double counting.
       if (!handle.bridge.running) warmFailures++;
       // eslint-disable-next-line no-console
-      console.error("[pi] warm bridge failed to start:", (err as Error)?.message || String(err));
+      console.error("[omp] warm bridge failed to start:", (err as Error)?.message || String(err));
     });
 }
 
@@ -246,11 +243,11 @@ export function dropWarmBridge(): void {
 
 async function gatherThread(bridge: PiBridge, threadId: string, permission: PermissionLevel) {
   const state: any = await bridge.getState();
-  const [msgRes, modelsRes, cmdsRes, entriesRes]: any[] = await Promise.all([
+  const [msgRes, modelsRes, cmdsRes, branchRes]: any[] = await Promise.all([
     bridge.getMessages(),
     bridge.getAvailableModels(),
     bridge.getCommands().catch(() => ({ commands: [] })),
-    bridge.getEntries().catch(() => ({ entries: [], leafId: null })),
+    bridge.getBranchMessages().catch(() => ({ messages: [] })),
   ]);
   return {
     threadId,
@@ -261,42 +258,11 @@ async function gatherThread(bridge: PiBridge, threadId: string, permission: Perm
     thinkingLevel: state.thinkingLevel ?? "off",
     isStreaming: !!state.isStreaming,
     messages: msgRes?.messages ?? [],
-    branchMessages: activeBranchMessages(entriesRes),
+    branchMessages: branchRes?.messages ?? [],
     models: modelsRes?.models ?? [],
-    commands: (cmdsRes?.commands ?? []).filter((command: any) => command?.name !== "pi-studio-branch-at"),
+    commands: cmdsRes?.commands ?? [],
     permission,
   };
-}
-
-/** Resolve visible user/assistant messages on the active entry branch to their
- * stable session ids. Walking parent links avoids targeting an identically
- * worded reply that belongs to an inactive branch. */
-function activeBranchMessages(entriesRes: any): { entryId: string; role: "user" | "assistant"; text: string }[] {
-  const entries = Array.isArray(entriesRes?.entries) ? entriesRes.entries : [];
-  const byId = new Map(entries.map((entry: any) => [entry?.id, entry]));
-  const branch: any[] = [];
-  let entry: any = entriesRes?.leafId ? byId.get(entriesRes.leafId) : undefined;
-  const seen = new Set<string>();
-  while (entry?.id && !seen.has(entry.id)) {
-    seen.add(entry.id);
-    branch.push(entry);
-    entry = entry.parentId ? byId.get(entry.parentId) : undefined;
-  }
-  branch.reverse();
-  const result: { entryId: string; role: "user" | "assistant"; text: string }[] = [];
-  for (const item of branch) {
-    const role = item?.message?.role;
-    if (item?.type !== "message" || (role !== "user" && role !== "assistant")) continue;
-    const content = item.message.content;
-    const text =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content.map((block: any) => (block?.type === "text" ? block.text || "" : "")).filter(Boolean).join("\n")
-          : "";
-    result.push({ entryId: item.id, role, text });
-  }
-  return result;
 }
 
 /** Resolve the effective permission level for a thread open request. */
@@ -328,9 +294,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("app:getVersion", () => app.getVersion());
   ipcMain.handle("app:getConfig", () => getConfig());
   ipcMain.handle("app:setConfig", (_e, patch) => {
-    const prev = getConfig().piCliPath;
+    const prev = getConfig().ompBinPath;
     const next = updateConfig(patch || {});
-    if ((next.piCliPath || "") !== (prev || "")) {
+    if ((next.ompBinPath || "") !== (prev || "")) {
       resetPiRuntime();
       dropWarmBridge(); // standby was booted from the old runtime
       ensureWarmBridge();
@@ -339,13 +305,14 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   });
   ipcMain.handle("app:resolveRuntime", async () => {
     try {
-      const rt = await resolvePiRuntime(getConfig().piCliPath);
+      const rt = await resolvePiRuntime(getConfig().ompBinPath);
+      const version = await getOmpVersion(rt.bin);
       // eslint-disable-next-line no-console
-      console.log("[pi] runtime resolved ->", "node:", rt.node, "| cli:", rt.cli);
-      return { ok: true, node: rt.node, cli: rt.cli };
+      console.log("[omp] runtime resolved ->", "bin:", rt.bin);
+      return { ok: true, bin: rt.bin, version };
     } catch (e: any) {
       // eslint-disable-next-line no-console
-      console.error("[pi] runtime resolve failed:", e?.message || String(e));
+      console.error("[omp] runtime resolve failed:", e?.message || String(e));
       return { ok: false, error: e?.message || String(e) };
     }
   });
@@ -384,6 +351,49 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   ipcMain.handle("app:getTotalUsage", () => getTotalUsage());
 
+  // Current git branch of a thread's working directory (worktree-aware:
+  // `branch --show-current` reports the branch checked out in that worktree).
+  ipcMain.handle("app:getGitBranch", (_e, cwd: string) => {
+    return new Promise<string | null>((resolve) => {
+      if (!cwd || typeof cwd !== "string") return resolve(null);
+      execFile("git", ["-C", cwd, "branch", "--show-current"], { timeout: 3000, windowsHide: true }, (err, stdout) => {
+        resolve(err ? null : stdout.trim() || null);
+      });
+    });
+  });
+
+  // Worktree relationship: commonDir identifies the repo shared by all its
+  // worktrees; a linked worktree's own git-dir lives under
+  // `<commonDir>/worktrees/<name>` while the main checkout's equals commonDir.
+  ipcMain.handle("app:getGitInfo", (_e, cwd: string) => {
+    return new Promise<{ branch: string | null; commonDir: string | null; isLinked: boolean }>((resolve) => {
+      const empty = { branch: null, commonDir: null, isLinked: false };
+      if (!cwd || typeof cwd !== "string") return resolve(empty);
+      execFile(
+        "git",
+        ["-C", cwd, "rev-parse", "--git-common-dir", "--git-dir", "--abbrev-ref", "HEAD"],
+        { timeout: 3000, windowsHide: true },
+        (err, stdout) => {
+          if (err) return resolve(empty);
+          const [commonRaw, dirRaw, branchRaw] = stdout.trim().split(/\r?\n/);
+          if (!commonRaw || !dirRaw) return resolve(empty);
+          const abs = (p: string) => {
+            try {
+              return realpathSync(isAbsolute(p) ? p : join(cwd, p));
+            } catch {
+              return null;
+            }
+          };
+          const commonDir = abs(commonRaw);
+          const gitDir = abs(dirRaw);
+          if (!commonDir || !gitDir) return resolve(empty);
+          const branch = branchRaw && branchRaw !== "HEAD" ? branchRaw : null;
+          resolve({ branch, commonDir, isLinked: gitDir !== commonDir });
+        },
+      );
+    });
+  });
+
   ipcMain.handle("app:openProject", async (_e, absPath: string) => {
     if (!absPath || !existsSync(absPath) || !statSync(absPath).isDirectory()) {
       throw new Error("Not a directory: " + absPath);
@@ -398,6 +408,19 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const cfg = getConfig();
     updateConfig({ pinnedProjects: (cfg.pinnedProjects || []).filter((p) => p !== absPath) });
     return true;
+  });
+
+  // Permanently delete an archived project's session files and forget it.
+  ipcMain.handle("app:deleteProject", async (_e, cwd: string) => {
+    if (!cwd || typeof cwd !== "string") return { ok: false, error: "Invalid path" };
+    const removed = await deleteProjectSessions(cwd);
+    const cfg = getConfig();
+    const key = cwd.toLowerCase();
+    updateConfig({
+      archivedProjects: (cfg.archivedProjects || []).filter((p) => p.toLowerCase() !== key),
+      archivedThreads: (cfg.archivedThreads || []).filter((t) => t.cwd.toLowerCase() !== key),
+    });
+    return { ok: true, removed };
   });
 
   // Pre-warm the standby pi process for the project the user is looking at, so
@@ -473,6 +496,8 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   });
   ipcMain.handle("settings:getThinking", () => readThinking());
   ipcMain.handle("settings:saveThinking", (_e, patch: Record<string, unknown>) => writeThinking(patch as any));
+  ipcMain.handle("settings:getDefaultRole", () => readDefaultRoleModel());
+  ipcMain.handle("settings:setDefaultRole", (_e, provider: string, model: string | null) => writeDefaultRoleModel(provider, model));
   ipcMain.handle("settings:getDiagnostics", () => getDiagnostics());
   ipcMain.handle("settings:openPath", async (_e, abs: string) => {
     try {
@@ -553,11 +578,11 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     if (!name && warmHandle) {
       if (!warmHandle.bridge.running) {
         // eslint-disable-next-line no-console
-        console.log("[pi] thread:open dropping dead warm spare -> cold start");
+        console.log("[omp] thread:open dropping dead warm spare -> cold start");
         dropWarmBridge();
       } else if (!sameDir(warmHandle.bridge.cwd, cwd)) {
         // eslint-disable-next-line no-console
-        console.log(`[pi] thread:open cwd mismatch (warm="${warmHandle.bridge.cwd}" requested="${cwd}") -> cold start, spare respawns for new cwd`);
+        console.log(`[omp] thread:open cwd mismatch (warm="${warmHandle.bridge.cwd}" requested="${cwd}") -> cold start, spare respawns for new cwd`);
         dropWarmBridge();
       } else {
         handle = warmHandle;
@@ -567,15 +592,15 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
         handle.permission = permission;
         writeGateMode(handle.gateModeFile, permission);
         // eslint-disable-next-line no-console
-        console.log("[pi] thread:open adopting warm spare" + (sessionFile ? " (switch_session)" : " (fresh)"));
+        console.log("[omp] thread:open adopting warm spare" + (sessionFile ? " (switch_session)" : " (fresh)"));
       }
     }
     if (!handle) {
       if (!spareAtEntry && !name) {
         // eslint-disable-next-line no-console
-        console.log("[pi] thread:open cold start (no spare available yet)");
+        console.log("[omp] thread:open cold start (no spare available yet)");
       }
-      handle = createHandle(cwd, sessionFile, name, permission, send);
+      handle = createHandle(cwd, sessionFile, permission, send);
     }
     bridges.set(handle.getId(), handle);
     try {
@@ -707,8 +732,8 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("thread:getBranchMessages", async (_e, threadId: string) => {
     const h = bridges.get(threadId);
     if (!h) return { messages: [] };
-    const entries = await h.bridge.getEntries();
-    return { messages: activeBranchMessages(entries) };
+    const res = await h.bridge.getBranchMessages();
+    return { messages: res?.messages ?? [] };
   });
 
   const finishBranch = async (h: BridgeHandle, oldId: string, selectedText?: string) => {
@@ -775,23 +800,19 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return { ok: true };
   });
   ipcMain.handle("plugins:installPackage", async (_e, source: string) => {
-    const res = await runPiCli(["install", source]);
+    const res = await runOmpCli(["install", source]);
     const installOutput = (res.stdout + res.stderr).trim();
     if (res.code !== 0) {
-      // Never add a failed/partial install to settings: Pi loads configured
-      // packages before RPC starts, so one bad entry can brick every thread.
-      return { ok: false, output: installOutput || `pi install exited with code ${res.code}` };
+      // Never keep a failed install visible as healthy: surface the output.
+      return { ok: false, output: installOutput || `omp install exited with code ${res.code}` };
     }
-    const probe = await probePiStartup();
+    const probe = await probeOmpStartup();
     if (!probe.ok) {
-      // Keep the package installed but disable autoload. This is reversible in
-      // Settings and immediately restores thread startup.
-      setPackageEnabled(source, false);
       dropWarmBridge();
       ensureWarmBridge();
       return {
         ok: false,
-        output: [installOutput, "Installed, but Pi could not load the extension. It was disabled automatically.", probe.output]
+        output: [installOutput, "Installed, but omp could not load the extension. Check its output below.", probe.output]
           .filter(Boolean)
           .join("\n"),
       };
@@ -801,8 +822,17 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return { ok: true, output: installOutput };
   });
   ipcMain.handle("plugins:removePackage", async (_e, source: string) => {
-    const res = await runPiCli(["remove", source]);
-    removePackageEntry(source); // ensure it is gone from settings regardless of CLI result
+    let res;
+    try {
+      res = await runOmpCli(["plugin", "uninstall", source]);
+    } catch (e: any) {
+      // Falling back to direct removal for agent-dir extension files.
+      removePackageEntry(source);
+      dropWarmBridge();
+      ensureWarmBridge();
+      return { ok: true, output: e?.message || String(e) };
+    }
+    removePackageEntry(source); // ensure it is gone regardless of CLI result
     dropWarmBridge();
     ensureWarmBridge();
     return { ok: true, output: (res.stdout + res.stderr).trim() };
@@ -817,11 +847,10 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return { ok: true };
   });
   // Update installed extension packages. With no source, updates all of them
-  // (`pi update --extensions`); with a source, updates just that package. pi
-  // checks installed vs latest internally and only touches outdated packages.
+  // (`omp plugin upgrade`); with a source, updates just that package.
   ipcMain.handle("plugins:updatePackages", async (_e, source?: string) => {
-    const args = source ? ["update", source] : ["update", "--extensions"];
-    const res = await runPiCli(args);
+    const args = source ? ["plugin", "upgrade", source] : ["plugin", "upgrade"];
+    const res = await runOmpCli(args);
     if (res.code === 0) {
       dropWarmBridge();
       ensureWarmBridge();
@@ -859,7 +888,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     let managed = false;
     let kind = runtimeKind();
     try {
-      await resolvePiRuntime(getConfig().piCliPath);
+      await resolvePiRuntime(getConfig().ompBinPath);
       managed = isAppManagedRuntime();
       kind = runtimeKind();
     } catch {
@@ -867,9 +896,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     }
 
     if (managed) {
-      // App-managed runtime (bundled or a previous in-app update): pi's own
+      // App-managed runtime (bundled or a previous in-app update): omp's own
       // `update` refuses these installs, so run our updater instead. It
-      // installs the new tree under userData/runtime/versions/<version> and
+      // installs the new binary under userData/runtime/versions/<version> and
       // switches current.json; new threads pick it up without replacing files
       // held by the currently running app.
       const result = await installCoreUpdate((p) => send("pi:coreUpdate", p));
@@ -888,8 +917,8 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       };
     }
 
-    // System-installed pi (npm/pnpm global): it can self-update.
-    const res = await runPiCli(["update"]);
+    // System-installed omp: it can self-update.
+    const res = await runOmpCli(["update"]);
     resetPiRuntime(); // pick up the new version on next thread open
     return { ok: res.code === 0, managed: false, kind, code: res.code, output: (res.stdout + res.stderr).trim() };
   });

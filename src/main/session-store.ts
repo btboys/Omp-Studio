@@ -1,10 +1,10 @@
-import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 /**
- * Zero-dependency reader for pi's session store (~/.pi/agent/sessions).
+ * Zero-dependency reader for omp's session store (~/.omp/agent/sessions).
  *
  * We intentionally do NOT import the pi SDK here: the desktop app should keep
  * working even if pi's internal modules shift, and reading JSONL directly keeps
@@ -36,11 +36,20 @@ export interface ProjectSummary {
 }
 
 export function getAgentDir(): string {
-  return process.env.PI_AGENT_DIR || join(homedir(), ".pi", "agent");
+  // omp's agent dir: PI_CODING_AGENT_DIR, falling back to the legacy PI_AGENT_DIR
+  // override and the default ~/.omp/agent.
+  return process.env.PI_CODING_AGENT_DIR || process.env.PI_AGENT_DIR || join(homedir(), ".omp", "agent");
 }
 
 export function getSessionsDir(): string {
   return join(getAgentDir(), "sessions");
+}
+
+/** omp stores the model as "provider/modelId" in model_change entries. */
+function splitModel(value: string): { provider: string; id: string } {
+  const idx = value.indexOf("/");
+  if (idx > 0 && idx < value.length - 1) return { provider: value.slice(0, idx), id: value.slice(idx + 1) };
+  return { provider: "", id: value };
 }
 
 /** Stream a file line-by-line using only `\n` as delimiter (JSONL-safe). */
@@ -147,6 +156,14 @@ async function readThreadSummary(file: string): Promise<{ summary: ThreadSummary
       if (e.type === "session_info" && typeof e.name === "string" && e.name.trim()) {
         name = e.name.trim();
       }
+      // omp (v3) stores the mutable title in a first-line "title" slot and in
+      // "title_change" entries instead of "session_info".
+      if (e.type === "title" && typeof e.title === "string" && e.title.trim()) {
+        name = e.title.trim();
+      }
+      if (e.type === "title_change" && typeof e.title === "string" && e.title.trim()) {
+        name = e.title.trim();
+      }
       if (e.type === "message") {
         const m = e.message;
         if (m && m.role === "user") {
@@ -216,6 +233,10 @@ export async function readThreadHistory(file: string): Promise<ThreadHistory> {
       case "session_info":
         if (typeof e.name === "string" && e.name.trim()) sessionName = e.name.trim();
         break;
+      case "title":
+      case "title_change":
+        if (typeof e.title === "string" && e.title.trim()) sessionName = e.title.trim();
+        break;
       case "message":
         if (e.message) {
           messages.push(e.message);
@@ -226,7 +247,8 @@ export async function readThreadHistory(file: string): Promise<ThreadHistory> {
         }
         break;
       case "model_change":
-        if (e.provider && e.modelId) model = { provider: e.provider, id: e.modelId };
+        if (typeof e.model === "string" && e.model) model = splitModel(e.model);
+        else if (e.provider && e.modelId) model = { provider: e.provider, id: e.modelId };
         break;
       case "thinking_level_change":
         if (typeof e.thinkingLevel === "string") thinkingLevel = e.thinkingLevel;
@@ -304,6 +326,14 @@ async function searchOneFile(file: string, q: string): Promise<ThreadSearchHit |
       }
       if (e.type === "session_info" && typeof e.name === "string" && e.name.trim()) {
         name = e.name.trim();
+      }
+      // omp (v3) stores the mutable title in a first-line "title" slot and in
+      // "title_change" entries instead of "session_info".
+      if (e.type === "title" && typeof e.title === "string" && e.title.trim()) {
+        name = e.title.trim();
+      }
+      if (e.type === "title_change" && typeof e.title === "string" && e.title.trim()) {
+        name = e.title.trim();
       }
       if (e.type === "message") {
         const m = e.message;
@@ -459,6 +489,45 @@ export async function getTotalUsage(): Promise<TotalUsage> {
   }
   await Promise.all(Array.from({ length: Math.min(8, Math.max(1, files.length)) }, worker));
   return { tokens, cost, sessions: files.length };
+}
+
+/**
+ * Permanently delete every session directory whose files belong to `cwd`.
+ * The sessions dir name is a lossy encoding of the cwd, so each dir is probed
+ * via its first jsonl file's real cwd header. Returns the number of dirs removed.
+ */
+export async function deleteProjectSessions(cwd: string): Promise<number> {
+  const target = cwd.toLowerCase();
+  const root = getSessionsDir();
+  if (!existsSync(root)) return 0;
+  let dirs: string[] = [];
+  try {
+    dirs = readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const d of dirs) {
+    const dirPath = join(root, d);
+    let files: string[] = [];
+    try {
+      files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    if (!files.length) continue;
+    const probe = await readThreadSummary(join(dirPath, files[0]));
+    if (!probe || probe.cwd.toLowerCase() !== target) continue;
+    try {
+      rmSync(dirPath, { recursive: true, force: true });
+      removed++;
+    } catch {
+      /* keep going; a locked dir should not block the rest */
+    }
+  }
+  return removed;
 }
 
 /** Read every session file under the sessions dir, grouped by real cwd. */

@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Sidebar as SidebarIcon } from "./icons";
+import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon } from "./icons";
 
 const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
 const SIDEBAR_WIDTH_KEY = "pi-studio.sidebar-width";
@@ -40,6 +40,67 @@ export function Sidebar() {
       .join("\u0000")
   );
   const runningSet = useMemo(() => new Set(runningKey ? runningKey.split("\u0000") : []), [runningKey]);
+  const projectByCwd = useMemo(() => new Map(projects.map((p) => [p.cwd, p])), [projects]);
+
+  // git info per project worktree (branch + repo identity); refetched when the
+  // project set changes or a run ends (the agent may have switched branches).
+  const [gitInfos, setGitInfos] = useState<Record<string, { branch: string | null; commonDir: string | null; isLinked: boolean }>>({});
+  const projectsKey = projects.map((p) => p.cwd).join(" ");
+  useEffect(() => {
+    if (!projects.length) {
+      setGitInfos({});
+      return;
+    }
+    let alive = true;
+    Promise.all(projects.map((p) => window.pi.app.getGitInfo(p.cwd).catch(() => null))).then((list) => {
+      if (!alive) return;
+      const next: Record<string, { branch: string | null; commonDir: string | null; isLinked: boolean }> = {};
+      projects.forEach((p, i) => {
+        const info = list[i];
+        if (info?.commonDir) next[p.cwd] = info;
+      });
+      setGitInfos(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [projectsKey, runningKey]);
+
+  // Group worktrees by repo identity. A repo with 2+ pinned projects becomes a
+  // pure container node (no threads of its own); its members — the main
+  // checkout first, then linked worktrees — are regular project nodes with
+  // their own thread lists. Repos with a single pinned project stay flat.
+  const { flatProjects, worktreeGroups } = useMemo(() => {
+    const byRepo: Record<string, string[]> = {};
+    for (const p of projects) {
+      const common = gitInfos[p.cwd]?.commonDir;
+      if (common) (byRepo[common] ||= []).push(p.cwd);
+    }
+    const grouped = new Set<string>();
+    const groups: { commonDir: string; members: typeof projects }[] = [];
+    for (const [common, cwds] of Object.entries(byRepo)) {
+      if (cwds.length < 2) continue;
+      const main = cwds.find((c) => !gitInfos[c]?.isLinked);
+      const ordered = main ? [main, ...cwds.filter((c) => c !== main)] : cwds;
+      groups.push({
+        commonDir: common,
+        members: ordered.map((c) => projectByCwd.get(c)!).filter(Boolean),
+      });
+      cwds.forEach((c) => grouped.add(c));
+    }
+    return { flatProjects: projects.filter((p) => !grouped.has(p.cwd)), worktreeGroups: groups };
+  }, [projects, gitInfos, projectByCwd]);
+
+  // collapsed repo containers (default expanded)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (commonDir: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(commonDir)) next.delete(commonDir);
+      else next.add(commonDir);
+      return next;
+    });
+  };
 
   // total-usage popover (sidebar footer)
   const [usageOpen, setUsageOpen] = useState(false);
@@ -132,8 +193,8 @@ export function Sidebar() {
   const openThread = useStore((s) => s.openThread);
   const goToThread = useStore((s) => s.goToThread);
   const openProjectFolder = useStore((s) => s.openProjectFolder);
-  const unpinProject = useStore((s) => s.unpinProject);
   const archiveProject = useStore((s) => s.archiveProject);
+  const removeProject = useStore((s) => s.removeProject);
   const archiveThread = useStore((s) => s.archiveThread);
   const setSidebarTab = useStore((s) => s.setSidebarTab);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
@@ -151,6 +212,111 @@ export function Sidebar() {
 
   const onThreadClick = (cwd: string, file: string) => {
     void goToThread(cwd, file);
+  };
+
+  const renderProject = (p: (typeof projects)[number], nested = false) => {
+    const open = !!expandedProjects[p.cwd];
+    const branch = gitInfos[p.cwd]?.branch;
+    return (
+      <div className={`project ${nested ? "worktree-child" : ""}`} key={p.cwd}>
+        <div
+          className={`project-head ${open ? "open" : ""}`}
+          onClick={() => toggleProject(p.cwd)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setProjectMenu({
+              cwd: p.cwd,
+              name: p.name,
+              x: Math.min(event.clientX, window.innerWidth - 190),
+              y: Math.min(event.clientY, window.innerHeight - 70),
+            });
+          }}
+        >
+          <span className="caret">
+            <ChevronRight size={10} />
+          </span>
+          {nested ? <Branch size={14} /> : <Folder size={15} />}
+          <span className="pname" title={p.cwd}>
+            {p.name}
+          </span>
+          <span className="pcount">{p.threads.length}</span>
+          <button
+            className="pact"
+            title="New thread"
+            onClick={(e) => {
+              e.stopPropagation();
+              openThread(p.cwd);
+            }}
+          >
+            <Plus size={13} />
+          </button>
+          <button
+            className="pact"
+            title="从侧栏移除"
+            onClick={(e) => {
+              e.stopPropagation();
+              void removeProject(p.cwd);
+            }}
+          >
+            ×
+          </button>
+        </div>
+        {branch && (
+          <div className="pbranch" title={`当前 Git 分支：${branch}`}>
+            <Branch size={10} />
+            <span className="pbranch-name">{branch}</span>
+          </div>
+        )}
+        {open && (
+          <div className="thread-list">
+            {p.threads.length === 0 && <div className="ft-empty">暂无线程</div>}
+            {p.threads.map((t) => {
+              const running = runningSet.has(t.file);
+              const openThread = () => onThreadClick(p.cwd, t.file);
+              return (
+                <div
+                  key={t.file}
+                  className={`thread ${activeThreadId === t.file ? "active" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openThread}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openThread();
+                    }
+                  }}
+                  title={t.title}
+                >
+                  <div className="thread-title">
+                    {running && <span className="thread-running" />}
+                    <span className="tt-text">{t.title}</span>
+                    <button
+                      type="button"
+                      className="thread-archive-btn"
+                      title="归档线程"
+                      aria-label={`归档线程：${t.title}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void archiveThread(p.cwd, t.file, t.title);
+                      }}
+                    >
+                      <Archive size={13} />
+                    </button>
+                  </div>
+                  {t.preview && t.preview !== t.title && <div className="thread-preview">{t.preview}</div>}
+                  <div className="thread-meta">
+                    {t.messageCount} 条 · {new Date(t.updatedAt).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -217,99 +383,27 @@ export function Sidebar() {
               </button>
             </div>
             {projects.length === 0 && <div className="ft-empty">尚无项目，点击 + 打开一个文件夹。</div>}
-            {projects.map((p) => {
-              const open = !!expandedProjects[p.cwd];
+            {flatProjects.map((p) => renderProject(p))}
+            {worktreeGroups.map((g) => {
+              const open = !collapsedGroups.has(g.commonDir);
+              const repoName = g.commonDir.replace(/[\\/]+$/, "").split(/[\\/]/).slice(-2, -1)[0] || g.commonDir;
               return (
-                <div className="project" key={p.cwd}>
+                <div className="project worktree-group" key={g.commonDir}>
                   <div
-                    className={`project-head ${open ? "open" : ""}`}
-                    onClick={() => toggleProject(p.cwd)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setProjectMenu({
-                        cwd: p.cwd,
-                        name: p.name,
-                        x: Math.min(event.clientX, window.innerWidth - 190),
-                        y: Math.min(event.clientY, window.innerHeight - 70),
-                      });
-                    }}
+                    className={`project-head group-head ${open ? "open" : ""}`}
+                    onClick={() => toggleGroup(g.commonDir)}
                   >
                     <span className="caret">
                       <ChevronRight size={10} />
                     </span>
-                    <Folder size={15} />
-                    <span className="pname" title={p.cwd}>
-                      {p.name}
+                    <Branch size={14} />
+                    <span className="pname" title={`${g.commonDir} · ${g.members.length} 个 worktree`}>
+                      {repoName}
                     </span>
-                    <span className="pcount">{p.threads.length}</span>
-                    <button
-                      className="pact"
-                      title="New thread"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openThread(p.cwd);
-                      }}
-                    >
-                      <Plus size={13} />
-                    </button>
-                    <button
-                      className="pact"
-                      title="Unpin"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        unpinProject(p.cwd);
-                      }}
-                    >
-                      ×
-                    </button>
+                    <span className="pcount">{g.members.length}</span>
                   </div>
                   {open && (
-                    <div className="thread-list">
-                      {p.threads.length === 0 && <div className="ft-empty">暂无线程</div>}
-                      {p.threads.map((t) => {
-                        const running = runningSet.has(t.file);
-                        const openThread = () => onThreadClick(p.cwd, t.file);
-                        return (
-                          <div
-                            key={t.file}
-                            className={`thread ${activeThreadId === t.file ? "active" : ""}`}
-                            role="button"
-                            tabIndex={0}
-                            onClick={openThread}
-                            onKeyDown={(event) => {
-                              if (event.target !== event.currentTarget) return;
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                openThread();
-                              }
-                            }}
-                            title={t.title}
-                          >
-                            <div className="thread-title">
-                              {running && <span className="thread-running" />}
-                              <span className="tt-text">{t.title}</span>
-                              <button
-                                type="button"
-                                className="thread-archive-btn"
-                                title="归档线程"
-                                aria-label={`归档线程：${t.title}`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void archiveThread(p.cwd, t.file, t.title);
-                                }}
-                              >
-                                <Archive size={13} />
-                              </button>
-                            </div>
-                            {t.preview && t.preview !== t.title && <div className="thread-preview">{t.preview}</div>}
-                            <div className="thread-meta">
-                              {t.messageCount} 条 · {new Date(t.updatedAt).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <div className="worktree-members">{g.members.map((m) => renderProject(m, true))}</div>
                   )}
                 </div>
               );
@@ -326,13 +420,13 @@ export function Sidebar() {
         </button>
         <span className="sb-foot-spacer" aria-hidden="true" />
         <div className="usage-wrap" ref={usageRef}>
-          <button className={`iconbtn ${usageOpen ? "on" : ""}`} title="Pi 合计 token 用量" onClick={toggleUsage}>
+          <button className={`iconbtn ${usageOpen ? "on" : ""}`} title="omp 合计 token 用量" onClick={toggleUsage}>
             <Gauge size={15} />
           </button>
           {usageOpen && (
             <div className="usage-pop">
               <div className="usage-pop-head">
-                <span>Pi 合计用量</span>
+                <span>omp 合计用量</span>
                 <button className="ctx-refresh" title="刷新" onClick={loadUsage}>
                   <Refresh size={12} />
                 </button>
@@ -353,7 +447,7 @@ export function Sidebar() {
             </div>
           )}
         </div>
-        <button className="iconbtn" title="Help" onClick={() => useStore.getState().pushToast("info", "Pi Studio · inherits terminal pi")}>
+        <button className="iconbtn" title="Help" onClick={() => useStore.getState().pushToast("info", "Omp Studio · inherits terminal omp")}>
           <Help size={15} />
         </button>
       </div>

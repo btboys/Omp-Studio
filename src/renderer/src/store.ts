@@ -516,15 +516,19 @@ interface PiStore {
   refreshProjects: () => Promise<void>;
   openProjectFolder: () => Promise<void>;
   unpinProject: (cwd: string) => Promise<void>;
+  /** Remove a project from the sidebar: unpin if pinned, then archive it. */
+  removeProject: (cwd: string) => Promise<void>;
   archiveProject: (cwd: string) => Promise<void>;
   restoreProject: (cwd: string) => Promise<void>;
+  /** Permanently delete an archived project's session files. Irreversible. */
+  deleteProject: (cwd: string) => Promise<void>;
   archiveThread: (cwd: string, file: string, title?: string) => Promise<void>;
   restoreThread: (file: string) => Promise<void>;
   toggleProject: (cwd: string) => void;
   setActiveProject: (cwd: string) => void;
 
   openThread: (cwd: string, sessionFile?: string, permission?: PermissionLevel) => Promise<string | null>;
-  /** Ensure a live pi process backs the thread (adopting the warm spare).
+  /** Ensure a live omp process backs the thread (adopting the warm spare).
    *  Resolves with the thread id, or null if the connection failed. Safe to
    *  call repeatedly: concurrent calls share one in-flight connect. */
   ensureConnected: (threadId: string) => Promise<string | null>;
@@ -786,7 +790,7 @@ export const useStore = create<PiStore>()((set, get) => ({
             : { ...state.expandedProjects, [projects[0].cwd]: true },
       }));
       if (projects[0]) {
-        // Pre-warm the standby pi process for the active project so the first
+        // Pre-warm the standby omp process for the active project so the first
         // "new task" adopts a booted process instead of cold-starting.
         window.pi.app.prewarm(projects[0].cwd).catch(() => {});
       }
@@ -834,6 +838,19 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("error", e?.message || "unpin failed");
     }
   },
+  removeProject: async (cwd) => {
+    try {
+      const cfg = get().config;
+      const pinned = cfg?.pinnedProjects || [];
+      if (pinned.includes(cwd)) {
+        const config = await window.pi.app.setConfig({ pinnedProjects: pinned.filter((p) => p !== cwd) });
+        set({ config });
+      }
+      await get().archiveProject(cwd);
+    } catch (e: any) {
+      get().pushToast("error", "移除项目失败：" + (e?.message || e));
+    }
+  },
   archiveProject: async (cwd) => {
     try {
       const current = get().config;
@@ -875,6 +892,23 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("success", "项目已恢复到侧栏。");
     } catch (e: any) {
       get().pushToast("error", "恢复项目失败：" + (e?.message || e));
+    }
+  },
+  deleteProject: async (cwd) => {
+    try {
+      const res = await window.pi.app.deleteProject(cwd);
+      if (!res?.ok) throw new Error(res?.error || "delete failed");
+      const current = get().config;
+      if (current) set({ config: await window.pi.app.getConfig() });
+      await get().refreshProjects();
+      get().pushToast(
+        "success",
+        res.removed > 0
+          ? `已删除 ${res.removed} 个会话目录。`
+          : "已删除项目记录（未找到会话目录）。",
+      );
+    } catch (e: any) {
+      get().pushToast("error", "删除项目失败：" + (e?.message || e));
     }
   },
   archiveThread: async (cwd, file, title) => {
@@ -987,7 +1021,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
 
     // NEW TASK (no session file): nothing on disk to show, but the empty chat
-    // + composer appear instantly and the pi process connects in the
+    // + composer appear instantly and the omp process connects in the
     // background (adopting the warm spare). No blocking "starting pi" spinner.
     // The temp id is remapped to the real session file once connected.
     const tempId = `opening-${uid()}`;
@@ -1059,7 +1093,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       } catch (e: any) {
         // Keep the disk-rendered transcript visible; only mark the failure.
         set((s) => (s.threads[threadId] ? { threads: { ...s.threads, [threadId]: { ...s.threads[threadId], connected: false, error: e?.message || "connect failed" } } } : s));
-        get().pushToast("error", "连接 pi 进程失败：" + (e?.message || e));
+        get().pushToast("error", "连接 omp 进程失败：" + (e?.message || e));
         return null;
       } finally {
         connectPromises.delete(threadId);
@@ -1457,10 +1491,10 @@ export const useStore = create<PiStore>()((set, get) => ({
     set((s) => {
       const t = s.threads[threadId];
       if (!t) return s;
-      return { threads: { ...s.threads, [threadId]: { ...t, isStreaming: false, streaming: null, error: `pi exited (code ${info.code})` } } };
+      return { threads: { ...s.threads, [threadId]: { ...t, isStreaming: false, streaming: null, error: `omp exited (code ${info.code})` } } };
     });
     const tail = (info.stderr || "").trim().split(/\r?\n/).slice(-3).join(" | ");
-    get().pushToast("error", `pi process exited (${info.code})${tail ? ": " + tail : ""}`);
+    get().pushToast("error", `omp process exited (${info.code})${tail ? ": " + tail : ""}`);
   },
 
   handleError: (threadId, message) => {
@@ -1626,7 +1660,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     set((s) => (s.threads[threadId] ? { threads: { ...s.threads, [threadId]: { ...s.threads[threadId], permission: level } } } : s));
     try {
       // The gate extension is always loaded; switching just flips its live mode
-      // file, so the pi process and session keep running uninterrupted.
+      // file, so the omp process and session keep running uninterrupted.
       await window.pi.thread.setPermission({ threadId, permission: level });
       get().pushToast("info", level === "sandbox" ? "已切换到 sandbox（非只读命令及项目外写入需确认）。" : "已切换到完全权限。");
     } catch (e: any) {

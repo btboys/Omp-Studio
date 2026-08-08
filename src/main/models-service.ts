@@ -1,58 +1,152 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { load as parseYaml, dump as dumpYaml } from "js-yaml";
 import { getConfig } from "./config";
 import { getAgentDir, getSessionsDir } from "./session-store";
-import { isAppManagedRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
+import { getOmpVersion, isAppManagedRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
 import type { Diagnostics, ModelsFile, ProviderDef, ThinkingDefaults } from "../renderer/src/lib/types";
 
 /**
- * Safe read/write access to pi's `models.json` and the thinking-related slice
- * of `settings.json`, plus a diagnostics snapshot for the Settings panel.
+ * Safe read/write access to omp's `models.yml` (custom providers) and the
+ * pi-compat slice of `~/.omp/agent/settings.json` (default provider/model +
+ * thinking defaults), plus a diagnostics snapshot for the Settings panel.
+ *
+ * omp stores custom providers in `~/.omp/agent/models.yml`:
+ *   providers:
+ *     spark:
+ *       baseUrl: http://.../v1
+ *       api: openai-completions
+ *       apiKey: dummy
+ *       models:
+ *         - id: minimax-m3
+ *           name: MiniMax M3
+ *           contextWindow: 100000
+ *           maxTokens: 32000
+ * and continues to honour pi's settings.json keys (`defaultProvider`,
+ * `defaultModel`, `defaultThinkingLevel`, `hideThinkingBlock`).
  *
  * Round-trip safety: we never rebuild these files from a fixed schema. We parse
  * the existing file, mutate only the subtree we own, and write back — so any
- * hand-written advanced fields (per-model `compat`, `thinkingFormat`, custom
- * `headers`, unknown top-level keys, etc.) survive untouched. Writes are atomic
- * (write to a sibling .tmp then rename) so a crash mid-write cannot corrupt the
- * file pi is about to reload.
+ * hand-written advanced fields survive untouched. Writes are atomic (write to a
+ * sibling .tmp then rename) so a crash mid-write cannot corrupt the file omp
+ * is about to reload.
  */
 
 export function getModelsPath(): string {
-  return join(getAgentDir(), "models.json");
+  return join(getAgentDir(), "models.yml");
 }
+/** omp's pi-compat settings file (defaultProvider/defaultModel/thinking). */
 export function getSettingsPath(): string {
   return join(getAgentDir(), "settings.json");
+}
+/** omp's live config (config.yml): role routing incl. `modelRoles.default`. */
+export function getConfigYmlPath(): string {
+  return join(getAgentDir(), "config.yml");
 }
 export function getAuthPath(): string {
   return join(getAgentDir(), "auth.json");
 }
 
-function readJson<T>(file: string): T | null {
+function readText(file: string): string | null {
   try {
     if (!existsSync(file)) return null;
-    return JSON.parse(readFileSync(file, "utf8")) as T;
+    return readFileSync(file, "utf8");
   } catch {
     return null;
   }
 }
 
-function writeJsonAtomic(file: string, data: unknown): void {
+function parseYamlFile<T>(file: string): T | null {
+  const text = readText(file);
+  if (text == null) return null;
+  try {
+    const value = parseYaml(text);
+    if (value && typeof value === "object") return value as T;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeTextAtomic(file: string, text: string): void {
   const dir = dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const tmp = file + ".tmp";
-  writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
+  writeFileSync(tmp, text, "utf8");
   renameSync(tmp, file);
 }
 
-/* ---------------- models.json ---------------- */
+function writeYamlAtomic(file: string, data: unknown): void {
+  writeTextAtomic(file, dumpYaml(data, { noRefs: true, lineWidth: 120 }));
+}
+
+/* ---------------- models.yml (custom providers) ---------------- */
+
+/**
+ * omp keeps its live model routing in config.yml `modelRoles` (`role: provider/model[:level]`),
+ * separate from models.yml. Merge those provider/model pairs into the models.yml view so the
+ * Settings panel and default-provider/model selects reflect the models omp actually runs.
+ */
+function roleModels(): Record<string, ProviderDef> {
+  const out: Record<string, ProviderDef> = {};
+  const cfg = parseYamlFile<{ modelRoles?: Record<string, string> }>(getConfigYmlPath());
+  const roles = cfg?.modelRoles;
+  if (!roles || typeof roles !== "object") return out;
+  for (const value of Object.values(roles)) {
+    const [provider, rest] = String(value || "").split("/");
+    const model = rest?.split(":")[0];
+    if (!provider || !model) continue;
+    const def = (out[provider] ||= {});
+    def.models = def.models || [];
+    if (!def.models.some((m) => m.id === model)) {
+      def.models.push({ id: model, name: model });
+    }
+  }
+  return out;
+}
 
 export function readModelsFile(): ModelsFile {
-  const parsed = readJson<ModelsFile>(getModelsPath());
-  if (!parsed || typeof parsed !== "object") return { providers: {} };
-  if (!parsed.providers || typeof parsed.providers !== "object") parsed.providers = {};
-  return parsed;
+  const parsed = parseYamlFile<ModelsFile>(getModelsPath());
+  const base = parsed && typeof parsed === "object" ? parsed : { providers: {} };
+  if (!base.providers || typeof base.providers !== "object") base.providers = {};
+  const merged: Record<string, ProviderDef> = { ...roleModels(), ...base.providers };
+  for (const [key, def] of Object.entries(roleModels())) {
+    const existing = merged[key];
+    if (!existing) continue;
+    merged[key] = {
+      ...def,
+      ...existing,
+      models: [...(def.models || []), ...(existing.models || [])].filter(
+        (m, i, arr) => arr.findIndex((x) => x.id === m.id) === i,
+      ),
+    };
+  }
+  return { ...base, providers: merged };
+}
+
+/**
+ * The default session model: `modelRoles.default` in config.yml ("provider/model").
+ * This is what omp resolves for new sessions (settings.json `defaultProvider`/
+ * `defaultModel` are the legacy pi keys omp no longer routes on).
+ */
+export function readDefaultRoleModel(): { provider: string; model: string } | null {
+  const cfg = parseYamlFile<{ modelRoles?: Record<string, unknown> }>(getConfigYmlPath());
+  const value = cfg?.modelRoles?.default;
+  const [provider, rest] = String(value || "").split("/");
+  const model = rest?.split(":")[0];
+  return provider && model ? { provider, model } : null;
+}
+
+export function writeDefaultRoleModel(provider: string, model: string | null): { provider: string; model: string } | null {
+  const existing = parseYamlFile<Record<string, unknown>>(getConfigYmlPath()) || {};
+  const roles: Record<string, unknown> =
+    existing.modelRoles && typeof existing.modelRoles === "object" ? (existing.modelRoles as Record<string, unknown>) : {};
+  if (!model) delete roles.default;
+  else roles.default = `${provider}/${model}`;
+  writeYamlAtomic(getConfigYmlPath(), { ...existing, modelRoles: roles });
+  return readDefaultRoleModel();
 }
 
 /**
@@ -61,9 +155,9 @@ export function readModelsFile(): ModelsFile {
  * provider/model object inside it is written verbatim (unknown fields included).
  */
 export function writeModelsProviders(providers: Record<string, ProviderDef>): ModelsFile {
-  const existing = readJson<Record<string, unknown>>(getModelsPath()) || {};
+  const existing = parseYamlFile<Record<string, unknown>>(getModelsPath()) || {};
   const next: Record<string, unknown> = { ...existing, providers: providers || {} };
-  writeJsonAtomic(getModelsPath(), next);
+  writeYamlAtomic(getModelsPath(), next);
   return next as ModelsFile;
 }
 
@@ -101,7 +195,7 @@ function conciseModelTestError(stdout: string, stderr: string, fallback: string,
 /**
  * Run a real, minimal inference against an edited provider/model definition.
  * The isolated agent directory lets unsaved Settings changes be tested without
- * modifying the user's models.json or creating a thread/session.
+ * modifying the user's models.yml/config.yml or creating a thread/session.
  */
 export async function testModelAvailability(
   providerId: string,
@@ -116,41 +210,34 @@ export async function testModelAvailability(
     // Keep the test cheap with the lowest supported level, but do not send an
     // invalid "off" request for models explicitly configured for reasoning.
     const testThinkingLevel = targetModel?.reasoning ? "minimal" : "off";
-    writeFileSync(join(testDir, "models.json"), JSON.stringify({ providers: { [providerId]: provider } }, null, 2) + "\n", "utf8");
+    writeYamlAtomic(join(testDir, "models.yml"), { providers: { [providerId]: provider } });
     const authPath = getAuthPath();
     if (existsSync(authPath)) copyFileSync(authPath, join(testDir, "auth.json"));
-    const runtime = await resolvePiRuntime(getConfig().piCliPath);
+    const runtime = await resolvePiRuntime(getConfig().ompBinPath);
     const args = [
-      runtime.cli,
-      "--provider",
-      providerId,
+      "--mode",
+      "json",
+      "--print",
       "--model",
-      modelId,
+      `${providerId}/${modelId}`,
       "--thinking",
       testThinkingLevel,
       "--system-prompt",
       "You are a connectivity probe. Do not reason. Reply only with ok.",
-      "--mode",
-      "json",
-      "--print",
       "--no-session",
       "--no-tools",
       "--no-extensions",
       "--no-skills",
-      "--no-prompt-templates",
-      "--no-context-files",
-      "--offline",
+      "--no-rules",
       "测试连通性，不要思考，回复我ok即可",
     ];
     return await new Promise<ModelAvailabilityResult>((resolve) => {
-      const child = spawn(runtime.node, args, {
+      const child = spawn(runtime.bin, args, {
         cwd: testDir,
         windowsHide: true,
         env: {
           ...process.env,
-          PI_AGENT_DIR: testDir,
           PI_CODING_AGENT_DIR: testDir,
-          PI_CODING_AGENT_SESSION_DIR: join(testDir, "sessions"),
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -268,8 +355,24 @@ export async function testModelAvailability(
 }
 
 /* ---------------- settings.json (thinking slice) ---------------- */
+/**
+ * omp inherits pi's settings.json keys (`defaultProvider`, `defaultModel`,
+ * `defaultThinkingLevel`, `hideThinkingBlock`) — the user's own
+ * `~/.omp/agent/settings.json` carries `defaultProvider`/`defaultModel`, so
+ * the original file and keys are the right surface. config.yml holds omp's
+ * newer role routing (`modelRoles`); we leave that to omp.
+ */
 
 const THINK_KEYS = ["defaultProvider", "defaultModel", "defaultThinkingLevel", "hideThinkingBlock"] as const;
+
+function readJson<T>(file: string): T | null {
+  try {
+    if (!existsSync(file)) return null;
+    return JSON.parse(readFileSync(file, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
 
 export function readThinking(): ThinkingDefaults {
   const parsed = readJson<Record<string, unknown>>(getSettingsPath()) || {};
@@ -293,32 +396,11 @@ export function writeThinking(patch: Partial<ThinkingDefaults>): ThinkingDefault
     if (v === null || v === "") delete next[k];
     else next[k] = v;
   }
-  writeJsonAtomic(getSettingsPath(), next);
+  writeTextAtomic(getSettingsPath(), JSON.stringify(next, null, 2) + "\n");
   return readThinking();
 }
 
 /* ---------------- diagnostics ---------------- */
-
-function readPiVersion(cli: string | null): string | null {
-  if (!cli) return null;
-  try {
-    const pkgPath = join(dirname(dirname(cli)), "package.json");
-    const pkg = readJson<{ version?: string }>(pkgPath);
-    return pkg?.version || null;
-  } catch {
-    return null;
-  }
-}
-
-function probeNodeVersion(node: string | null): Promise<string | null> {
-  if (!node) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    execFile(node, ["-v"], { windowsHide: true, timeout: 3000 }, (err, stdout) => {
-      if (err) resolve(null);
-      else resolve(stdout.trim().replace(/^v/, "") || null);
-    });
-  });
-}
 
 export async function getDiagnostics(): Promise<Diagnostics> {
   const agentDir = getAgentDir();
@@ -327,10 +409,8 @@ export async function getDiagnostics(): Promise<Diagnostics> {
   const authPath = getAuthPath();
   const modelsPath = getModelsPath();
   const base: Diagnostics = {
-    node: null,
-    cli: null,
-    nodeVersion: null,
-    piVersion: null,
+    bin: null,
+    ompVersion: null,
     agentDir,
     sessionsDir,
     settingsPath,
@@ -345,10 +425,8 @@ export async function getDiagnostics(): Promise<Diagnostics> {
   };
   try {
     const rt = await resolvePiRuntime();
-    base.node = rt.node;
-    base.cli = rt.cli;
-    base.piVersion = readPiVersion(rt.cli);
-    base.nodeVersion = await probeNodeVersion(rt.node);
+    base.bin = rt.bin;
+    base.ompVersion = await getOmpVersion(rt.bin);
     // Must be read AFTER resolution: the kind is only known once cached.
     base.runtimeKind = runtimeKind() || "unknown";
     base.bundled = isAppManagedRuntime();
