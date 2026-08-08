@@ -43,10 +43,13 @@ function sha512Base64(file) {
 }
 
 async function fetchJson(url, timeoutMs = 30_000) {
-  const res = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "omp-studio-bundler" },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  // CI injects GH_TOKEN (GITHUB_TOKEN). GitHub's API rate-limits anonymous
+  // callers to 60 req/h per shared runner IP — a 403 under load. Authenticate
+  // whenever a token is available; local dev keeps the anonymous fallback.
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
+  const headers = { accept: "application/json", "user-agent": "omp-studio-bundler" };
+  if (token) headers.authorization = "Bearer " + token;
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
