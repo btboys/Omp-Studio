@@ -17,6 +17,7 @@ const api = {
     getVersion: () => ipcRenderer.invoke("app:getVersion"),
     getConfig: () => ipcRenderer.invoke("app:getConfig"),
     setConfig: (patch: Record<string, unknown>) => ipcRenderer.invoke("app:setConfig", patch),
+    setActiveThread: (threadId: string | null) => ipcRenderer.invoke("app:setActiveThread", threadId),
     resolveRuntime: () => ipcRenderer.invoke("app:resolveRuntime"),
     getProjects: () => ipcRenderer.invoke("app:getProjects"),
     searchThreads: (query: string) => ipcRenderer.invoke("app:searchThreads", query),
@@ -38,6 +39,7 @@ const api = {
     checkAppUpdate: () => ipcRenderer.invoke("app:checkAppUpdate"),
     downloadAppUpdate: () => ipcRenderer.invoke("app:downloadAppUpdate"),
     installAppUpdate: () => ipcRenderer.invoke("app:installAppUpdate"),
+    deferAppUpdate: () => ipcRenderer.invoke("app:deferAppUpdate"),
     checkCoreUpdate: () => ipcRenderer.invoke("app:checkCoreUpdate"),
     relaunch: () => ipcRenderer.invoke("app:relaunch"),
     editAction: (action: "copy" | "cut" | "paste" | "delete" | "selectAll") => ipcRenderer.invoke("app:editAction", action),
@@ -136,8 +138,9 @@ const api = {
     error: (cb: (p: { threadId: string; message: string }) => void) => on("pi:error", cb),
     automation: (cb: (p: { type: "start" | "done"; taskId: string; name: string; ok?: boolean; error?: string }) => void) =>
       on("pi:automation", cb),
-    appUpdate: (cb: (p: { stage: string; message: string; pct?: number }) => void) => on("pi:appUpdate", cb),
+    appUpdate: (cb: (p: { stage: string; message: string; pct?: number; version?: string }) => void) => on("pi:appUpdate", cb),
     coreUpdate: (cb: (p: { stage: string; message: string; pct?: number }) => void) => on("pi:coreUpdate", cb),
+    notifyActivate: (cb: (p: { threadId: string; cwd?: string }) => void) => on("pi:notify-activate", cb),
   },
 };
 

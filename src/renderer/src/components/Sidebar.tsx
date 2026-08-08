@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
+import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
 import { GitPanel } from "./GitPanel";
 
 const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
@@ -29,6 +29,7 @@ export function Sidebar() {
   const activeProjectCwd = useStore((s) => s.activeProjectCwd);
   const expandedProjects = useStore((s) => s.expandedProjects);
   const activeThreadId = useStore((s) => s.activeThreadId);
+  const sidebarFlashThreadId = useStore((s) => s.sidebarFlashThreadId);
   const sidebarTab = useStore((s) => s.sidebarTab);
   const language = useStore((s) => s.config?.language || "en");
 
@@ -67,10 +68,9 @@ export function Sidebar() {
     };
   }, [projectsKey, runningKey]);
 
-  // Group worktrees by repo identity. A repo with 2+ pinned projects becomes a
-  // pure container node (no threads of its own); its members — the main
-  // checkout first, then linked worktrees — are regular project nodes with
-  // their own thread lists. Repos with a single pinned project stay flat.
+  // Group by repo identity. Every git repo becomes a pure container (no threads
+  // of its own); members — main checkout first, then linked worktrees — are
+  // branch children with their own thread lists. Non-git projects stay flat.
   const { flatProjects, worktreeGroups } = useMemo(() => {
     const byRepo: Record<string, string[]> = {};
     for (const p of projects) {
@@ -80,7 +80,6 @@ export function Sidebar() {
     const grouped = new Set<string>();
     const groups: { commonDir: string; members: typeof projects }[] = [];
     for (const [common, cwds] of Object.entries(byRepo)) {
-      if (cwds.length < 2) continue;
       const main = cwds.find((c) => !gitInfos[c]?.isLinked);
       const ordered = main ? [main, ...cwds.filter((c) => c !== main)] : cwds;
       groups.push({
@@ -114,6 +113,13 @@ export function Sidebar() {
   const resizeRef = useRef<{ startX: number; startWidth: number; width: number } | null>(null);
   useOutsideClose(usageRef, usageOpen, () => setUsageOpen(false));
   useOutsideClose(projectMenuRef, !!projectMenu, () => setProjectMenu(null));
+
+  useEffect(() => {
+    if (!sidebarFlashThreadId) return;
+    const el = document.querySelector(`[data-thread-file="${CSS.escape(sidebarFlashThreadId)}"]`) as HTMLElement | null;
+    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [sidebarFlashThreadId]);
+
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -218,6 +224,7 @@ export function Sidebar() {
   const renderProject = (p: (typeof projects)[number], nested = false) => {
     const open = !!expandedProjects[p.cwd];
     const branch = gitInfos[p.cwd]?.branch;
+    const label = nested ? branch || p.name : p.name;
     return (
       <div className={`project ${nested ? "worktree-child" : ""}`} key={p.cwd}>
         <div
@@ -238,47 +245,44 @@ export function Sidebar() {
             <ChevronRight size={10} />
           </span>
           {nested ? <Branch size={14} /> : <Folder size={15} />}
-          <span className="pname" title={p.cwd}>
-            {p.name}
+          <span className="pname" title={branch ? `${p.cwd} · ${branch}` : p.cwd}>
+            {label}
           </span>
-          <span className="pcount">{p.threads.length}</span>
-          <button
-            className="pact"
-            title="New thread"
-            onClick={(e) => {
-              e.stopPropagation();
-              openThread(p.cwd);
-            }}
-          >
-            <Plus size={13} />
-          </button>
-          <button
-            className="pact"
-            title="从侧栏移除"
-            onClick={(e) => {
-              e.stopPropagation();
-              void removeProject(p.cwd);
-            }}
-          >
-            ×
-          </button>
-        </div>
-        {branch && (
-          <div className="pbranch" title={`当前 Git 分支：${branch}`}>
-            <Branch size={10} />
-            <span className="pbranch-name">{branch}</span>
+          <div className="pactions">
+            <span className="pcount">{p.threads.length}</span>
+            <button
+              className="pact"
+              title="新建会话"
+              onClick={(e) => {
+                e.stopPropagation();
+                openThread(p.cwd);
+              }}
+            >
+              <Plus size={13} />
+            </button>
+            <button
+              className="pact"
+              title="从侧栏移除"
+              onClick={(e) => {
+                e.stopPropagation();
+                void removeProject(p.cwd);
+              }}
+            >
+              <Close size={13} />
+            </button>
           </div>
-        )}
+        </div>
         {open && (
           <div className="thread-list">
-            {p.threads.length === 0 && <div className="ft-empty">暂无线程</div>}
+            {p.threads.length === 0 && <div className="ft-empty">暂无会话</div>}
             {p.threads.map((t) => {
               const running = runningSet.has(t.file);
               const openThread = () => onThreadClick(p.cwd, t.file);
               return (
                 <div
                   key={t.file}
-                  className={`thread ${activeThreadId === t.file ? "active" : ""}`}
+                  data-thread-file={t.file}
+                  className={`thread ${activeThreadId === t.file ? "active" : ""}${sidebarFlashThreadId === t.file ? " flash" : ""}`}
                   role="button"
                   tabIndex={0}
                   onClick={openThread}
@@ -297,8 +301,8 @@ export function Sidebar() {
                     <button
                       type="button"
                       className="thread-archive-btn"
-                      title="归档线程"
-                      aria-label={`归档线程：${t.title}`}
+                      title="归档会话"
+                      aria-label={`归档会话：${t.title}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         void archiveThread(p.cwd, t.file, t.title);
@@ -374,7 +378,7 @@ export function Sidebar() {
 
         <div className="sb-tabs">
           <button className={`sb-tab ${sidebarTab === "threads" ? "active" : ""}`} onClick={() => setSidebarTab("threads")}>
-            线程
+            会话
           </button>
           <button className={`sb-tab ${sidebarTab === "files" ? "active" : ""}`} onClick={() => setSidebarTab("files")}>
             文件
@@ -406,11 +410,13 @@ export function Sidebar() {
                     <span className="caret">
                       <ChevronRight size={10} />
                     </span>
-                    <Branch size={14} />
-                    <span className="pname" title={`${g.commonDir} · ${g.members.length} 个 worktree`}>
+                    <Folder size={15} />
+                    <span className="pname" title={`${g.commonDir} · ${g.members.length} 个分支`}>
                       {repoName}
                     </span>
-                    <span className="pcount">{g.members.length}</span>
+                    <div className="pactions">
+                      <span className="pcount">{g.members.length}</span>
+                    </div>
                   </div>
                   {open && (
                     <div className="worktree-members">{g.members.map((m) => renderProject(m, true))}</div>
@@ -493,7 +499,7 @@ function FileTreeView({ cwd }: { cwd: string | null }) {
   useEffect(() => {
     if (cwd && !fileTree[treeKey(cwd, "")]?.loaded) loadFileTree(cwd, "");
   }, [cwd, loadFileTree, fileTree]);
-  if (!cwd) return <div className="ft-empty">先在“线程”页打开一个项目。</div>;
+  if (!cwd) return <div className="ft-empty">先在“会话”页打开一个项目。</div>;
   const root = fileTree[treeKey(cwd, "")];
   if (!root?.loaded) return <div className="ft-empty">加载中…</div>;
   return (

@@ -8,16 +8,17 @@ import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
 import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch } from "./icons";
+import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
 export function Chat() {
   const activeThreadId = useStore((s) => s.activeThreadId);
-  const thread = useStore((s) => (activeThreadId ? s.threads[activeThreadId] : null));
+  const thread = useStore((s) => (s.activeThreadId ? s.threads[s.activeThreadId] : null));
+  const chatScrollSeq = useStore((s) => s.chatScrollSeq);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const togglePreview = useStore((s) => s.togglePreview);
-  const newSessionInThread = useStore((s) => s.newSessionInThread);
+  const reloadThread = useStore((s) => s.reloadThread);
   const renameThread = useStore((s) => s.renameThread);
-  const switchThreadFolder = useStore((s) => s.switchThreadFolder);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -34,34 +35,31 @@ export function Chat() {
   const streaming = thread?.streaming;
   const count = (thread?.messages.length || 0) + (streaming ? 1 : 0);
 
-  // git branch of the thread's worktree; refetched when a run ends (the agent
-  // may have switched branches) or the folder changes.
-  const [gitBranch, setGitBranch] = useState<string | null>(null);
-  useEffect(() => {
-    const cwd = thread?.cwd;
-    if (!cwd) {
-      setGitBranch(null);
-      return;
-    }
-    let alive = true;
-    window.pi.app
-      .getGitBranch(cwd)
-      .then((branch) => {
-        if (alive) setGitBranch(branch);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [thread?.cwd, thread?.isStreaming]);
-
-  // auto-scroll to bottom on new content
+  // auto-scroll to bottom on new content (only while already near bottom)
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
     if (near) el.scrollTop = el.scrollHeight;
   }, [count, streaming?.blocks?.length, thread?.messages.length]);
+
+  // Force pin to bottom when opening/switching a historical session or reloading.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeThreadId || thread?.loading) return;
+    const go = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    go();
+    const raf = requestAnimationFrame(go);
+    const t1 = window.setTimeout(go, 50);
+    const t2 = window.setTimeout(go, 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [activeThreadId, chatScrollSeq, thread?.loading]);
 
   useEffect(() => {
     if (!previewImage) return;
@@ -70,6 +68,10 @@ export function Chat() {
     return () => window.removeEventListener("keydown", close);
   }, [previewImage]);
 
+  // Must stay above any early return: thread.loading used to skip this hook and
+  // white-screen the app (React hook-order violation).
+  const groups = useMemo(() => groupMessages(thread?.messages || []), [thread?.messages]);
+
   if (!thread || !activeThreadId) return null;
 
   // Optimistic open: the omp process is still booting. Show the chrome plus a
@@ -77,12 +79,13 @@ export function Chat() {
   if (thread.loading) {
     return (
       <section className="main">
+        <ThreadTabs />
         <div className="chat-head">
           <button className="iconbtn" title="Toggle sidebar" onClick={toggleSidebar}>
             <Sidebar size={16} />
           </button>
           <div className="chat-head-titlewrap">
-            <div className="chat-head-title">{thread.sessionName || "新线程"}</div>
+            <div key={activeThreadId} className="chat-head-title">{thread.sessionName || "新会话"}</div>
           </div>
           <div className="spacer" />
         </div>
@@ -95,15 +98,8 @@ export function Chat() {
   }
 
   const firstUserText = thread.messages.find((m) => m.role === "user")?.text || "";
-  const title = getDisplayThreadTitle(thread.sessionName, firstUserText).slice(0, 40) || "New thread";
+  const title = getDisplayThreadTitle(thread.sessionName, firstUserText).slice(0, 40) || "新会话";
 
-  // Group consecutive assistant messages into one visual turn: a single agent
-  // round emits many assistant messages (think -> tool -> ... -> final reply)
-  // separated only by tool results, which are not rendered as bubbles. They
-  // share ONE avatar; a user message starts a new group. thread.messages keeps
-  // a stable identity during token streaming, so this memo only recomputes when
-  // a message finalizes.
-  const groups = useMemo(() => groupMessages(thread.messages), [thread.messages]);
   const lastGroup = groups[groups.length - 1];
   const streamingExtends = !!streaming && !!lastGroup && lastGroup.role === "assistant";
   const headGroups = streamingExtends ? groups.slice(0, -1) : groups;
@@ -149,6 +145,7 @@ export function Chat() {
 
   return (
     <section className="main">
+      <ThreadTabs />
       <div className="chat-head">
         <button className="iconbtn" title="Toggle sidebar" onClick={toggleSidebar}>
           <Sidebar size={16} />
@@ -169,7 +166,7 @@ export function Chat() {
             />
           ) : (
             <>
-              <div className="chat-head-title" title={title} onDoubleClick={startRename}>
+              <div key={activeThreadId} className="chat-head-title" title={title} onDoubleClick={startRename}>
                 {title}
               </div>
               {thread.cwd && (
@@ -184,12 +181,6 @@ export function Chat() {
                     <Folder size={11} />
                     <span className="chat-head-folder-path">{thread.cwd}</span>
                   </button>
-                  {gitBranch && (
-                    <span className="chat-head-branch" title={`当前 Git 分支：${gitBranch}`}>
-                      <Branch size={11} />
-                      <span className="chat-head-branch-name">{gitBranch}</span>
-                    </span>
-                  )}
                 </div>
               )}
             </>
@@ -205,7 +196,7 @@ export function Chat() {
         </button>
         <div className="spacer" />
         <div className="ctx-wrap" ref={ctxRef}>
-          <button className={`iconbtn ${ctxOpen ? "on" : ""}`} title="当前线程上下文用量" onClick={toggleCtx}>
+          <button className={`iconbtn ${ctxOpen ? "on" : ""}`} title="当前会话上下文用量" onClick={toggleCtx}>
             <Gauge size={15} />
           </button>
           {ctxOpen && (
@@ -247,13 +238,25 @@ export function Chat() {
               ) : (
                 <div className="ctx-empty">暂无上下文数据</div>
               )}
+              {((thread.extStatuses && Object.keys(thread.extStatuses).length > 0) ||
+                (thread.extWidgets && Object.keys(thread.extWidgets).length > 0)) && (
+                <div className="ctx-ext">
+                  <div className="ctx-pop-sub">插件状态</div>
+                  {Object.entries(thread.extStatuses || {}).map(([k, v]) => (
+                    <div key={k} className="ctx-ext-status">{v}</div>
+                  ))}
+                  {Object.entries(thread.extWidgets || {}).map(([k, v]) => (
+                    <div key={k} className="ctx-row">
+                      <span>{k}</span>
+                      <b>{v}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
-        <button className="iconbtn" title="切换工作文件夹" onClick={() => switchThreadFolder(activeThreadId)}>
-          <Folder size={15} />
-        </button>
-        <button className="iconbtn" title="新会话" onClick={() => newSessionInThread(activeThreadId)}>
+        <button className="iconbtn" title="重新加载会话" onClick={() => reloadThread(activeThreadId)}>
           <Refresh size={15} />
         </button>
         <button className="iconbtn" title="切换预览" onClick={togglePreview}>

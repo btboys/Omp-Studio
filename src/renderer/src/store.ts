@@ -27,6 +27,86 @@ import { cleanOutput, extensionsAlreadyLatest, hasLibuvAssertion, lastLine, stri
  * Pure helpers
  * ------------------------------------------------------------------ */
 
+
+const OPEN_TABS_KEY = "pi-studio.open-tabs";
+let openTabsHydrated = false;
+
+type PersistedOpenTabs = {
+  openThreadIds: string[];
+  activeThreadId: string | null;
+  pinnedThreadIds?: string[];
+};
+
+function isPersistableThreadId(id: string): boolean {
+  return !!id && !id.startsWith("opening-");
+}
+
+/** Keep pinned tabs on the left; preserve relative order within each group. */
+function normalizeOpenTabOrder(openThreadIds: string[], pinnedThreadIds: string[]): {
+  openThreadIds: string[];
+  pinnedThreadIds: string[];
+} {
+  const openSet = new Set(openThreadIds);
+  const pinnedListed = pinnedThreadIds.filter((id) => openSet.has(id) && isPersistableThreadId(id));
+  const pinnedSet = new Set(pinnedListed);
+  const unpinned = openThreadIds.filter((id) => !pinnedSet.has(id));
+  const seen = new Set<string>();
+  const pinnedUnique = pinnedListed.filter((id) => (seen.has(id) ? false : (seen.add(id), true)));
+  return { openThreadIds: [...pinnedUnique, ...unpinned], pinnedThreadIds: pinnedUnique };
+}
+
+function loadPersistedOpenTabs(): PersistedOpenTabs | null {
+  try {
+    const raw = localStorage.getItem(OPEN_TABS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedOpenTabs;
+    if (!parsed || !Array.isArray(parsed.openThreadIds)) return null;
+    const openThreadIds = parsed.openThreadIds.filter((id) => typeof id === "string" && isPersistableThreadId(id));
+    const activeThreadId =
+      typeof parsed.activeThreadId === "string" && openThreadIds.includes(parsed.activeThreadId)
+        ? parsed.activeThreadId
+        : openThreadIds[openThreadIds.length - 1] || null;
+    const pinnedRaw = Array.isArray(parsed.pinnedThreadIds) ? parsed.pinnedThreadIds : [];
+    const pinnedThreadIds = pinnedRaw.filter((id) => typeof id === "string" && openThreadIds.includes(id));
+    const normalized = normalizeOpenTabOrder(openThreadIds, pinnedThreadIds);
+    return {
+      openThreadIds: normalized.openThreadIds,
+      activeThreadId:
+        activeThreadId && normalized.openThreadIds.includes(activeThreadId)
+          ? activeThreadId
+          : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null,
+      pinnedThreadIds: normalized.pinnedThreadIds,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistOpenTabs(
+  openThreadIds: string[],
+  activeThreadId: string | null,
+  pinnedThreadIds: string[] = [],
+): void {
+  const ids = openThreadIds.filter(isPersistableThreadId);
+  // Before bootstrap finishes, avoid wiping a previously saved non-empty set with [].
+  if (!openTabsHydrated && ids.length === 0) return;
+  const normalized = normalizeOpenTabOrder(ids, pinnedThreadIds);
+  const active =
+    activeThreadId && normalized.openThreadIds.includes(activeThreadId)
+      ? activeThreadId
+      : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null;
+  try {
+    const payload: PersistedOpenTabs = {
+      openThreadIds: normalized.openThreadIds,
+      activeThreadId: active,
+      pinnedThreadIds: normalized.pinnedThreadIds,
+    };
+    localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 let _c = 0;
 const uid = () => `${Date.now().toString(36)}-${(_c++).toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -122,7 +202,7 @@ function mergeLiveThreadsIntoProjects(
     project.threads.unshift({
       file,
       id: file,
-      title: getDisplayThreadTitle(thread.sessionName, firstText).slice(0, 80) || "新线程",
+      title: getDisplayThreadTitle(thread.sessionName, firstText).slice(0, 80) || "新会话",
       preview: firstText.slice(0, 120) || (firstUser.images?.length ? "图片消息" : ""),
       updatedAt: lastUser.timestamp || Date.now(),
       messageCount: thread.messages.filter((message) => message.role === "user" || message.role === "assistant").length,
@@ -499,7 +579,13 @@ interface PiStore {
   activeProjectCwd: string | null;
   expandedProjects: Record<string, boolean>;
   openThreadIds: string[];
+  /** Pinned tab ids (subset of openThreadIds); always sorted to the left. */
+  pinnedThreadIds: string[];
   activeThreadId: string | null;
+  /** Bumped when chat should pin scroll to bottom (open history / reload). */
+  chatScrollSeq: number;
+  /** Sidebar flash target after "reveal in sidebar". */
+  sidebarFlashThreadId: string | null;
   threads: Record<string, ThreadState>;
 
   // files / preview
@@ -515,6 +601,8 @@ interface PiStore {
 
   // actions
   bootstrap: () => Promise<void>;
+  /** Restore open tabs from localStorage after project discovery. */
+  restoreOpenTabs: () => Promise<void>;
   refreshProjects: () => Promise<void>;
   openProjectFolder: () => Promise<void>;
   unpinProject: (cwd: string) => Promise<void>;
@@ -537,7 +625,20 @@ interface PiStore {
   /** Create a new thread in the active project, prompting for a folder if none is open. */
   newTask: () => Promise<void>;
   closeThread: (id: string) => Promise<void>;
+  /** Confirm, then close a tab (shared by × / middle-click / Cmd+W). */
+  requestCloseThread: (id: string) => Promise<void>;
+  requestCloseOtherThreads: (keepId: string) => Promise<void>;
+  requestCloseThreadsToRight: (id: string) => Promise<void>;
+  requestCloseAllThreads: () => Promise<void>;
   setActiveThread: (id: string) => void;
+  /** Pin/unpin a tab; pinned tabs stay on the left and persist. */
+  togglePinThread: (id: string) => void;
+  /** Expand project in sidebar and scroll/highlight the thread row. */
+  revealThreadInSidebar: (id: string) => void;
+  /** Reorder open tabs; from/to are indexes into openThreadIds (pin groups clamped). */
+  reorderOpenThreads: (fromIndex: number, toIndex: number) => void;
+  /** Cycle the active tab by delta (+1 next, -1 previous). */
+  cycleOpenThread: (delta: number) => void;
   sendPrompt: (threadId: string, text: string, images?: { data: string; mimeType: string }[], attachments?: { abs: string; name: string }[], mode?: "steer" | "followUp") => Promise<void>;
   setPendingFollowUp: (threadId: string, pending: PendingFollowUp | null) => void;
   sendPendingSteering: (threadId: string) => Promise<void>;
@@ -618,7 +719,7 @@ interface PiStore {
 
   // thread permission / folder
   setPermission: (threadId: string, level: PermissionLevel) => Promise<void>;
-  switchThreadFolder: (threadId: string) => Promise<void>;
+  reloadThread: (threadId: string) => Promise<void>;
   /** Move a not-yet-sent task to another working folder without losing the composer draft. */
   changeDraftThreadFolder: (threadId: string, cwd: string) => Promise<void>;
 
@@ -746,7 +847,10 @@ export const useStore = create<PiStore>()((set, get) => ({
   activeProjectCwd: null,
   expandedProjects: {},
   openThreadIds: [],
+  pinnedThreadIds: [],
   activeThreadId: null,
+  chatScrollSeq: 0,
+  sidebarFlashThreadId: null,
   threads: {},
   fileTree: {},
   previewPath: null,
@@ -813,6 +917,89 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
 
     await runtimeTask;
+    try {
+      await get().restoreOpenTabs();
+    } catch (e: any) {
+      get().pushToast("warning", "恢复会话标签失败：" + (e?.message || e));
+    } finally {
+      // Always unlock persistence, even if restore throws/hangs mid-way then recovers.
+      openTabsHydrated = true;
+      persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds);
+    }
+  },
+
+  /** Reopen previously open session tabs from localStorage (history first; connect only the active tab). */
+  restoreOpenTabs: async () => {
+    const saved = loadPersistedOpenTabs();
+    const projects = get().projects;
+    const fileToCwd = new Map<string, string>();
+    for (const project of projects) {
+      for (const thread of project.threads) fileToCwd.set(thread.file, project.cwd);
+    }
+
+    const wanted = (saved?.openThreadIds || []).filter((file) => fileToCwd.has(file));
+    if (wanted.length === 0) {
+      openTabsHydrated = true;
+      persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds);
+      return;
+    }
+
+    const restored: string[] = [];
+    for (const sessionFile of wanted) {
+      if (get().threads[sessionFile]) {
+        restored.push(sessionFile);
+        continue;
+      }
+      const cwd = fileToCwd.get(sessionFile);
+      if (!cwd) continue;
+      try {
+        const hist: any = await window.pi.thread.loadHistory({ cwd, sessionFile });
+        const { views, toolRuns } = historyToView(hist.messages || [], hist.branchMessages || []);
+        const thread: ThreadState = {
+          ...emptyThread(hist.cwd || cwd),
+          sessionFile: hist.sessionFile || sessionFile,
+          sessionName: hist.sessionName,
+          model: hist.model,
+          models: hist.models || [],
+          thinking: hist.thinkingLevel || "off",
+          commands: hist.commands || [],
+          loading: false,
+          connected: !!hist.connected,
+          isStreaming: !!hist.isStreaming,
+          messages: views,
+          toolRuns,
+          permission: hist.permission || "sandbox",
+        };
+        set((s) => ({
+          threads: { ...s.threads, [sessionFile]: thread },
+        }));
+        restored.push(sessionFile);
+      } catch {
+        /* session may have been deleted; skip */
+      }
+    }
+
+    const active =
+      (saved?.activeThreadId && restored.includes(saved.activeThreadId) && saved.activeThreadId) ||
+      restored[restored.length - 1] ||
+      null;
+    const pinnedSaved = (saved?.pinnedThreadIds || []).filter((id) => restored.includes(id));
+    const normalized = normalizeOpenTabOrder(restored, pinnedSaved);
+
+    set((s) => ({
+      openThreadIds: normalized.openThreadIds,
+      pinnedThreadIds: normalized.pinnedThreadIds,
+      activeThreadId: active && normalized.openThreadIds.includes(active) ? active : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null,
+      activeProjectCwd: active ? s.threads[active]?.cwd || s.activeProjectCwd : s.activeProjectCwd,
+      expandedProjects: active && s.threads[active]?.cwd
+        ? { ...s.expandedProjects, [s.threads[active]!.cwd]: true }
+        : s.expandedProjects,
+    }));
+
+    openTabsHydrated = true;
+    const finalActive = get().activeThreadId;
+    persistOpenTabs(normalized.openThreadIds, finalActive, normalized.pinnedThreadIds);
+    if (finalActive) get().ensureConnected(finalActive);
   },
 
   refreshProjects: async () => {
@@ -853,6 +1040,16 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
   },
   removeProject: async (cwd) => {
+    const language = get().config?.language || "en";
+    if (
+      !window.confirm(
+        language === "zh"
+          ? "确定从侧栏移除该项目？不会删除文件夹或会话，可在设置的「已归档项目」中恢复。"
+          : "Remove this project from the sidebar? The folder and sessions are not deleted; restore it from Archived projects in Settings.",
+      )
+    ) {
+      return;
+    }
     try {
       const cfg = get().config;
       const pinned = cfg?.pinnedProjects || [];
@@ -952,9 +1149,9 @@ export const useStore = create<PiStore>()((set, get) => ({
         .map(([id]) => id);
       for (const id of ids) await get().closeThread(id);
       await get().refreshProjects();
-      get().pushToast("info", "线程已归档，可在设置的“归档线程”中恢复。");
+      get().pushToast("info", "会话已归档，可在设置的“归档会话”中恢复。");
     } catch (e: any) {
-      get().pushToast("error", "归档线程失败：" + (e?.message || e));
+      get().pushToast("error", "归档会话失败：" + (e?.message || e));
     }
   },
   restoreThread: async (file) => {
@@ -967,9 +1164,9 @@ export const useStore = create<PiStore>()((set, get) => ({
       const config = await window.pi.app.setConfig({ archivedThreads: next });
       set({ config });
       await get().refreshProjects();
-      get().pushToast("success", "线程已恢复到侧栏。");
+      get().pushToast("success", "会话已恢复到侧栏。");
     } catch (e: any) {
-      get().pushToast("error", "恢复线程失败：" + (e?.message || e));
+      get().pushToast("error", "恢复会话失败：" + (e?.message || e));
     }
   },
 
@@ -981,11 +1178,20 @@ export const useStore = create<PiStore>()((set, get) => ({
     // (no live process yet), kick off / reuse the background connect so it
     // becomes interactive.
     if (sessionFile && get().threads[sessionFile]) {
-      set((s) => ({
-        activeThreadId: sessionFile,
-        activeProjectCwd: cwd,
-        expandedProjects: { ...s.expandedProjects, [cwd]: true },
-      }));
+      set((s) => {
+        const openThreadIds = s.openThreadIds.includes(sessionFile)
+          ? s.openThreadIds
+          : [...s.openThreadIds, sessionFile];
+        const normalized = normalizeOpenTabOrder(openThreadIds, s.pinnedThreadIds);
+        persistOpenTabs(normalized.openThreadIds, sessionFile, normalized.pinnedThreadIds);
+        return {
+          activeThreadId: sessionFile,
+          activeProjectCwd: cwd,
+          expandedProjects: { ...s.expandedProjects, [cwd]: true },
+          openThreadIds: normalized.openThreadIds,
+          pinnedThreadIds: normalized.pinnedThreadIds,
+        };
+      });
       if (!get().threads[sessionFile].connected) get().ensureConnected(sessionFile);
       return sessionFile;
     }
@@ -1018,6 +1224,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           activeThreadId: sessionFile,
           activeProjectCwd: hist.cwd || cwd,
           expandedProjects: { ...s.expandedProjects, [hist.cwd || cwd]: true },
+          chatScrollSeq: s.chatScrollSeq + 1,
         }));
         if (hist.connected) {
           window.pi.thread
@@ -1029,7 +1236,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         }
         return sessionFile;
       } catch (e: any) {
-        get().pushToast("error", "Open thread failed: " + (e?.message || e));
+        get().pushToast("error", "打开会话失败：" + (e?.message || e));
         return null;
       }
     }
@@ -1088,13 +1295,15 @@ export const useStore = create<PiStore>()((set, get) => ({
           };
           const threads: Record<string, ThreadState> = { ...s.threads, [id]: merged };
           let openThreadIds = s.openThreadIds;
+          let pinnedThreadIds = s.pinnedThreadIds;
           let activeThreadId = s.activeThreadId;
           if (id !== threadId) {
             delete threads[threadId];
             openThreadIds = openThreadIds.map((x) => (x === threadId ? id : x));
+            pinnedThreadIds = pinnedThreadIds.map((x) => (x === threadId ? id : x));
             if (activeThreadId === threadId) activeThreadId = id;
           }
-          return { threads, openThreadIds, activeThreadId };
+          return { threads, openThreadIds, pinnedThreadIds, activeThreadId };
         });
         // A brand-new session just appeared on disk (temp id remapped to the
         // real session file); refresh the sidebar so it shows under its project.
@@ -1125,22 +1334,148 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
     set((s) => {
       const openThreadIds = s.openThreadIds.filter((x) => x !== id);
+      const pinnedThreadIds = s.pinnedThreadIds.filter((x) => x !== id);
       const threads = { ...s.threads };
       delete threads[id];
       let activeThreadId = s.activeThreadId;
       if (activeThreadId === id) activeThreadId = openThreadIds[openThreadIds.length - 1] || null;
       const activeProjectCwd = activeThreadId ? threads[activeThreadId]?.cwd || null : null;
-      return { openThreadIds, threads, activeThreadId, activeProjectCwd };
+      const sidebarFlashThreadId = s.sidebarFlashThreadId === id ? null : s.sidebarFlashThreadId;
+      persistOpenTabs(openThreadIds, activeThreadId, pinnedThreadIds);
+      return { openThreadIds, pinnedThreadIds, threads, activeThreadId, activeProjectCwd, sidebarFlashThreadId };
     });
   },
 
-  setActiveThread: (id) =>
+  requestCloseThread: async (id) => {
+    if (!get().openThreadIds.includes(id) && get().activeThreadId !== id) return;
+    const streaming = !!get().threads[id]?.isStreaming;
+    const msg = streaming
+      ? "该会话正在生成回复。关闭将中断生成并停止后台进程，确定？"
+      : "关闭此会话标签？后台 omp 进程会停止，侧栏可再次打开。";
+    if (!window.confirm(msg)) return;
+    await get().closeThread(id);
+  },
+
+  requestCloseOtherThreads: async (keepId) => {
+    const others = get().openThreadIds.filter((id) => id !== keepId);
+    if (others.length === 0) return;
+    const streaming = others.some((id) => get().threads[id]?.isStreaming);
+    const msg = streaming
+      ? `将关闭其他 ${others.length} 个标签（含正在生成的会话）。确定？`
+      : `关闭其他 ${others.length} 个会话标签？后台 omp 进程会停止，侧栏可再次打开。`;
+    if (!window.confirm(msg)) return;
+    for (const id of others) await get().closeThread(id);
+  },
+
+  requestCloseThreadsToRight: async (id) => {
+    const idx = get().openThreadIds.indexOf(id);
+    if (idx < 0) return;
+    const right = get().openThreadIds.slice(idx + 1);
+    if (right.length === 0) return;
+    const streaming = right.some((tid) => get().threads[tid]?.isStreaming);
+    const msg = streaming
+      ? `将关闭右侧 ${right.length} 个标签（含正在生成的会话）。确定？`
+      : `关闭右侧 ${right.length} 个会话标签？后台 omp 进程会停止，侧栏可再次打开。`;
+    if (!window.confirm(msg)) return;
+    for (const tid of right) await get().closeThread(tid);
+  },
+
+  requestCloseAllThreads: async () => {
+    const all = [...get().openThreadIds];
+    if (all.length === 0) return;
+    const streaming = all.some((id) => get().threads[id]?.isStreaming);
+    const msg = streaming
+      ? `将关闭全部 ${all.length} 个标签（含正在生成的会话）。确定？`
+      : `关闭全部 ${all.length} 个会话标签？后台 omp 进程会停止，侧栏可再次打开。`;
+    if (!window.confirm(msg)) return;
+    for (const id of all) await get().closeThread(id);
+  },
+
+  setActiveThread: (id) => {
     set((s) => {
       const cwd = s.threads[id]?.cwd;
-      return cwd
-        ? { activeThreadId: id, activeProjectCwd: cwd, expandedProjects: { ...s.expandedProjects, [cwd]: true } }
-        : { activeThreadId: id };
-    }),
+      const openThreadIds = s.openThreadIds.includes(id) ? s.openThreadIds : [...s.openThreadIds, id];
+      const normalized = normalizeOpenTabOrder(openThreadIds, s.pinnedThreadIds);
+      persistOpenTabs(normalized.openThreadIds, id, normalized.pinnedThreadIds);
+      if (cwd) {
+        return {
+          activeThreadId: id,
+          activeProjectCwd: cwd,
+          expandedProjects: { ...s.expandedProjects, [cwd]: true },
+          openThreadIds: normalized.openThreadIds,
+          pinnedThreadIds: normalized.pinnedThreadIds,
+          chatScrollSeq: s.chatScrollSeq + 1,
+        };
+      }
+      return {
+        activeThreadId: id,
+        openThreadIds: normalized.openThreadIds,
+        pinnedThreadIds: normalized.pinnedThreadIds,
+        chatScrollSeq: s.chatScrollSeq + 1,
+      };
+    });
+    const t = get().threads[id];
+    if (t && !t.connected && !t.loading) get().ensureConnected(id);
+  },
+
+  togglePinThread: (id) => {
+    set((s) => {
+      if (!s.openThreadIds.includes(id) && s.activeThreadId !== id) return s;
+      const openThreadIds = s.openThreadIds.includes(id) ? s.openThreadIds : [...s.openThreadIds, id];
+      const pinned = s.pinnedThreadIds.includes(id)
+        ? s.pinnedThreadIds.filter((x) => x !== id)
+        : [...s.pinnedThreadIds, id];
+      const normalized = normalizeOpenTabOrder(openThreadIds, pinned);
+      persistOpenTabs(normalized.openThreadIds, s.activeThreadId, normalized.pinnedThreadIds);
+      return { openThreadIds: normalized.openThreadIds, pinnedThreadIds: normalized.pinnedThreadIds };
+    });
+  },
+
+  revealThreadInSidebar: (id) => {
+    const t = get().threads[id];
+    if (!t) return;
+    set((s) => ({
+      sidebarOpen: true,
+      sidebarTab: "threads",
+      activeThreadId: id,
+      activeProjectCwd: t.cwd,
+      expandedProjects: { ...s.expandedProjects, [t.cwd]: true },
+      sidebarFlashThreadId: id,
+    }));
+    window.setTimeout(() => {
+      if (get().sidebarFlashThreadId === id) set({ sidebarFlashThreadId: null });
+    }, 1800);
+  },
+
+  reorderOpenThreads: (fromIndex, toIndex) => {
+    set((s) => {
+      if (fromIndex === toIndex) return s;
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= s.openThreadIds.length || toIndex >= s.openThreadIds.length) return s;
+      const pinnedSet = new Set(s.pinnedThreadIds);
+      const movingId = s.openThreadIds[fromIndex];
+      const movingPinned = pinnedSet.has(movingId);
+      const pinnedCount = s.pinnedThreadIds.length;
+      let clampedTo = toIndex;
+      if (movingPinned) clampedTo = Math.min(Math.max(toIndex, 0), Math.max(0, pinnedCount - 1));
+      else clampedTo = Math.min(Math.max(toIndex, pinnedCount), s.openThreadIds.length - 1);
+      if (fromIndex === clampedTo) return s;
+      const openThreadIds = [...s.openThreadIds];
+      const [item] = openThreadIds.splice(fromIndex, 1);
+      openThreadIds.splice(clampedTo, 0, item);
+      const nextPinned = openThreadIds.filter((tid) => pinnedSet.has(tid));
+      const normalized = normalizeOpenTabOrder(openThreadIds, nextPinned);
+      persistOpenTabs(normalized.openThreadIds, s.activeThreadId, normalized.pinnedThreadIds);
+      return { openThreadIds: normalized.openThreadIds, pinnedThreadIds: normalized.pinnedThreadIds };
+    });
+  },
+
+  cycleOpenThread: (delta) => {
+    const { openThreadIds, activeThreadId } = get();
+    if (openThreadIds.length < 2) return;
+    const current = Math.max(0, openThreadIds.indexOf(activeThreadId || ""));
+    const next = (current + delta + openThreadIds.length * 10) % openThreadIds.length;
+    get().setActiveThread(openThreadIds[next]);
+  },
 
   newTask: async () => {
     let cwd: string | null = get().activeProjectCwd;
@@ -1318,7 +1653,8 @@ export const useStore = create<PiStore>()((set, get) => ({
         const threads: Record<string, ThreadState> = { ...s.threads, [newId]: thread };
         if (newId !== id) delete threads[id];
         const openThreadIds = s.openThreadIds.map((x) => (x === id ? newId : x));
-        return { threads, openThreadIds, activeThreadId: newId };
+        const pinnedThreadIds = s.pinnedThreadIds.map((x) => (x === id ? newId : x));
+        return { threads, openThreadIds, pinnedThreadIds, activeThreadId: newId };
       });
       if (newId !== id) get().refreshProjects();
     } catch (e: any) {
@@ -1481,7 +1817,35 @@ export const useStore = create<PiStore>()((set, get) => ({
       if (req.title) document.title = String(req.title);
       return;
     }
-    if (m === "setStatus" || m === "setWidget") return; // not surfaced yet
+    if (m === "setStatus" || m === "setWidget") {
+      set((s) => {
+        const t = s.threads[threadId];
+        if (!t) return s;
+        // omp RPC fields: setStatus -> statusKey/statusText, setWidget -> widgetKey/widgetLines (string[]).
+        // Legacy pi field names kept as fallbacks.
+        if (m === "setWidget") {
+          const key = String(req.widgetKey ?? req.name ?? "widget");
+          const lines = req.widgetLines;
+          const next = { ...(t.extWidgets || {}) };
+          if (lines === undefined) {
+            delete next[key];
+            return { threads: { ...s.threads, [threadId]: { ...t, extWidgets: next } } };
+          }
+          next[key] = Array.isArray(lines) ? lines.join("\n") : String(lines);
+          return { threads: { ...s.threads, [threadId]: { ...t, extWidgets: next } } };
+        }
+        const status = req.statusText ?? req.text ?? req.message ?? req.title;
+        const key = String(req.statusKey ?? "status");
+        const next = { ...(t.extStatuses || {}) };
+        if (status === undefined) {
+          delete next[key];
+          return { threads: { ...s.threads, [threadId]: { ...t, extStatuses: next } } };
+        }
+        next[key] = String(status).replace(/\u001b\[[0-9;]*m/g, "");
+        return { threads: { ...s.threads, [threadId]: { ...t, extStatuses: next } } };
+      });
+      return;
+    }
     // dialog methods -> queue
     if (m === "select" || m === "confirm" || m === "input" || m === "editor") {
       set((s) => ({
@@ -1529,7 +1893,12 @@ export const useStore = create<PiStore>()((set, get) => ({
   goToThread: async (cwd, file) => {
     const s = get();
     if (s.openThreadIds.includes(file)) {
-      set({ activeThreadId: file, activeProjectCwd: cwd, expandedProjects: { ...s.expandedProjects, [cwd]: true } });
+      set({
+        activeThreadId: file,
+        activeProjectCwd: cwd,
+        expandedProjects: { ...s.expandedProjects, [cwd]: true },
+        chatScrollSeq: s.chatScrollSeq + 1,
+      });
       return;
     }
     await s.openThread(cwd, file);
@@ -1576,7 +1945,10 @@ export const useStore = create<PiStore>()((set, get) => ({
   },
   removePackage: async (source) => {
     try {
-      await window.pi.plugins.removePackage(source);
+      const res: any = await window.pi.plugins.removePackage(source);
+      if (res && res.ok === false) {
+        get().pushToast("error", "移除失败：" + (res.output || "unknown error"));
+      }
       await get().loadPlugins();
     } catch (e: any) {
       get().pushToast("error", "移除失败：" + (e?.message || e));
@@ -1746,15 +2118,90 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("error", "切换权限失败：" + (e?.message || e));
     }
   },
-  switchThreadFolder: async (threadId) => {
+  reloadThread: async (threadId) => {
+    const t = get().threads[threadId];
+    if (!t) return;
+    if (t.loading) return;
+    if (t.isStreaming) {
+      get().pushToast("warning", "请等待当前回复结束后再重新加载。");
+      return;
+    }
+    const cwd = t.cwd;
+    const sessionFile = t.sessionFile || (threadId.startsWith("opening-") ? "" : threadId);
+    const permission = t.permission;
+    if (!sessionFile) {
+      get().pushToast("warning", "会话尚未落盘，暂无可重新加载的历史。");
+      return;
+    }
+
+    // Keep the chat mounted: only mark disconnected so the existing "连接中"
+    // badge shows. Setting loading:true used to early-return Chat past hooks.
+    set((s) => {
+      const prev = s.threads[threadId];
+      if (!prev) return {};
+      const next: ThreadState = {
+        ...prev,
+        connected: false,
+        isStreaming: false,
+        streaming: null,
+        error: undefined,
+      };
+      return { threads: { ...s.threads, [threadId]: next } };
+    });
+
     try {
-      const path = await window.pi.app.showOpenDialog("folder");
-      if (!path || Array.isArray(path)) return;
-      await window.pi.app.openProject(path);
-      await get().refreshProjects();
-      await get().openThread(path, undefined, get().threads[threadId]?.permission);
+      await window.pi.thread.close(threadId);
+    } catch {
+      /* ignore */
+    }
+    if (sessionFile !== threadId) {
+      try {
+        await window.pi.thread.close(sessionFile);
+      } catch {
+        /* ignore */
+      }
+    }
+    connectPromises.delete(threadId);
+    connectPromises.delete(sessionFile);
+
+    try {
+      const hist: any = await window.pi.thread.loadHistory({ cwd, sessionFile });
+      const { views, toolRuns } = historyToView(hist.messages || [], hist.branchMessages || []);
+      const nextId = hist.sessionFile || sessionFile;
+      const thread: ThreadState = {
+        ...emptyThread(hist.cwd || cwd),
+        sessionFile: nextId,
+        sessionName: hist.sessionName,
+        model: hist.model,
+        models: hist.models || [],
+        thinking: hist.thinkingLevel || "off",
+        commands: hist.commands || [],
+        loading: false,
+        connected: false,
+        messages: views,
+        toolRuns,
+        permission: hist.permission || permission || "sandbox",
+      };
+      set((s) => {
+        const threads: Record<string, ThreadState> = { ...s.threads, [nextId]: thread };
+        if (threadId !== nextId) delete threads[threadId];
+        const openThreadIds = s.openThreadIds.map((x) => (x === threadId ? nextId : x));
+        const pinnedThreadIds = s.pinnedThreadIds.map((x) => (x === threadId ? nextId : x));
+        const activeThreadId = s.activeThreadId === threadId ? nextId : s.activeThreadId;
+        persistOpenTabs(openThreadIds, activeThreadId, pinnedThreadIds);
+        return {
+          threads,
+          openThreadIds,
+          pinnedThreadIds,
+          activeThreadId,
+          activeProjectCwd: hist.cwd || cwd,
+          chatScrollSeq: s.chatScrollSeq + 1,
+        };
+      });
+      await get().ensureConnected(nextId);
+      get().pushToast("info", "会话已重新加载");
     } catch (e: any) {
-      get().pushToast("error", "切换文件夹失败：" + (e?.message || e));
+      get().pushToast("error", "重新加载失败：" + (e?.message || e));
     }
   },
   changeDraftThreadFolder: async (threadId, cwd) => {
@@ -1788,3 +2235,19 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
   },
 }));
+
+useStore.subscribe((state, prev) => {
+  if (
+    state.openThreadIds === prev.openThreadIds &&
+    state.activeThreadId === prev.activeThreadId &&
+    state.pinnedThreadIds === prev.pinnedThreadIds
+  ) {
+    // still sync active tab for desktop notify
+  } else {
+    persistOpenTabs(state.openThreadIds, state.activeThreadId, state.pinnedThreadIds);
+  }
+  // Keep main-process desktop-notify suppression in sync with the active tab.
+  if (state.activeThreadId !== prev.activeThreadId) {
+    window.pi.app.setActiveThread(state.activeThreadId).catch(() => {});
+  }
+});

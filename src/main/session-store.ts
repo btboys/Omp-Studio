@@ -190,7 +190,7 @@ async function readThreadSummary(file: string): Promise<{ summary: ThreadSummary
   } catch {
     /* ignore */
   }
-  const title = displayThreadTitle(name, preview) || "New thread";
+  const title = displayThreadTitle(name, preview) || "新会话";
   return { summary: { file, id, title, preview, updatedAt, messageCount }, cwd };
 }
 
@@ -358,7 +358,7 @@ async function searchOneFile(file: string, q: string): Promise<ThreadSearchHit |
   }
 
   if (!cwd) return null;
-  const title = displayThreadTitle(name, preview) || "New thread";
+  const title = displayThreadTitle(name, preview) || "新会话";
   if (title.toLowerCase().includes(q)) {
     if (!snippet) snippet = title;
     if (!matchCount) matchCount = 1;

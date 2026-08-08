@@ -403,16 +403,16 @@ export default function permissionGate(pi: any) {
       return blocked(zh ? `${title}：无可用确认界面，已阻止` : `${title}: no approval UI is available; blocked`);
     }
     const allowOnce = zh ? "仅允许本次" : "Allow once";
-    const allowExact = zh ? "本线程允许完全相同操作" : "Allow this exact operation for this thread";
+    const allowExact = zh ? "本会话允许完全相同操作" : "Allow this exact operation for this session";
     const allowPrefix = options.prefixKey
       ? zh
-        ? `本线程允许前缀：${options.prefixKey}`
-        : `Allow prefix for this thread: ${options.prefixKey}`
+        ? `本会话允许前缀：${options.prefixKey}`
+        : `Allow prefix for this session: ${options.prefixKey}`
       : "";
     const allowTool = options.toolKey
       ? zh
-        ? `本线程允许工具：${options.toolKey}`
-        : `Allow tool for this thread: ${options.toolKey}`
+        ? `本会话允许工具：${options.toolKey}`
+        : `Allow tool for this session: ${options.toolKey}`
       : "";
     const deny = zh ? "拒绝" : "Deny";
     const choices = [

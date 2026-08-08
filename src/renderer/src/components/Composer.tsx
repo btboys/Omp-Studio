@@ -4,7 +4,7 @@ import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
-import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight } from "./icons";
+import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch } from "./icons";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
@@ -62,6 +62,28 @@ export function Composer({ threadId }: { threadId: string }) {
   const setPendingFollowUp = useStore((s) => s.setPendingFollowUp);
   const sendPendingSteering = useStore((s) => s.sendPendingSteering);
   const changeDraftThreadFolder = useStore((s) => s.changeDraftThreadFolder);
+
+  // git branch of the thread cwd; refresh when folder changes or a run ends
+  // (agent may have switched branches).
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  useEffect(() => {
+    if (!cwd) {
+      setGitBranch(null);
+      return;
+    }
+    let alive = true;
+    window.pi.app
+      .getGitBranch(cwd)
+      .then((branch) => {
+        if (alive) setGitBranch(branch);
+      })
+      .catch(() => {
+        if (alive) setGitBranch(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [cwd, isStreaming]);
 
   const [text, setText] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
@@ -410,19 +432,21 @@ export function Composer({ threadId }: { threadId: string }) {
   return (
     <div className="composer-wrap" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
       <div className="composer">
-        {isDraftTask && !isStreaming && (
+        {((isDraftTask && !isStreaming) || !!gitBranch) && (
           <div className="composer-project-row" ref={projectRef}>
-            <button
-              className={`composer-project-pill ${projectOpen ? "open" : ""}`}
-              onClick={() => setProjectOpen((value) => !value)}
-              title={cwd}
-              aria-haspopup="menu"
-              aria-expanded={projectOpen}
-            >
-              <Folder size={14} />
-              <span>{projectName}</span>
-              <ChevronRight className="project-pill-caret" size={12} />
-            </button>
+            {isDraftTask && !isStreaming && (
+              <button
+                className={`composer-project-pill ${projectOpen ? "open" : ""}`}
+                onClick={() => setProjectOpen((value) => !value)}
+                title={cwd}
+                aria-haspopup="menu"
+                aria-expanded={projectOpen}
+              >
+                <Folder size={14} />
+                <span>{projectName}</span>
+                <ChevronRight className="project-pill-caret" size={12} />
+              </button>
+            )}
             {projectOpen && (
               <div className="composer-project-menu" role="menu">
                 <label className="project-menu-search">
@@ -460,6 +484,12 @@ export function Composer({ threadId }: { threadId: string }) {
                   <span>新建项目</span>
                 </button>
               </div>
+            )}
+            {gitBranch && (
+              <span className="composer-branch-pill" title={`当前 Git 分支：${gitBranch}`}>
+                <Branch size={13} />
+                <span className="composer-branch-name">{gitBranch}</span>
+              </span>
             )}
           </div>
         )}

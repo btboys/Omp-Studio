@@ -146,7 +146,7 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
     return { row };
   }, [status, root, openPreview]);
 
-  if (!cwd) return <div className="ft-empty">{t("先在“线程”页打开一个项目。", "Open a project in the Threads tab first.")}</div>;
+  if (!cwd) return <div className="ft-empty">{t("先在“会话”页打开一个项目。", "Open a project in the Sessions tab first.")}</div>;
   if (!status) return <div className="ft-empty">{t("加载中…", "Loading…")}</div>;
   if (!status.repo || !root || !fileRows) {
     return <div className="ft-empty">{t("当前项目不是 Git 仓库。", "The active project is not a git repository.")}</div>;

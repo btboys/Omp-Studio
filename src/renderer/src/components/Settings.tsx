@@ -988,6 +988,20 @@ export function Settings() {
     useStore.setState({ config: next });
   };
 
+  const desktopNotify = {
+    enabled: true,
+    onIdle: true,
+    onApproval: true,
+    onError: true,
+    onlyWhenUnfocused: true,
+    ...(config?.desktopNotify || {}),
+  };
+
+  const changeDesktopNotify = async (patch: Partial<typeof desktopNotify>) => {
+    const next = await window.pi.app.setConfig({ desktopNotify: { ...desktopNotify, ...patch } });
+    useStore.setState({ config: next });
+  };
+
   const openFile = async (abs: string) => {
     const r = await window.pi.settings.openPath(abs);
     if (r && r.ok === false) pushToast("error", "打开失败：" + (r.error || ""));
@@ -1300,7 +1314,7 @@ export function Settings() {
               <div className="set-card">
                 <div className="set-card-title">已归档项目</div>
                 <div className="set-hint archived-project-hint">
-                  归档只会从侧栏、搜索和新建任务的项目列表中隐藏文件夹，不会删除文件夹或其中的线程；在「已归档项目」中可彻底删除会话文件，不可恢复。
+                  归档只会从侧栏、搜索和新建任务的项目列表中隐藏文件夹，不会删除文件夹或其中的会话；在「已归档项目」中可彻底删除会话文件，不可恢复。
                 </div>
                 {(config?.archivedProjects || []).length === 0 ? (
                   <div className="set-empty">暂无归档项目。</div>
@@ -1336,12 +1350,12 @@ export function Settings() {
                   </div>
                 )}
                 <div className="archived-thread-section">
-                  <div className="set-card-title">已归档线程</div>
+                  <div className="set-card-title">已归档会话</div>
                   <div className="set-hint archived-project-hint">
-                    归档只会隐藏线程，不会删除会话文件；恢复后线程会重新出现在所属项目下。
+                    归档只会隐藏会话，不会删除会话文件；恢复后会话会重新出现在所属项目下。
                   </div>
                   {(config?.archivedThreads || []).length === 0 ? (
-                    <div className="set-empty">暂无归档线程。</div>
+                    <div className="set-empty">暂无归档会话。</div>
                   ) : (
                     <div className="archived-thread-list">
                       {(config?.archivedThreads || []).map((thread) => {
@@ -1353,7 +1367,7 @@ export function Settings() {
                               <div className="archived-thread-name" title={thread.title}>{thread.title || thread.file}</div>
                               <div className="archived-thread-path" title={thread.file}>{projectName} · {thread.file}</div>
                             </div>
-                            <button className="set-btn" onClick={() => restoreThread(thread.file)}>恢复线程</button>
+                            <button className="set-btn" onClick={() => restoreThread(thread.file)}>恢复会话</button>
                           </div>
                         );
                       })}
@@ -1365,6 +1379,45 @@ export function Settings() {
 
             {tab === "diag" && (
               <>
+                <div className="set-card">
+                  <div className="set-card-title">{language === "zh" ? "桌面通知" : "Desktop notifications"}</div>
+                  <div className="set-hint" style={{ marginBottom: 12 }}>
+                    {language === "zh"
+                      ? "Agent 完成、需要确认或出错时弹出系统通知。默认：正在看的 tab 不打扰，后台 tab 仍提醒；点击通知会切到对应会话。无需安装 code-notify。"
+                      : "Show OS notifications when an agent finishes, needs approval, or errors. By default the active tab stays quiet while focused; background tabs still notify. Clicking opens that tab. No code-notify install required."}
+                  </div>
+                  <Field label={language === "zh" ? "启用桌面通知" : "Enable desktop notifications"}>
+                    <Toggle checked={!!desktopNotify.enabled} onChange={(v) => void changeDesktopNotify({ enabled: v })} />
+                  </Field>
+                  <Field label={language === "zh" ? "回合结束时" : "When agent finishes"}>
+                    <Toggle
+                      checked={!!desktopNotify.onIdle}
+                      onChange={(v) => void changeDesktopNotify({ onIdle: v })}
+                    />
+                  </Field>
+                  <Field label={language === "zh" ? "需要确认时" : "When approval is needed"}>
+                    <Toggle
+                      checked={!!desktopNotify.onApproval}
+                      onChange={(v) => void changeDesktopNotify({ onApproval: v })}
+                    />
+                  </Field>
+                  <Field label={language === "zh" ? "出错或进程退出时" : "On error / process exit"}>
+                    <Toggle
+                      checked={!!desktopNotify.onError}
+                      onChange={(v) => void changeDesktopNotify({ onError: v })}
+                    />
+                  </Field>
+                  <Field
+                    label={language === "zh" ? "仅非当前 tab / 未聚焦时通知" : "Only for background tabs / when unfocused"}
+                    hint={language === "zh" ? "当前正在查看的 tab 且窗口聚焦时不弹；后台 tab 仍会提醒" : "Skip only for the active tab while focused; background tabs still notify"}
+                  >
+                    <Toggle
+                      checked={!!desktopNotify.onlyWhenUnfocused}
+                      onChange={(v) => void changeDesktopNotify({ onlyWhenUnfocused: v })}
+                    />
+                  </Field>
+                </div>
+
                 <div className="set-card">
                   <div className="set-card-title">omp 运行时</div>
                   {diag?.error && <div className="set-diag-err">⚠ {diag.error}</div>}
@@ -1489,9 +1542,9 @@ export function Settings() {
                 <div className="set-card-title">更新 omp 核心</div>
                 <div className="set-hint" style={{ marginBottom: 12 }}>
                   {diag?.bundled ? (
-                    <>omp 核心由 Omp Studio 统一管理（内置副本不可被 <code>omp update</code> 原地更新）。点击下方按钮后，Omp Studio 会自行下载并安装新版本到应用数据目录，更新完成后新开的线程使用新版本。扩展请在「插件」面板更新。</>
+                    <>omp 核心由 Omp Studio 统一管理（内置副本不可被 <code>omp update</code> 原地更新）。点击下方按钮后，Omp Studio 会自行下载并安装新版本到应用数据目录，更新完成后新开的会话使用新版本。扩展请在「插件」面板更新。</>
                   ) : (
-                    <>运行 <code>omp update</code> 更新 omp 本体（不含扩展，扩展请在「插件」面板更新）。会先检查是否为最新版本，结果以提示呈现。更新完成后新开的线程使用新版本。</>
+                    <>运行 <code>omp update</code> 更新 omp 本体（不含扩展，扩展请在「插件」面板更新）。会先检查是否为最新版本，结果以提示呈现。更新完成后新开的会话使用新版本。</>
                   )}
                 </div>
                 <div className="set-diag-grid" style={{ marginBottom: 12 }}>
@@ -1504,7 +1557,7 @@ export function Settings() {
                     ) : (
                       <>
                         {updateStatus?.latest || "—"}
-                        {updateStatus?.hasUpdate && <span className="set-tag-new">可更新</span>}
+                        {updateStatus?.hasUpdate && updateStatus.latest && updateStatus.latest !== (updateStatus.current || diag?.ompVersion) && <span className="set-tag-new">可更新</span>}
                       </>
                     )}
                   </div>
@@ -1516,7 +1569,7 @@ export function Settings() {
                       <>
                         <span className="spinner" /> 检查并更新中…
                       </>
-                    ) : updateStatus?.hasUpdate && updateStatus.latest ? (
+                    ) : updateStatus?.hasUpdate && updateStatus.latest && updateStatus.latest !== (updateStatus.current || diag?.ompVersion) ? (
                       `更新到 v${updateStatus.latest}`
                     ) : (
                       "检查并更新 omp"

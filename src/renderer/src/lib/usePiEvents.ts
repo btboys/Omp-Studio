@@ -25,12 +25,23 @@ export function usePiEvents() {
         else st.pushToast("error", `自动化任务失败：${p.name}${p.error ? " · " + p.error : ""}`);
       }
     });
+    const u6 = window.pi.on.notifyActivate((p) => {
+      const st = useStore.getState();
+      // Prefer setActiveThread for already-open tabs so the omp bridge reconnects.
+      if (st.openThreadIds.includes(p.threadId) || st.threads[p.threadId]) {
+        st.setActiveThread(p.threadId);
+        return;
+      }
+      const cwd = p.cwd || st.threads[p.threadId]?.cwd;
+      if (cwd) void st.goToThread(cwd, p.threadId);
+    });
     return () => {
       u1();
       u2();
       u3();
       u4();
       u5();
+      u6();
     };
   }, [handleEvent, handleExtUi, handleExit, handleError]);
 }

@@ -1,8 +1,11 @@
 import { app } from "electron";
 import { autoUpdater, type ProgressInfo, type UpdateCheckResult, type UpdateInfo } from "electron-updater";
 
-const REPOSITORY = "flowflic/Pi-Studio";
+/** Keep in sync with package.json build.publish. */
+const REPOSITORY = "btboys/Omp-Studio";
 const RELEASES_LATEST_URL = "https://github.com/" + REPOSITORY + "/releases/latest";
+const RELEASES_API_URL = "https://api.github.com/repos/" + REPOSITORY + "/releases/latest";
+const FETCH_TIMEOUT_MS = 30_000;
 
 export type AppUpdateStage = "checking" | "downloading" | "ready" | "installing" | "error";
 
@@ -11,6 +14,8 @@ export interface AppUpdateProgress {
   message: string;
   /** 0..100 while electron-updater reports download progress. */
   pct?: number;
+  /** Version this progress refers to (normalized, e.g. "0.4.1"). */
+  version?: string;
 }
 
 export interface AppUpdateStatus {
@@ -93,17 +98,21 @@ function isWindowsUpdateInfo(info: UpdateInfo): boolean {
   return Boolean(updateAssetName(info) && /\.exe$/i.test(updateAssetName(info) || ""));
 }
 
+function statusNote(supported: boolean, installable: boolean): string {
+  if (supported && installable) {
+    return "来源：GitHub Releases，由 electron-updater 管理下载和安装";
+  }
+  if (supported && !installable) {
+    return "当前为开发环境，只能检查版本；请使用已安装的 Omp Studio 执行更新";
+  }
+  return "当前平台没有可用的 Omp Studio Windows 安装包（仍可检查最新版本号）";
+}
+
 function statusFromInfo(current: string, info: UpdateInfo): AppUpdateStatus {
   const latest = normalizeVersion(info.version);
   const supported = isWindowsInstallerSupported() && isWindowsUpdateInfo(info);
   const installable = supported && app.isPackaged;
   const hasUpdate = compareVersions(latest, current) > 0;
-  let note: string | null = "来源：GitHub Releases，由 electron-updater 管理下载和安装";
-  if (supported && !installable) {
-    note = "当前为开发环境，只能检查版本；请使用已安装的 Omp Studio 执行更新";
-  } else if (!supported) {
-    note = "当前平台没有可用的 Omp Studio Windows 安装包";
-  }
 
   return {
     current,
@@ -115,7 +124,7 @@ function statusFromInfo(current: string, info: UpdateInfo): AppUpdateStatus {
     supported,
     installable,
     downloaded: downloadedVersion === latest,
-    note,
+    note: statusNote(supported, installable),
     ...(lastUpdaterError ? { error: lastUpdaterError } : {}),
   };
 }
@@ -131,11 +140,101 @@ function emptyStatus(current: string, error?: string): AppUpdateStatus {
     supported: isWindowsInstallerSupported(),
     installable: isPackagedInstallable(),
     downloaded: false,
-    note: isPackagedInstallable()
-      ? "更新源：GitHub Releases"
-      : "当前为开发环境，只能检查版本；请使用已安装的 Omp Studio 执行更新",
+    note: statusNote(isWindowsInstallerSupported(), isPackagedInstallable()),
     ...(error ? { error } : {}),
   };
+}
+
+interface GithubReleaseMeta {
+  version: string;
+  assetName: string | null;
+}
+
+interface GithubReleaseAsset {
+  name?: string;
+}
+
+interface GithubReleasePayload {
+  tag_name?: string;
+  name?: string;
+  assets?: GithubReleaseAsset[];
+}
+
+function windowsAssetName(assets: GithubReleaseAsset[] | undefined): string | null {
+  const exe = (assets || []).find(
+    (asset) => typeof asset.name === "string" && /\.exe$/i.test(asset.name) && !/\.blockmap/i.test(asset.name),
+  );
+  return exe?.name || null;
+}
+
+function statusFromGithubMeta(current: string, meta: GithubReleaseMeta): AppUpdateStatus {
+  const latest = normalizeVersion(meta.version);
+  // Redirect fallback may not include asset names; only mark unsupported when
+  // the API explicitly returned a release without a Windows installer.
+  const supported =
+    isWindowsInstallerSupported() && (meta.assetName == null || /\.exe$/i.test(meta.assetName));
+  const installable = supported && app.isPackaged;
+  return {
+    current,
+    latest,
+    hasUpdate: compareVersions(latest, current) > 0,
+    source: "github",
+    releaseUrl: releaseUrl(latest),
+    assetName: meta.assetName,
+    supported,
+    installable,
+    downloaded: downloadedVersion === latest,
+    note: statusNote(supported, installable),
+    ...(lastUpdaterError ? { error: lastUpdaterError } : {}),
+  };
+}
+
+async function fetchLatestFromApi(): Promise<GithubReleaseMeta | null> {
+  const response = await fetch(RELEASES_API_URL, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "Omp-Studio-Updater",
+    },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error("GitHub API HTTP " + response.status);
+  }
+  const payload = (await response.json()) as GithubReleasePayload;
+  const version = normalizeVersion(payload.tag_name || payload.name || "");
+  if (!version) return null;
+  return { version, assetName: windowsAssetName(payload.assets) };
+}
+
+/** Fallback that only needs the releases/latest redirect Location header. */
+async function fetchLatestFromRedirect(): Promise<GithubReleaseMeta | null> {
+  const response = await fetch(RELEASES_LATEST_URL, {
+    method: "HEAD",
+    redirect: "manual",
+    headers: { "User-Agent": "Omp-Studio-Updater" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  const location = response.headers.get("location") || "";
+  const match = /\/releases\/tag\/([^/?#]+)/i.exec(location);
+  if (!match?.[1]) return null;
+  return {
+    version: normalizeVersion(decodeURIComponent(match[1])),
+    assetName: null,
+  };
+}
+
+async function fetchLatestReleaseMeta(): Promise<GithubReleaseMeta> {
+  try {
+    const fromApi = await fetchLatestFromApi();
+    if (fromApi?.version) return fromApi;
+  } catch (error: any) {
+    // Rate limits / network blips: fall through to the HTML redirect probe.
+    console.warn("[app-updater] GitHub API check failed:", error?.message || error);
+  }
+
+  const fromRedirect = await fetchLatestFromRedirect();
+  if (fromRedirect?.version) return fromRedirect;
+  throw new Error("无法从 GitHub Releases 解析最新版本号");
 }
 
 function configureUpdater(): void {
@@ -174,6 +273,7 @@ function configureUpdater(): void {
       stage: "downloading",
       message: "正在下载 Omp Studio v" + normalizeVersion(latestUpdateInfo?.version || "") + "…",
       ...(pct === undefined ? {} : { pct }),
+      version: normalizeVersion(latestUpdateInfo?.version || "") || undefined,
     });
   });
 
@@ -184,6 +284,7 @@ function configureUpdater(): void {
       stage: "ready",
       message: "Omp Studio v" + downloadedVersion + " 已下载，可以安装并重启",
       pct: 100,
+      version: downloadedVersion,
     });
   });
 
@@ -206,16 +307,25 @@ export async function checkForAppUpdate(): Promise<AppUpdateStatus> {
   configureUpdater();
   const current = normalizeVersion(app.getVersion());
   lastUpdaterError = null;
-  latestUpdateInfo = null;
-
-  if (!isPackagedInstallable()) {
-    return emptyStatus(current);
-  }
 
   try {
-    const result = await checkWithUpdater();
-    const info = result?.updateInfo || latestUpdateInfo;
-    return info ? statusFromInfo(current, info) : emptyStatus(current, lastUpdaterError || undefined);
+    // Always resolve the latest version from GitHub so the Settings UI can
+    // show it in development and on non-Windows platforms. Download/install
+    // still go through electron-updater and remain Windows+packaged only.
+    const meta = await fetchLatestReleaseMeta();
+
+    if (isPackagedInstallable()) {
+      try {
+        const result = await checkWithUpdater();
+        const info = result?.updateInfo || latestUpdateInfo;
+        if (info) return statusFromInfo(current, info);
+      } catch (error: any) {
+        // Keep the GitHub meta result; surface updater failure as a soft note.
+        lastUpdaterError = error?.message || String(error);
+      }
+    }
+
+    return statusFromGithubMeta(current, meta);
   } catch (error: any) {
     const message = error?.message || String(error);
     lastUpdaterError = message;
@@ -253,7 +363,7 @@ export async function downloadAppUpdate(onProgress?: (progress: AppUpdateProgres
 
     const version = normalizeVersion(info.version);
     if (downloadedVersion === version) {
-      emitProgress({ stage: "ready", message: "Omp Studio v" + version + " 已下载，可以安装并重启", pct: 100 });
+      emitProgress({ stage: "ready", message: "Omp Studio v" + version + " 已下载，可以安装并重启", pct: 100, version });
       return {
         ok: true,
         downloaded: true,
@@ -262,7 +372,7 @@ export async function downloadAppUpdate(onProgress?: (progress: AppUpdateProgres
       };
     }
 
-    emitProgress({ stage: "downloading", message: "正在下载 Omp Studio v" + version + "…", pct: 0 });
+    emitProgress({ stage: "downloading", message: "正在下载 Omp Studio v" + version + "…", pct: 0, version });
     if (!downloadPromise) {
       downloadPromise = autoUpdater.downloadUpdate().finally(() => {
         downloadPromise = null;
@@ -305,7 +415,7 @@ export function installAppUpdate(): AppUpdateResult {
 
   const version = downloadedVersion;
   lastUpdaterError = null;
-  emitProgress({ stage: "installing", message: "正在安装 Omp Studio v" + version + "，应用将自动重启" });
+  emitProgress({ stage: "installing", message: "正在安装 Omp Studio v" + version + "，应用将自动重启", version });
   try {
     // electron-updater invokes the NSIS updater, waits for this process to
     // exit, installs the downloaded package, and relaunches the app.
@@ -325,4 +435,52 @@ export function installAppUpdate(): AppUpdateResult {
     emitProgress({ stage: "error", message });
     return { ok: false, downloaded: true, version, message: "启动安装程序失败：" + message };
   }
+}
+
+/** Defer installing the cached download: install when the app quits, so the
+ *  next launch runs the new version. No-op when nothing is downloaded yet. */
+export function deferAppUpdate(): AppUpdateResult {
+  configureUpdater();
+  if (!downloadedVersion) {
+    return { ok: false, downloaded: false, message: "请先下载应用更新" };
+  }
+  autoUpdater.autoInstallOnAppQuit = true;
+  return {
+    ok: true,
+    downloaded: true,
+    version: downloadedVersion,
+    message: "将在下次启动前安装 Omp Studio v" + downloadedVersion,
+  };
+}
+
+/**
+ * Startup auto-update flow: silently check for a new version a few seconds
+ * after launch, then download it in the background and cache it. Progress
+ * (including the final "ready") is pushed to the renderer via the given
+ * window accessor, where the AppUpdateModal shows the install prompt.
+ * Never throws; a failed check/download must not disturb startup.
+ */
+export function startBackgroundAppUpdate(getWin: () => Electron.BrowserWindow | null): void {
+  configureUpdater();
+  if (!app.isPackaged || !isWindowsInstallerSupported()) return;
+  // Fallback: arm install-on-quit from launch. Any download that completes this
+  // session — the background flow below, a manual Settings download, or a
+  // previous session's cache validated by downloadUpdate() — then installs when
+  // the app quits cleanly, even if the user never answered the update prompt.
+  // install() is a no-op when nothing is downloaded, so arming it is safe.
+  autoUpdater.autoInstallOnAppQuit = true;
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const status = await checkForAppUpdate();
+        if (!status.hasUpdate || !status.supported || !status.installable) return;
+        await downloadAppUpdate((p) => {
+          const w = getWin();
+          if (w && !w.isDestroyed()) w.webContents.send("pi:appUpdate", p);
+        });
+      } catch (error: any) {
+        console.warn("[app-updater] background update flow failed:", error?.message || String(error));
+      }
+    })();
+  }, 4000);
 }

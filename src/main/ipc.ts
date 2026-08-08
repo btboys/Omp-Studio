@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
-import { checkForAppUpdate, downloadAppUpdate, installAppUpdate } from "./app-updater";
+import { checkForAppUpdate, deferAppUpdate, downloadAppUpdate, installAppUpdate } from "./app-updater";
 import { checkForCoreUpdate, installCoreUpdate } from "./core-updater";
 import { getConfig, getConfigDir, updateConfig, type AutomationTask } from "./config";
 import { listDir, searchProjectFiles } from "./fs-service";
@@ -39,10 +39,12 @@ import {
 } from "./models-service";
 import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
+import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
 import { readPreview } from "./preview-service";
 import { deleteProjectSessions, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit } from "./session-store";
 import { listMcpServers, probeMcpServers, removeMcpServer, saveMcpServer, setMcpLists, setMcpServerEnabled, type McpServerConfig } from "./mcp";
 import {
+  isLocalExtensionSource,
   listPackages,
   listSkills,
   probeOmpStartup,
@@ -71,6 +73,8 @@ interface BridgeHandle {
   setId: (n: string) => void;
   permission: PermissionLevel;
   gateModeFile: string;
+  /** Cached session title for desktop-notify body (multi-tab discrimination). */
+  sessionLabel?: string;
 }
 
 const bridges = new Map<string, BridgeHandle>();
@@ -154,8 +158,46 @@ function createHandle(
     // at runtime by the per-thread mode file, so permission can change live.
     extensions: [ensureGateExtension(getConfigDir())],
     gateModeFile,
-    onEvent: (e) => send("pi:event", { threadId: id, event: e }),
-    onExtUi: (r) => send("pi:extui", { threadId: id, request: r }),
+    onEvent: (e) => {
+      send("pi:event", { threadId: id, event: e });
+      const ev = e as { type?: string } | null;
+      if (ev?.type === "agent_settled") {
+        const zh = getConfig().language === "zh";
+        const fire = (label: string) =>
+          maybeDesktopNotify({
+            kind: "idle",
+            title: zh ? "Agent 已完成" : "Agent finished",
+            body: zh ? `${label} 的回复已就绪` : `${label} is ready for your review`,
+            threadId: id,
+            cwd,
+          });
+        // Refresh session title so multi-tab notifications stay distinguishable.
+        handle.bridge
+          .getState()
+          .then((state: any) => {
+            if (typeof state?.sessionName === "string" && state.sessionName.trim()) {
+              handle.sessionLabel = state.sessionName.trim();
+            }
+            fire(threadNotifyLabel(cwd, handle.sessionLabel));
+          })
+          .catch(() => fire(threadNotifyLabel(cwd, handle.sessionLabel)));
+      }
+    },
+    onExtUi: (r) => {
+      send("pi:extui", { threadId: id, request: r });
+      if (r?.method === "confirm" || r?.method === "select") {
+        const zh = getConfig().language === "zh";
+        const label = threadNotifyLabel(cwd, handle.sessionLabel);
+        const detail = String(r.title || r.message || (zh ? "Sandbox 等待授权" : "Sandbox is waiting for approval"));
+        maybeDesktopNotify({
+          kind: "approval",
+          title: zh ? `需要确认 · ${label}` : `Action required · ${label}`,
+          body: detail.slice(0, 180),
+          threadId: id,
+          cwd,
+        });
+      }
+    },
     onExit: (info) => {
       // Only forget the bridge if it is still the one registered under this id
       // (a delayed exit must not evict a bridge that replaced it).
@@ -171,9 +213,34 @@ function createHandle(
       removeGateModeFile(gateModeFile);
       // An intentional stop (thread close / app quit) is expected and must not
       // surface as a "pi process exited" error.
-      if (!info.expected) send("pi:exit", { threadId: id, ...info });
+      if (!info.expected) {
+        send("pi:exit", { threadId: id, ...info });
+        // Warm-spare exits use boot:* ids; don't spam desktop notifications for them.
+        if (!id.startsWith("boot:")) {
+          const zh = getConfig().language === "zh";
+          maybeDesktopNotify({
+            kind: "error",
+            title: zh ? "omp 进程异常退出" : "omp process exited",
+            body: `${threadNotifyLabel(cwd, handle.sessionLabel)} (code ${info.code})`,
+            threadId: id,
+            cwd,
+          });
+        }
+      }
     },
-    onError: (err) => send("pi:error", { threadId: id, message: err.message }),
+    onError: (err) => {
+      send("pi:error", { threadId: id, message: err.message });
+      if (!id.startsWith("boot:")) {
+        const zh = getConfig().language === "zh";
+        maybeDesktopNotify({
+          kind: "error",
+          title: zh ? "Agent 出错" : "Agent error",
+          body: `${threadNotifyLabel(cwd, handle.sessionLabel)}: ${err.message}`.slice(0, 180),
+          threadId: id,
+          cwd,
+        });
+      }
+    },
   });
   return handle;
 }
@@ -257,7 +324,7 @@ export function dropWarmBridge(): void {
   }
 }
 
-async function gatherThread(bridge: PiBridge, threadId: string, permission: PermissionLevel) {
+async function gatherThread(bridge: PiBridge, threadId: string, permission: PermissionLevel, handle?: BridgeHandle) {
   const state: any = await bridge.getState();
   const [msgRes, modelsRes, cmdsRes, branchRes]: any[] = await Promise.all([
     bridge.getMessages(),
@@ -265,6 +332,9 @@ async function gatherThread(bridge: PiBridge, threadId: string, permission: Perm
     bridge.getCommands().catch(() => ({ commands: [] })),
     bridge.getBranchMessages().catch(() => ({ messages: [] })),
   ]);
+  if (handle && typeof state?.sessionName === "string" && state.sessionName.trim()) {
+    handle.sessionLabel = state.sessionName.trim();
+  }
   return {
     threadId,
     cwd: bridge.cwd,
@@ -305,10 +375,15 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   };
   sendToRenderer = send;
   warmEnabled = true;
+  initDesktopNotify(getWin, (threadId, cwd) => send("pi:notify-activate", { threadId, cwd }));
 
   // ---- app / config -------------------------------------------------------
   ipcMain.handle("app:getVersion", () => app.getVersion());
   ipcMain.handle("app:getConfig", () => getConfig());
+  ipcMain.handle("app:setActiveThread", (_e, threadId: string | null) => {
+    setActiveNotifyThread(typeof threadId === "string" ? threadId : null);
+    return true;
+  });
   ipcMain.handle("app:setConfig", (_e, patch) => {
     const prev = getConfig().ompBinPath;
     const next = updateConfig(patch || {});
@@ -577,7 +652,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const { cwd, sessionFile } = args;
     const permission = resolvePermission(sessionFile, undefined);
     const existing = bridges.get(sessionFile);
-    if (existing) return { connected: true, ...(await gatherThread(existing.bridge, sessionFile, existing.permission)) };
+    if (existing) return { connected: true, ...(await gatherThread(existing.bridge, sessionFile, existing.permission, existing)) };
     const hist = await readThreadHistory(sessionFile);
     return {
       connected: false,
@@ -600,7 +675,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const { cwd, sessionFile, name } = args;
     if (sessionFile && bridges.has(sessionFile)) {
       const existing = bridges.get(sessionFile)!;
-      return gatherThread(existing.bridge, sessionFile, existing.permission);
+      return gatherThread(existing.bridge, sessionFile, existing.permission, existing);
     }
     lastOpenCwd = cwd;
     if ((getConfig().lastThreadCwd || "") !== cwd) updateConfig({ lastThreadCwd: cwd });
@@ -653,7 +728,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
         const perms = getConfig().threadPermissions;
         if (perms[state.sessionFile] !== permission) updateConfig({ threadPermissions: { ...perms, [state.sessionFile]: permission } });
       }
-      return gatherThread(handle.bridge, finalId, permission);
+      return gatherThread(handle.bridge, finalId, permission, handle);
     } catch (e) {
       bridges.delete(handle.getId());
       removeGateModeFile(handle.gateModeFile);
@@ -763,7 +838,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const state: any = await h.bridge.getState();
     const newId = state.sessionFile || threadId;
     h.setId(newId);
-    return { cancelled: false, ...(await gatherThread(h.bridge, newId, h.permission)) };
+    return { cancelled: false, ...(await gatherThread(h.bridge, newId, h.permission, h)) };
   });
 
   ipcMain.handle("thread:getBranchMessages", async (_e, threadId: string) => {
@@ -781,7 +856,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     if (state.sessionFile && perms[state.sessionFile] !== h.permission) {
       updateConfig({ threadPermissions: { ...perms, [state.sessionFile]: h.permission } });
     }
-    return { ...(await gatherThread(h.bridge, newId, h.permission)), selectedText };
+    return { ...(await gatherThread(h.bridge, newId, h.permission, h)), selectedText };
   };
 
   ipcMain.handle("thread:fork", async (_e, args: { threadId: string; entryId: string }) => {
@@ -807,7 +882,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("thread:setName", async (_e, args: { threadId: string; name: string }) => {
     const h = bridges.get(args.threadId);
     if (!h) throw new Error("Thread not open");
-    return h.bridge.setSessionName(args.name);
+    const res = await h.bridge.setSessionName(args.name);
+    if (typeof args.name === "string" && args.name.trim()) h.sessionLabel = args.name.trim();
+    return res;
   });
 
   ipcMain.handle("thread:getStats", async (_e, threadId: string) => {
@@ -830,18 +907,18 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   // ---- plugins (pi packages + standalone skills) -------------------------
   ipcMain.handle("plugins:getPackages", () => listPackages());
-  ipcMain.handle("plugins:setPackageEnabled", (_e, args: { source: string; enabled: boolean }) => {
-    setPackageEnabled(args.source, args.enabled);
+  ipcMain.handle("plugins:setPackageEnabled", async (_e, args: { source: string; enabled: boolean }) => {
+    await setPackageEnabled(args.source, args.enabled);
     dropWarmBridge();
     ensureWarmBridge();
     return { ok: true };
   });
   ipcMain.handle("plugins:installPackage", async (_e, source: string) => {
-    const res = await runOmpCli(["install", source]);
+    const res = await runOmpCli(["plugin", "install", source]);
     const installOutput = (res.stdout + res.stderr).trim();
     if (res.code !== 0) {
       // Never keep a failed install visible as healthy: surface the output.
-      return { ok: false, output: installOutput || `omp install exited with code ${res.code}` };
+      return { ok: false, output: installOutput || `omp plugin install exited with code ${res.code}` };
     }
     const probe = await probeOmpStartup();
     if (!probe.ok) {
@@ -859,20 +936,19 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return { ok: true, output: installOutput };
   });
   ipcMain.handle("plugins:removePackage", async (_e, source: string) => {
-    let res;
-    try {
-      res = await runOmpCli(["plugin", "uninstall", source]);
-    } catch (e: any) {
-      // Falling back to direct removal for agent-dir extension files.
+    if (isLocalExtensionSource(source)) {
       removePackageEntry(source);
       dropWarmBridge();
       ensureWarmBridge();
-      return { ok: true, output: e?.message || String(e) };
+      return { ok: true, output: "" };
     }
-    removePackageEntry(source); // ensure it is gone regardless of CLI result
+    const res = await runOmpCli(["plugin", "uninstall", source]);
     dropWarmBridge();
     ensureWarmBridge();
-    return { ok: true, output: (res.stdout + res.stderr).trim() };
+    return {
+      ok: res.code === 0,
+      output: (res.stdout + res.stderr).trim() || (res.code === 0 ? "" : `omp plugin uninstall exited with code ${res.code}`),
+    };
   });
   ipcMain.handle("plugins:getSkills", (_e, cwd?: string) => listSkills(typeof cwd === "string" ? cwd : undefined));
   ipcMain.handle("plugins:setSkillEnabled", (_e, args: { path: string; enabled: boolean }) => {
@@ -947,6 +1023,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("app:checkAppUpdate", () => checkForAppUpdate());
   ipcMain.handle("app:downloadAppUpdate", async () => downloadAppUpdate((p) => send("pi:appUpdate", p)));
   ipcMain.handle("app:installAppUpdate", () => installAppUpdate());
+  ipcMain.handle("app:deferAppUpdate", () => deferAppUpdate());
   ipcMain.handle("app:checkCoreUpdate", () => checkForCoreUpdate());
 
   ipcMain.handle("app:updatePi", async () => {

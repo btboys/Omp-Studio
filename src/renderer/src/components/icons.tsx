@@ -132,6 +132,11 @@ export const Close = (p: P) => (
     <path d="M6 6l12 12M18 6 6 18" />
   </svg>
 );
+export const Pin = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M15 4.5 19.5 9M9.5 8.5 15.5 14.5M12 5.5l6.5 6.5-2.2 1.1-5.4 5.4-1.5-1.5 1.2-4.4L9 11zM9.8 16.8 7 21" />
+  </svg>
+);
 export const Send = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 19V5M5 12l7-7 7 7" />

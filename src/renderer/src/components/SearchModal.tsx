@@ -128,7 +128,7 @@ export function SearchModal() {
 
   return (
     <div className="search-backdrop" onMouseDown={close}>
-      <div className="search-modal" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="搜索线程">
+      <div className="search-modal" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="搜索会话">
         <div className="search-input-row">
           <span className="search-ico">
             <Search size={17} />
@@ -136,7 +136,7 @@ export function SearchModal() {
           <input
             ref={inputRef}
             className="search-input"
-            placeholder="搜索所有线程中的关键词…"
+            placeholder="搜索所有会话中的关键词…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onInputKey}
@@ -156,15 +156,15 @@ export function SearchModal() {
         <div className="search-results" ref={listRef}>
           {!q && (
             <div className="search-empty">
-              输入关键词，在全部项目的线程对话中搜索。
+              输入关键词，在全部项目的会话中搜索。
               <br />
-              <span className="muted">匹配线程标题与用户 / 助手消息内容。</span>
+              <span className="muted">匹配会话标题与用户 / 助手消息内容。</span>
             </div>
           )}
 
           {q && searched && results.length === 0 && !loading && (
             <div className="search-empty">
-              未找到包含 <b>“{q}”</b> 的线程。
+              未找到包含 <b>“{q}”</b> 的会话。
             </div>
           )}
 
@@ -203,7 +203,7 @@ export function SearchModal() {
           <span>
             <span className="kbd">Esc</span> 关闭
           </span>
-          <span className="search-foot-n">{results.length > 0 ? `${results.length} 个线程` : ""}</span>
+          <span className="search-foot-n">{results.length > 0 ? `${results.length} 个会话` : ""}</span>
         </div>
       </div>
     </div>

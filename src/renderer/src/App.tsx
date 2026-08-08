@@ -31,6 +31,14 @@ export default function App() {
     bootstrap();
   }, [bootstrap]);
 
+  // Test/automation seam for CDP verification (reorder/cycle without brittle DnD synthesis).
+  useEffect(() => {
+    (window as any).__ompStore = useStore;
+    return () => {
+      delete (window as any).__ompStore;
+    };
+  }, []);
+
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
@@ -45,12 +53,30 @@ export default function App() {
     return () => media.removeEventListener?.("change", applyTheme);
   }, [theme]);
 
-  // Ctrl/Cmd+K opens the thread search palette
+  // Ctrl/Cmd+K search; Ctrl/Cmd+W close tab; Ctrl/Cmd+Tab cycle tabs
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+
+      if (e.key.toLowerCase() === "k") {
         e.preventDefault();
         useStore.getState().openSearch();
+        return;
+      }
+
+      if (e.key.toLowerCase() === "w") {
+        const active = useStore.getState().activeThreadId;
+        if (!active) return;
+        e.preventDefault();
+        void useStore.getState().requestCloseThread(active);
+        return;
+      }
+
+      if (e.key === "Tab") {
+        if (useStore.getState().openThreadIds.length < 2) return;
+        e.preventDefault();
+        useStore.getState().cycleOpenThread(e.shiftKey ? -1 : 1);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -87,7 +113,7 @@ export default function App() {
                 </div>
                 <h2>Omp Studio</h2>
                 <p style={{ maxWidth: 420, margin: "0 auto 16px" }}>
-                  终端 omp 的 Windows 桌面端：完整继承模型、harness 与插件系统。左侧选择项目与线程，右侧预览文件。
+                  终端 omp 的 Windows 桌面端：完整继承模型、harness 与插件系统。左侧选择项目与会话，右侧预览文件。
                 </p>
                 {!runtime?.ok && runtime && <p style={{ color: "#b23a2c" }}>未检测到 omp：{runtime.error}</p>}
                 <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>

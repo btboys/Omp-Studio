@@ -46,6 +46,8 @@ export interface PluginPackage {
   kind: "npm" | "git" | "local";
   /** True when the package loads its resources; false when disabled via autoload=false. */
   enabled: boolean;
+  /** Installed version, when known (npm/git packages). */
+  version?: string;
 }
 
 /** A standalone skill discovered in a skills directory. */
@@ -166,6 +168,10 @@ export interface ThreadState {
   pendingEditorText?: string;
   /** Follow-up queued via Enter while streaming; delivered when the agent settles. */
   pendingFollowUp?: PendingFollowUp | null;
+  /** Status lines pushed by extensions via setStatus (e.g. usage cache stats), keyed by statusKey. */
+  extStatuses?: Record<string, string>;
+  /** Named widgets pushed by an extension via setWidget. */
+  extWidgets?: Record<string, string>;
 }
 
 export interface PreviewPayload {
@@ -203,6 +209,14 @@ export interface Toast {
   text: string;
 }
 
+export interface DesktopNotifyConfig {
+  enabled: boolean;
+  onIdle: boolean;
+  onApproval: boolean;
+  onError: boolean;
+  onlyWhenUnfocused: boolean;
+}
+
 export interface AppConfig {
   /** Path to the omp (oh-my-pi) binary, or empty string to auto-detect. */
   ompBinPath: string;
@@ -212,6 +226,7 @@ export interface AppConfig {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };
   theme: "dark" | "light" | "system";
   language: "en" | "zh";
+  desktopNotify?: DesktopNotifyConfig;
 }
 
 export interface AppRuntime {

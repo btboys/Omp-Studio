@@ -62,7 +62,7 @@ export function TitleBar() {
       id: "file",
       label: "文件",
       items: [
-        { label: "新建对话", onClick: act(() => st().newTask()) },
+        { label: "新建会话", onClick: act(() => st().newTask()) },
         { label: "打开文件夹…", onClick: act(() => st().openProjectFolder()) },
       ],
     },

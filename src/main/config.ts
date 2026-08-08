@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 /**
  * Persisted, app-level settings. Stored under Electron's userData dir so it is
@@ -13,6 +13,20 @@ export interface ArchivedThread {
   cwd: string;
   /** Title captured when the thread was archived, for the restore list. */
   title: string;
+}
+
+/** Built-in OS desktop notification preferences (independent of code-notify). */
+export interface DesktopNotifyConfig {
+  /** Master switch. */
+  enabled: boolean;
+  /** Notify when an agent turn settles (idle). */
+  onIdle: boolean;
+  /** Notify when Sandbox / extension UI needs confirmation. */
+  onApproval: boolean;
+  /** Notify on omp process errors / unexpected exits. */
+  onError: boolean;
+  /** Skip OS notifications for the active tab while the window is focused (default true). Background tabs still notify. */
+  onlyWhenUnfocused: boolean;
 }
 
 export interface AppConfig {
@@ -40,6 +54,8 @@ export interface AppConfig {
   lastThreadCwd?: string;
   /** User-defined scheduled automation tasks. */
   automationTasks: AutomationTask[];
+  /** Built-in desktop notifications for idle / approval / error. */
+  desktopNotify: DesktopNotifyConfig;
 }
 
 export type ScheduleFrequency = "hourly" | "daily" | "weekly";
@@ -69,6 +85,14 @@ export interface AutomationTask {
   lastError?: string;
 }
 
+export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifyConfig = {
+  enabled: true,
+  onIdle: true,
+  onApproval: true,
+  onError: true,
+  onlyWhenUnfocused: true,
+};
+
 const DEFAULTS: AppConfig = {
   ompBinPath: "",
   pinnedProjects: [],
@@ -78,6 +102,7 @@ const DEFAULTS: AppConfig = {
   language: "en",
   threadPermissions: {},
   automationTasks: [],
+  desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY },
 };
 
 let cached: AppConfig | null = null;
@@ -102,13 +127,17 @@ export function loadConfig(userDataDir: string): AppConfig {
           ...task,
           permission: task.permission === "full" ? "full" : "sandbox",
         })),
+        desktopNotify: {
+          ...DEFAULT_DESKTOP_NOTIFY,
+          ...(parsed.desktopNotify || {}),
+        },
       };
       return cached;
     } catch {
       // corrupt file -> fall back to defaults but keep a copy
     }
   }
-  cached = { ...DEFAULTS };
+  cached = { ...DEFAULTS, desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY } };
   return cached;
 }
 
@@ -124,7 +153,13 @@ export function getConfigDir(): string {
 
 export function updateConfig(patch: Partial<AppConfig>): AppConfig {
   if (!cached) throw new Error("config not loaded");
-  cached = { ...cached, ...patch };
+  cached = {
+    ...cached,
+    ...patch,
+    desktopNotify: patch.desktopNotify
+      ? { ...DEFAULT_DESKTOP_NOTIFY, ...cached.desktopNotify, ...patch.desktopNotify }
+      : cached.desktopNotify,
+  };
   if (!existsSync(cachedDir)) mkdirSync(cachedDir, { recursive: true });
   writeFileSync(configPath(cachedDir), JSON.stringify(cached, null, 2), "utf8");
   return cached;
