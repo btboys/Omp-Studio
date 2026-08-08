@@ -139,6 +139,24 @@ export function readDefaultRoleModel(): { provider: string; model: string } | nu
   return provider && model ? { provider, model } : null;
 }
 
+/**
+ * A fast model for lightweight one-shot generation (commit messages): omp's
+ * `smol` role is the explicit lightweight contract, `advisor` is its cheap
+ * background role; either beats routing a trivial prompt to a slow default
+ * reasoning model. Returns "provider/model" without any `:level` suffix.
+ */
+export function readLightweightRoleModel(): string | null {
+  const cfg = parseYamlFile<{ modelRoles?: Record<string, unknown> }>(getConfigYmlPath());
+  const roles = cfg?.modelRoles || {};
+  for (const role of ["smol", "advisor"]) {
+    const value = String(roles[role] || "");
+    const [provider, rest] = value.split("/");
+    const model = rest?.split(":")[0];
+    if (provider && model) return `${provider}/${model}`;
+  }
+  return null;
+}
+
 export function writeDefaultRoleModel(provider: string, model: string | null): { provider: string; model: string } | null {
   const existing = parseYamlFile<Record<string, unknown>>(getConfigYmlPath()) || {};
   const roles: Record<string, unknown> =

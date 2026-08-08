@@ -5,6 +5,7 @@ import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
 import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
+import { GitPanel } from "./GitPanel";
 
 const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
 const SIDEBAR_WIDTH_KEY = "pi-studio.sidebar-width";
@@ -378,6 +379,9 @@ export function Sidebar() {
           <button className={`sb-tab ${sidebarTab === "files" ? "active" : ""}`} onClick={() => setSidebarTab("files")}>
             文件
           </button>
+          <button className={`sb-tab ${sidebarTab === "git" ? "active" : ""}`} onClick={() => setSidebarTab("git")}>
+            Git
+          </button>
         </div>
 
         {sidebarTab === "threads" ? (
@@ -415,6 +419,8 @@ export function Sidebar() {
               );
             })}
           </>
+        ) : sidebarTab === "git" ? (
+          <GitPanel cwd={activeProjectCwd} />
         ) : (
           <FileTreeView cwd={activeProjectCwd} />
         )}

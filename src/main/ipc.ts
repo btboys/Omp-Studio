@@ -7,7 +7,22 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { checkForAppUpdate, downloadAppUpdate, installAppUpdate } from "./app-updater";
 import { checkForCoreUpdate, installCoreUpdate } from "./core-updater";
 import { getConfig, getConfigDir, updateConfig, type AutomationTask } from "./config";
-import { listDir } from "./fs-service";
+import { listDir, searchProjectFiles } from "./fs-service";
+import {
+  gitBranches,
+  gitCheckout,
+  gitCommit,
+  gitDiscard,
+  gitGenerateMessage,
+  gitLog,
+  gitPull,
+  gitPush,
+  gitStage,
+  gitStageAll,
+  gitStatus,
+  gitUnstage,
+  gitUnstageAll,
+} from "./git-service";
 import { createHtmlPreviewUrl } from "./html-preview-protocol";
 import {
   getAuthPath,
@@ -395,6 +410,24 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     });
   });
 
+  // Git panel operations (sidebar Git tab). Status/log degrade to empty
+  // shapes; mutations return { ok, error } with git's own message for toasts.
+  ipcMain.handle("git:status", (_e, cwd: string) => gitStatus(cwd));
+  ipcMain.handle("git:branches", (_e, cwd: string) => gitBranches(cwd));
+  ipcMain.handle("git:log", (_e, cwd: string, limit?: number) => gitLog(cwd, limit));
+  ipcMain.handle("git:stage", (_e, args: { cwd: string; paths: string[] }) => gitStage(args.cwd, args.paths || []));
+  ipcMain.handle("git:unstage", (_e, args: { cwd: string; paths: string[] }) => gitUnstage(args.cwd, args.paths || []));
+  ipcMain.handle("git:stageAll", (_e, cwd: string) => gitStageAll(cwd));
+  ipcMain.handle("git:unstageAll", (_e, cwd: string) => gitUnstageAll(cwd));
+  ipcMain.handle("git:discard", (_e, args: { cwd: string; tracked: string[]; untracked: string[] }) =>
+    gitDiscard(args.cwd, args.tracked || [], args.untracked || []),
+  );
+  ipcMain.handle("git:commit", (_e, args: { cwd: string; message: string }) => gitCommit(args.cwd, args.message));
+  ipcMain.handle("git:generateMessage", (_e, cwd: string) => gitGenerateMessage(cwd));
+  ipcMain.handle("git:checkout", (_e, args: { cwd: string; branch: string }) => gitCheckout(args.cwd, args.branch));
+  ipcMain.handle("git:pull", (_e, cwd: string) => gitPull(cwd));
+  ipcMain.handle("git:push", (_e, cwd: string) => gitPush(cwd));
+
   ipcMain.handle("app:openProject", async (_e, absPath: string) => {
     if (!absPath || !existsSync(absPath) || !statSync(absPath).isDirectory()) {
       throw new Error("Not a directory: " + absPath);
@@ -450,6 +483,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   // ---- files / preview ----------------------------------------------------
   ipcMain.handle("app:getFileTree", (_e, cwd: string, rel?: string) => listDir(cwd, rel));
+  ipcMain.handle("app:searchProjectFiles", (_e, cwd: string, query: string, limit?: number) =>
+    searchProjectFiles(cwd, query, limit),
+  );
   ipcMain.handle("app:fileExists", (_e, absPath: string) => {
     try {
       return !!absPath && statSync(absPath).isFile();

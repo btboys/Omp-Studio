@@ -134,7 +134,10 @@ export function PluginsPanel() {
                 placeholder="安装来源，如 npm:@foo/bar 或 git:github.com/user/repo 或本地路径"
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && install()}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (e.key === "Enter") install();
+                }}
               />
               <button className="set-btn primary" onClick={install} disabled={busy || !source.trim()}>
                 {busy ? <span className="spinner" /> : <Plus size={14} />} 安装

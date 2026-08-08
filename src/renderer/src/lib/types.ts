@@ -295,6 +295,38 @@ export interface FileNode {
   size: number;
 }
 
+export interface GitFileEntry {
+  path: string;
+  status: string;
+}
+
+export interface GitStatusResult {
+  repo: boolean;
+  root: string | null;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  staged: GitFileEntry[];
+  unstaged: GitFileEntry[];
+  untracked: string[];
+}
+
+export interface GitLogEntry {
+  hash: string;
+  short: string;
+  author: string;
+  rel: string;
+  refs: string;
+  subject: string;
+}
+
+export interface GitOpResult {
+  ok: boolean;
+  error?: string;
+  output?: string;
+}
+
 /** A pasted/dropped image held in the composer before sending (base64). */
 export interface PendingImage {
   id: string;

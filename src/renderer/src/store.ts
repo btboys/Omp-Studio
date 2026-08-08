@@ -493,7 +493,7 @@ interface PiStore {
   previewOpen: boolean;
   /** Preview occupies the chat workspace while preserving the mounted chat state. */
   previewExpanded: boolean;
-  sidebarTab: "threads" | "files";
+  sidebarTab: "threads" | "files" | "git";
 
   // projects / threads
   activeProjectCwd: string | null;
@@ -550,7 +550,7 @@ interface PiStore {
   cloneThread: (id: string, entryId: string) => Promise<void>;
   renameThread: (id: string, name: string) => Promise<void>;
 
-  setSidebarTab: (t: "threads" | "files") => void;
+  setSidebarTab: (t: "threads" | "files" | "git") => void;
   toggleSidebar: () => void;
   togglePreview: () => void;
   togglePreviewExpanded: () => void;

@@ -3,11 +3,23 @@ import { useStore } from "../store";
 import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
-import type { ModelInfo, PendingFile, PendingImage } from "../lib/types";
+import type { FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
 import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight } from "./icons";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
+
+
+/** Detect an in-progress `@file` token just before the caret. */
+function detectAtMention(text: string, caret: number): { start: number; query: string } | null {
+  const safeCaret = Math.max(0, Math.min(caret, text.length));
+  const before = text.slice(0, safeCaret);
+  const match = before.match(/(^|[\s])@([^\s]*)$/);
+  if (!match) return null;
+  const query = match[2] || "";
+  const start = before.length - query.length - 1;
+  return { start, query };
+}
 
 function fileToImage(file: File): Promise<PendingImage | null> {
   return new Promise((resolve) => {
@@ -63,7 +75,12 @@ export function Composer({ threadId }: { threadId: string }) {
   const [projectQuery, setProjectQuery] = useState("");
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
+  const [atIndex, setAtIndex] = useState(0);
+  const [atDismissed, setAtDismissed] = useState(false);
+  const [atItems, setAtItems] = useState<FileNode[]>([]);
+  const [atLoading, setAtLoading] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
   const permRef = useRef<HTMLDivElement>(null);
   const cmdRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -184,7 +201,39 @@ export function Composer({ threadId }: { threadId: string }) {
     });
   };
 
+  const syncCaret = () => {
+    const next = taRef.current?.selectionStart ?? caret;
+    if (next !== caret) setCaret(next);
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // IME (中文/日文/韩文等) 确认候选时也会触发 Enter；此时不要发送或抢占方向键。
+    // keyCode 229 是部分环境在合成阶段/确认瞬间的兼容回退。
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
+    if (atMenuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setAtIndex((index) => (index + 1) % Math.max(atItems.length, 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setAtIndex((index) => (index - 1 + Math.max(atItems.length, 1)) % Math.max(atItems.length, 1));
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && atItems.length > 0) {
+        e.preventDefault();
+        chooseAtFile(atItems[atIndex] || atItems[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setAtDismissed(true);
+        return;
+      }
+    }
+
     if (slashMenuOpen) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -270,15 +319,73 @@ export function Composer({ threadId }: { threadId: string }) {
       .slice(0, 50);
   }, [commands, commandQuery]);
   const slashMenuOpen = !!slashMatch && !slashDismissed && slashItems.length > 0;
+  const atMention = !slashMenuOpen ? detectAtMention(text, caret) : null;
+  const atQuery = atMention?.query || "";
+  const atMenuOpen = !!atMention && !atDismissed && !!cwd;
 
   useEffect(() => {
     setSlashIndex(0);
   }, [slashQuery]);
 
+  useEffect(() => {
+    setAtIndex(0);
+  }, [atQuery, cwd]);
+
+  useEffect(() => {
+    if (!atMention || !cwd) {
+      setAtItems([]);
+      setAtLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAtLoading(true);
+    const timer = window.setTimeout(() => {
+      void window.pi.app
+        .searchProjectFiles(cwd, atQuery, 30)
+        .then((nodes) => {
+          if (cancelled) return;
+          setAtItems(Array.isArray(nodes) ? nodes : []);
+          setAtLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setAtItems([]);
+          setAtLoading(false);
+        });
+    }, 80);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [atMention?.start, atQuery, cwd, text]);
+
   const chooseSlashCommand = (command: any) => {
     setText(`/${command.name} `);
     setSlashDismissed(true);
+    setAtDismissed(true);
     requestAnimationFrame(() => taRef.current?.focus());
+  };
+
+  const chooseAtFile = (file: FileNode) => {
+    const mention = detectAtMention(text, caret);
+    if (!mention) return;
+    const before = text.slice(0, mention.start);
+    const after = text.slice(caret);
+    const inserted = `@${file.rel} `;
+    const next = before + inserted + after;
+    setText(next);
+    setFiles((prev) => (prev.some((item) => item.abs === file.abs) ? prev : [...prev, { abs: file.abs, name: file.name }]));
+    setAtDismissed(true);
+    setAtItems([]);
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus();
+      const pos = before.length + inserted.length;
+      ta.setSelectionRange(pos, pos);
+      setCaret(pos);
+      autoGrow();
+    });
   };
 
   const toggleCommands = () => {
@@ -385,6 +492,31 @@ export function Composer({ threadId }: { threadId: string }) {
             </div>
           </div>
         )}
+        {atMenuOpen && (
+          <div className="slash-menu" role="listbox" aria-label="Project files">
+            <div className="slash-menu-head">Project files</div>
+            <div className="slash-menu-list">
+              {atLoading && atItems.length === 0 && <div className="project-menu-empty">搜索中…</div>}
+              {!atLoading && atItems.length === 0 && <div className="project-menu-empty">没有匹配的文件</div>}
+              {atItems.map((file, index) => (
+                <button
+                  key={file.abs}
+                  className={`slash-menu-item ${index === atIndex ? "active" : ""}`}
+                  role="option"
+                  aria-selected={index === atIndex}
+                  onMouseEnter={() => setAtIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseAtFile(file)}
+                  title={file.abs}
+                >
+                  <span className="slash-command-name">{file.name}</span>
+                  <span className="slash-command-kind command">File</span>
+                  <span className="slash-command-description">{file.rel}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {(images.length > 0 || files.length > 0) && (
           <div className="composer-attachments">
             {images.map((im) => (
@@ -435,12 +567,17 @@ export function Composer({ threadId }: { threadId: string }) {
           <textarea
             ref={taRef}
             rows={1}
-            placeholder={isStreaming ? "输入插话… Enter 存为待处理 follow-up（完成后发送），Alt+Enter 立即 steering（中断当前）" : "随心输入  ·  粘贴/拖拽图片  ·  + 添加文件"}
+            placeholder={isStreaming ? "输入插话… Enter 存为待处理 follow-up（完成后发送），Alt+Enter 立即 steering（中断当前）" : "随心输入  ·  @ 引用项目文件  ·  / 命令  ·  + 添加文件"}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
               setSlashDismissed(false);
+              setAtDismissed(false);
             }}
+            onSelect={syncCaret}
+            onClick={syncCaret}
+            onKeyUp={syncCaret}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
           />

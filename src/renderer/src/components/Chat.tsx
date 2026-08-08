@@ -161,6 +161,7 @@ export function Chat() {
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 if (e.key === "Enter") commitRename();
                 if (e.key === "Escape") cancelRename();
               }}

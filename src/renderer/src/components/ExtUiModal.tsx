@@ -75,6 +75,7 @@ function Dialog({
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 if (e.key === "Enter") respond(threadId, req.id, { value: text });
                 if (e.key === "Escape") cancel();
               }}

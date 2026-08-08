@@ -93,7 +93,12 @@ export function removePackageEntry(path: string): void {
 }
 
 /** Run an omp CLI command (plugin install/uninstall/upgrade, update) and capture its output. */
-export function runOmpCli(args: string[], onLine?: (line: string) => void): Promise<{ code: number | null; stdout: string; stderr: string }> {
+export function runOmpCli(
+  args: string[],
+  onLine?: (line: string) => void,
+  timeoutMs?: number,
+  cwd?: string,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const { promise, resolve, reject } = Promise.withResolvers<{ code: number | null; stdout: string; stderr: string }>();
   void (async () => {
     let rt: { bin: string };
@@ -103,9 +108,18 @@ export function runOmpCli(args: string[], onLine?: (line: string) => void): Prom
       reject(e);
       return;
     }
-    const proc = spawn(rt.bin, args, { cwd: getAgentDir(), env: { ...process.env }, windowsHide: true });
+    // NB: stdin must be ignored, not left as an open pipe — omp `-p` treats a
+    // piped stdin without EOF as "prompt coming via stdin" and waits forever.
+    // cwd defaults to the agent dir for CLI management commands.
+    const proc = spawn(rt.bin, args, { cwd: cwd ?? getAgentDir(), env: { ...process.env }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          stderr += `\ntimed out after ${timeoutMs}ms`;
+          proc.kill("SIGKILL");
+        }, timeoutMs)
+      : undefined;
     proc.stdout.on("data", (d: Buffer) => {
       const s = d.toString("utf8");
       stdout += s;
@@ -117,7 +131,10 @@ export function runOmpCli(args: string[], onLine?: (line: string) => void): Prom
       s.split(/\r?\n/).forEach((l) => l.trim() && onLine?.(l));
     });
     proc.on("error", reject);
-    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+    proc.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
   })();
   return promise;
 }

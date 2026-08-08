@@ -4787,3 +4787,349 @@ mark.hl {
 :root[data-theme="dark"] .modal-backdrop {
   background: rgba(0, 0, 0, 0.58);
 }
+
+/* ============================================================
+   Git panel (sidebar Git tab)
+   ============================================================ */
+
+.gp {
+  display: flex;
+  flex-direction: column;
+  /* fill the scrollport so margin-top:auto pins the footer even with little
+     content; position:sticky keeps it pinned when the list overflows */
+  min-height: 100%;
+}
+.gp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 2px;
+}
+.gp-branch {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.gp-branch-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--control);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gp-branch-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.gp-branch-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.gp-branch-btn svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.gp-branch-btn > svg:last-child {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+.gp-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-branch-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+}
+.gp-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.gp-branch-item:hover {
+  background: var(--control);
+}
+.gp-branch-item.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.gp-branch-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-message-wrap {
+  position: relative;
+  margin: 6px 8px 0;
+}
+.gp-message {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  resize: vertical;
+  min-height: 56px;
+}
+.gp-message:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.gp-ai {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent);
+  padding: 3px;
+  cursor: pointer;
+}
+.gp-ai:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.gp-ai:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.gp-ai.spin svg {
+  animation: gp-spin 1s linear infinite;
+}
+@keyframes gp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.gp-commit {
+  margin: 6px 8px 8px;
+  justify-content: center;
+}
+.gp-section {
+  border-top: 1px solid var(--border);
+}
+.gp-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.gp-section-head:hover {
+  background: var(--control);
+}
+.gp-section-head .caret {
+  transition: transform 0.12s ease;
+  font-size: 10px;
+  color: var(--text-faint);
+  width: 12px;
+  display: inline-flex;
+}
+.gp-section-head.open .caret {
+  transform: rotate(90deg);
+}
+.gp-section-label {
+  flex: 1;
+}
+.gp-section-head .pcount {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--control);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+.gp-head-actions,
+.gp-row-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+.gp-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-faint);
+  padding: 2px;
+  cursor: pointer;
+}
+.gp-act:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.gp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 22px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.gp-row:hover {
+  background: var(--control);
+}
+.gp-row .gp-row-actions {
+  opacity: 0;
+}
+.gp-row:hover .gp-row-actions,
+.gp-section-head:hover .gp-head-actions {
+  opacity: 1;
+}
+.gp-head-actions {
+  opacity: 0;
+}
+.gp-ico {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.gp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.gp-letter {
+  font-size: 10.5px;
+  font-weight: 700;
+  width: 14px;
+  text-align: center;
+}
+.gp-letter-M { color: #b07d2b; }
+.gp-letter-A { color: var(--accent); }
+.gp-letter-D { color: #b23a2c; }
+.gp-letter-R,
+.gp-letter-C { color: #4a6fa5; }
+.gp-letter-U { color: #b23a2c; }
+.gp-history {
+  margin-top: 8px;
+}
+.gp-log {
+  padding-bottom: 8px;
+}
+.gp-log-row {
+  padding: 5px 8px 5px 22px;
+  border-left: 2px solid var(--border);
+  margin-left: 12px;
+  padding-left: 10px;
+}
+.gp-log-row:first-child {
+  border-left-color: var(--accent);
+}
+.gp-log-subject {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.gp-log-subject-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-log-refs {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0 5px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-log-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+.gp-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+}
+.gp-foot-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.gp-foot-ab {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+.gp-sync {
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.gp-sync:hover:not(:disabled) {
+  background: var(--control);
+  color: var(--text);
+}
+.gp-sync:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
