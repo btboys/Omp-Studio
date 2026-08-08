@@ -1506,16 +1506,26 @@ export function Settings() {
                     {appUpdateStatus?.hasUpdate && !appUpdateReady && (
                       <button
                         className="set-btn primary"
-                        onClick={downloadAppRelease}
-                        disabled={appUpdating || !appUpdateStatus.supported || !appUpdateStatus.installable}
+                        onClick={
+                          appUpdateStatus.installable
+                            ? downloadAppRelease
+                            : () => window.open(appUpdateStatus.releaseUrl || "", "_blank")
+                        }
+                        disabled={appUpdating}
                       >
-                        {appUpdating && appUpdateProgress?.stage === "downloading"
-                          ? language === "zh"
-                            ? "下载中…"
-                            : "Downloading…"
-                          : language === "zh"
-                            ? `下载 v${appUpdateStatus.latest}`
-                            : `Download v${appUpdateStatus.latest}`}
+                        {appUpdateStatus.installable ? (
+                          appUpdating && appUpdateProgress?.stage === "downloading"
+                            ? language === "zh"
+                              ? "下载中…"
+                              : "Downloading…"
+                            : language === "zh"
+                              ? `下载 v${appUpdateStatus.latest}`
+                              : `Download v${appUpdateStatus.latest}`
+                        ) : language === "zh" ? (
+                          `打开下载页 v${appUpdateStatus.latest}`
+                        ) : (
+                          `Open download page v${appUpdateStatus.latest}`
+                        )}
                       </button>
                     )}
                     {appUpdateReady && (
