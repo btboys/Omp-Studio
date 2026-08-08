@@ -11,8 +11,6 @@ on:
         type: string
         default: ''
   push:
-    branches:
-      - main
     tags:
       - "v*"
 
