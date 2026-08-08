@@ -83,7 +83,7 @@ export function PluginsPanel() {
             </span>
             <div>
               <div className="set-brand-title">插件</div>
-              <div className="set-brand-sub">管理 pi 的 extension 包与 skill</div>
+              <div className="set-brand-sub">管理 omp 的扩展与 skill</div>
             </div>
           </div>
           <button className="set-iconbtn" title="关闭" onClick={close}>
@@ -93,7 +93,7 @@ export function PluginsPanel() {
 
         <div className="plugins-body">
           <div className="muted plugins-note">
-            开关写入 ~/.pi/agent/settings.json，与终端 pi 共享；自动扫描 ~/.pi/agent/skills、~/.pi/agent/skill 和当前项目的 .pi skill 目录。
+            扩展扫描 ~/.omp/agent/extensions（停用即重命名为 *.disabled）；skill 扫描 ~/.omp/agent/skills 与项目 .omp/.pi skills 目录，停用通过 SKILL.md 的 enabled: false 标记实现。
           </div>
 
           <div className="plugins-toolbar">
@@ -122,7 +122,7 @@ export function PluginsPanel() {
                 Extension 包（{filteredPackages.length}
                 {normalizedQuery ? ` / ${packages.length}` : ""}）
               </span>
-              <button className="set-btn" onClick={updateAll} disabled={updating || packages.length === 0} title="检查并更新所有扩展（pi update --extensions）">
+              <button className="set-btn" onClick={updateAll} disabled={updating || packages.length === 0} title="检查并更新所有扩展（omp plugin upgrade）">
                 {updatingAll ? <span className="spinner" /> : <Refresh size={13} />}
                 更新全部
               </button>
@@ -187,7 +187,7 @@ export function PluginsPanel() {
               {normalizedQuery ? ` / ${skills.length}` : ""}）
             </div>
             {loading && skills.length === 0 && <div className="set-empty-mini">加载中…</div>}
-            {!loading && skills.length === 0 && <div className="set-empty-mini">未在 ~/.pi/agent/skills 等目录发现独立 skill。</div>}
+            {!loading && skills.length === 0 && <div className="set-empty-mini">未在 ~/.omp/agent/skills 等目录发现独立 skill。</div>}
             {skills.length > 0 && filteredSkills.length === 0 && <div className="set-empty-mini">没有匹配的 skill。</div>}
             {filteredSkills.map((sk) => (
               <div className="plugins-row" key={sk.path}>

@@ -89,7 +89,7 @@ export function TitleBar() {
     {
       id: "help",
       label: "帮助",
-      items: [{ label: "关于 Pi Studio", onClick: act(() => st().pushToast("info", "Pi Studio · 终端 pi 的 Windows 桌面端")) }],
+      items: [{ label: "关于 Omp Studio", onClick: act(() => st().pushToast("info", "Omp Studio · 终端 omp 的 Windows 桌面端")) }],
     },
   ];
 
@@ -108,10 +108,10 @@ export function TitleBar() {
             : "connecting…"
       }`
     : runtime?.ok
-      ? "Pi ready"
+      ? "omp ready"
       : runtime
-        ? "Pi unavailable"
-        : "Pi Studio";
+        ? "omp unavailable"
+        : "Omp Studio";
   const statusTitle = active?.error || runtime?.error || status;
 
   return (
@@ -126,7 +126,7 @@ export function TitleBar() {
       </button>
       <div className="tb-brand">
         <img className="tb-brand-icon" src={appIconUrl} alt="" aria-hidden="true" />
-        Pi Studio
+        Omp Studio
       </div>
       <div className="tb-menu" ref={menuRef}>
         {MENUS.map((m) => (

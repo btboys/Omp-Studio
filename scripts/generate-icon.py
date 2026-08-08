@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Pi Studio app icon.
+"""Generate the Omp Studio app icon.
 
 Renders a green gradient squircle with a bold white pi glyph, matching the
 in-app brand mark (`.set-brand-mark`: linear-gradient(135deg, #2e7d52, #6fbf8c)

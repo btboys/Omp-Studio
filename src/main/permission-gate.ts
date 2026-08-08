@@ -4,18 +4,17 @@ import { join } from "node:path";
 import gateSource from "./permission-gate-ext.ts?raw";
 
 /**
- * Pi has no built-in sandbox or approval modes (see pi docs/security.md:
- * "No Built-in Sandbox"). The idiomatic way to gate sensitive operations is an
- * extension that hooks the `tool_call` event and confirms dangerous shell
- * commands via `ctx.ui.select` — which surfaces in Pi Studio as the existing
- * extension-UI modal.
+ * omp has no built-in sandbox or approval modes. The idiomatic way to gate
+ * sensitive operations is an extension that hooks the `tool_call` event and
+ * confirms dangerous shell commands via `ctx.ui.select` — which surfaces in
+ * Omp Studio as the existing extension-UI modal.
  *
  * The gate extension lives as a real source file (permission-gate-ext.ts) and
  * is bundled into the main process as a raw string. At runtime we write it into
- * the userData dir and load it for EVERY thread via `pi --extension <path>`.
+ * the userData dir and load it for EVERY thread via `omp --extension <path>`.
  * Whether a thread actually gates is decided at runtime by a small per-thread
  * mode file ("sandbox" | "full") that the extension reads on each bash call, so
- * the permission level can be flipped live without restarting the pi process.
+ * the permission level can be flipped live without restarting the omp process.
  */
 let cachedPath: string | null = null;
 let cachedGateDir: string | null = null;
@@ -37,7 +36,7 @@ function gateDir(userDataDir: string): string {
 }
 
 /** Create a per-thread gate mode file holding the initial permission level and
- * return its absolute path (passed to the pi process as PI_STUDIO_GATE_MODE_FILE). */
+ * return its absolute path (passed to the omp process as PI_STUDIO_GATE_MODE_FILE). */
 export function createGateModeFile(userDataDir: string, permission: string): string {
   const file = join(gateDir(userDataDir), `${randomUUID()}.mode`);
   writeFileSync(file, permission, "utf8");

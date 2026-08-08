@@ -96,7 +96,7 @@ export function AutomationPanel() {
             </span>
             <div>
               <div className="set-brand-title">自动化</div>
-              <div className="set-brand-sub">定时执行可使用 skill 的自定义 prompt（仅在 Pi Studio 运行时调度）</div>
+              <div className="set-brand-sub">定时执行可使用 skill 的自定义 prompt（仅在 Omp Studio 运行时调度）</div>
             </div>
           </div>
           <button className="set-iconbtn" title="关闭" onClick={close}>
@@ -185,7 +185,7 @@ export function AutomationPanel() {
                     value={draft.prompt}
                     onChange={(e) => patch({ prompt: e.target.value })}
                   />
-                  <div className="set-hint">触发时在该文件夹新建一个 pi 会话执行，完成后保存为可查看的线程。</div>
+                  <div className="set-hint">触发时在该文件夹新建一个 omp 会话执行，完成后保存为可查看的线程。</div>
                 </div>
               </div>
 

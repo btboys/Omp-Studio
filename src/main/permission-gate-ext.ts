@@ -123,20 +123,15 @@ const READ_ONLY_SEGMENTS: RegExp[] = [
 const SAFE_TOOLS = new Set([
   "read",
   "grep",
+  "glob",
   "find",
   "ls",
-  "ask_question",
+  "ask",
   "plan_question",
-  "plan_complete",
-  "plan_step_complete",
-  "consult_advisor",
-  "ask_llm",
   "web_search",
-  "source_check",
-  "fetch_content",
-  "get_search_content",
+  "inspect_image",
 ]);
-const SUBAGENT_TOOLS = new Set(["run_subagent", "resume_subagent", "convene_council"]);
+const SUBAGENT_TOOLS = new Set(["task"]);
 const MUTATING_TOOL_NAME = /(?:^|[_-])(write|edit|create|update|delete|remove|send|upload|publish|execute|deploy)(?:[_-]|$)/i;
 
 function cacheKey(command: string): string {
@@ -465,7 +460,7 @@ export default function permissionGate(pi: any) {
     }
 
     if (event.toolName === "write" || event.toolName === "edit") {
-      const path = String(event.input?.path || "");
+      const path = String(event.input?.path || event.input?.file || "");
       if (!isOutsideProject(path, String(ctx.cwd || process.cwd()))) return undefined;
       return requestApproval(
         ctx,
@@ -507,17 +502,19 @@ export default function permissionGate(pi: any) {
   });
 
   pi.registerCommand("pi-studio-branch-at", {
-    description: "Internal Pi Studio branch operation",
+    description: "Internal Omp Studio branch operation",
     handler: async (args: string, ctx: any) => {
       const entryId = args.trim();
       if (!entryId || !/^[a-zA-Z0-9_-]+$/.test(entryId)) throw new Error("Invalid session entry id");
-      const result = await ctx.fork(entryId, { position: "at" });
+      // omp exposes `branch(entryId)` on the command context (pi used
+      // `fork(entryId, { position: "at" })`).
+      const result = await ctx.branch(entryId);
       if (result?.cancelled) throw new Error("Branch operation cancelled");
     },
   });
 
   pi.registerCommand("pi-studio-refresh-models", {
-    description: "Internal Pi Studio model registry refresh",
+    description: "Internal Omp Studio model registry refresh",
     handler: async (_args: string, ctx: any) => {
       await ctx.modelRegistry.refresh();
     },

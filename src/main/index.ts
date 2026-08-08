@@ -1,10 +1,11 @@
-import { existsSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, Menu, shell } from "electron";
 import { loadConfig, getConfig, updateConfig } from "./config";
 import { cleanupOldRuntimes } from "./core-updater";
 import { registerHtmlPreviewProtocol, registerHtmlPreviewScheme } from "./html-preview-protocol";
 import { registerIpc, stopAllBridges } from "./ipc";
+import { ompBinaryFileName } from "./runtime-package";
 import { stopAutomations, stopScheduler } from "./automation";
 
 const APP_USER_MODEL_ID = "com.pi-studio.app";
@@ -12,21 +13,36 @@ const APP_USER_MODEL_ID = "com.pi-studio.app";
 // Establish the product identity before Electron creates any windows or jump
 // list entries. Packaged builds also carry the matching executable metadata;
 // development builds still run as electron.exe at the OS process level.
-app.setName("Pi Studio");
+app.setName("Omp Studio");
 if (process.platform === "win32") app.setAppUserModelId(APP_USER_MODEL_ID);
+
+// The rename "Pi Studio" -> "Omp Studio" also moved Electron's userData dir.
+// On the first launch after the rename, carry the old directory over so
+// config.json, the extracted omp runtime and the updater cache survive
+// instead of being orphaned under the old app name.
+if (!existsSync(app.getPath("userData"))) {
+  const legacy = join(app.getPath("appData"), "Pi Studio");
+  if (existsSync(legacy)) {
+    try {
+      renameSync(legacy, app.getPath("userData"));
+    } catch {
+      // The old app instance may still be running with files open; start fresh.
+    }
+  }
+}
 
 registerHtmlPreviewScheme();
 
 // Keep the legacy resources/bundled lookup available for older developer
-// builds. New packaged releases carry the standalone runtime archive in the
-// installer and extract it into userData on first use.
+// builds. New packaged releases carry the standalone omp runtime binary in
+// the installer and copy it into userData on first use.
 {
   const candidates = [
     join(app.getAppPath(), "resources", "bundled"),
     join((process as any).resourcesPath || "", "bundled"),
   ];
   for (const dir of candidates) {
-    if (dir && existsSync(join(dir, "pi", "dist", "cli.js"))) {
+    if (dir && existsSync(join(dir, ompBinaryFileName()))) {
       process.env.PI_BUNDLED_DIR = dir;
       break;
     }
@@ -60,7 +76,7 @@ function createWindow(): void {
     show: false,
     frame: false,
     backgroundColor: "#0e0f12",
-    title: "Pi Studio",
+    title: "Omp Studio",
     icon: windowIcon,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),

@@ -100,9 +100,9 @@ function statusFromInfo(current: string, info: UpdateInfo): AppUpdateStatus {
   const hasUpdate = compareVersions(latest, current) > 0;
   let note: string | null = "来源：GitHub Releases，由 electron-updater 管理下载和安装";
   if (supported && !installable) {
-    note = "当前为开发环境，只能检查版本；请使用已安装的 Pi Studio 执行更新";
+    note = "当前为开发环境，只能检查版本；请使用已安装的 Omp Studio 执行更新";
   } else if (!supported) {
-    note = "当前平台没有可用的 Pi Studio Windows 安装包";
+    note = "当前平台没有可用的 Omp Studio Windows 安装包";
   }
 
   return {
@@ -133,7 +133,7 @@ function emptyStatus(current: string, error?: string): AppUpdateStatus {
     downloaded: false,
     note: isPackagedInstallable()
       ? "更新源：GitHub Releases"
-      : "当前为开发环境，只能检查版本；请使用已安装的 Pi Studio 执行更新",
+      : "当前为开发环境，只能检查版本；请使用已安装的 Omp Studio 执行更新",
     ...(error ? { error } : {}),
   };
 }
@@ -172,7 +172,7 @@ function configureUpdater(): void {
     const pct = Number.isFinite(info.percent) ? Math.max(0, Math.min(100, Math.round(info.percent))) : undefined;
     emitProgress({
       stage: "downloading",
-      message: "正在下载 Pi Studio v" + normalizeVersion(latestUpdateInfo?.version || "") + "…",
+      message: "正在下载 Omp Studio v" + normalizeVersion(latestUpdateInfo?.version || "") + "…",
       ...(pct === undefined ? {} : { pct }),
     });
   });
@@ -182,7 +182,7 @@ function configureUpdater(): void {
     downloadedVersion = normalizeVersion(info.version);
     emitProgress({
       stage: "ready",
-      message: "Pi Studio v" + downloadedVersion + " 已下载，可以安装并重启",
+      message: "Omp Studio v" + downloadedVersion + " 已下载，可以安装并重启",
       pct: 100,
     });
   });
@@ -231,7 +231,7 @@ export async function downloadAppUpdate(onProgress?: (progress: AppUpdateProgres
 
   try {
     if (!isPackagedInstallable()) {
-      throw new Error("当前环境不能自动安装应用更新，请使用已安装的 Pi Studio");
+      throw new Error("当前环境不能自动安装应用更新，请使用已安装的 Omp Studio");
     }
 
     const result = await checkWithUpdater();
@@ -246,23 +246,23 @@ export async function downloadAppUpdate(onProgress?: (progress: AppUpdateProgres
         ok: true,
         downloaded: false,
         version: status.current,
-        message: "Pi Studio 已经是最新版本（v" + status.current + "）",
+        message: "Omp Studio 已经是最新版本（v" + status.current + "）",
       };
     }
     if (!status.supported) throw new Error("更新服务没有返回 Windows 安装包");
 
     const version = normalizeVersion(info.version);
     if (downloadedVersion === version) {
-      emitProgress({ stage: "ready", message: "Pi Studio v" + version + " 已下载，可以安装并重启", pct: 100 });
+      emitProgress({ stage: "ready", message: "Omp Studio v" + version + " 已下载，可以安装并重启", pct: 100 });
       return {
         ok: true,
         downloaded: true,
         version,
-        message: "Pi Studio v" + version + " 已下载，可以安装并重启",
+        message: "Omp Studio v" + version + " 已下载，可以安装并重启",
       };
     }
 
-    emitProgress({ stage: "downloading", message: "正在下载 Pi Studio v" + version + "…", pct: 0 });
+    emitProgress({ stage: "downloading", message: "正在下载 Omp Studio v" + version + "…", pct: 0 });
     if (!downloadPromise) {
       downloadPromise = autoUpdater.downloadUpdate().finally(() => {
         downloadPromise = null;
@@ -277,13 +277,13 @@ export async function downloadAppUpdate(onProgress?: (progress: AppUpdateProgres
       ok: true,
       downloaded: true,
       version,
-      message: "Pi Studio v" + version + " 已下载，可以安装并重启",
+      message: "Omp Studio v" + version + " 已下载，可以安装并重启",
     };
   } catch (error: any) {
     const message = error?.message || String(error);
     lastUpdaterError = message;
     emitProgress({ stage: "error", message });
-    return { ok: false, downloaded: false, message: "Pi Studio 更新失败：" + message };
+    return { ok: false, downloaded: false, message: "Omp Studio 更新失败：" + message };
   } finally {
     if (progressSink === onProgress) progressSink = previousSink;
   }
@@ -305,7 +305,7 @@ export function installAppUpdate(): AppUpdateResult {
 
   const version = downloadedVersion;
   lastUpdaterError = null;
-  emitProgress({ stage: "installing", message: "正在安装 Pi Studio v" + version + "，应用将自动重启" });
+  emitProgress({ stage: "installing", message: "正在安装 Omp Studio v" + version + "，应用将自动重启" });
   try {
     // electron-updater invokes the NSIS updater, waits for this process to
     // exit, installs the downloaded package, and relaunches the app.
@@ -317,7 +317,7 @@ export function installAppUpdate(): AppUpdateResult {
       ok: true,
       downloaded: true,
       version,
-      message: "正在安装 Pi Studio v" + version + "，应用将自动重启",
+      message: "正在安装 Omp Studio v" + version + "，应用将自动重启",
     };
   } catch (error: any) {
     const message = error?.message || String(error);

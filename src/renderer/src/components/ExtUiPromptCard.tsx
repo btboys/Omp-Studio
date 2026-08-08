@@ -24,8 +24,8 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
   if (!request) return null;
   const cancel = () =>
     respond(threadId, request.id, request.method === "confirm" ? { confirmed: false } : { cancelled: true });
-  const titleParts = String(request.title || "Pi extension").split(/\r?\n/);
-  const title = titleParts.shift() || "Pi extension";
+  const titleParts = String(request.title || "omp extension").split(/\r?\n/);
+  const title = titleParts.shift() || "omp extension";
   const detail = [...titleParts, request.message || ""].filter(Boolean).join("\n");
   const isSandbox = /sandbox/i.test(title);
 

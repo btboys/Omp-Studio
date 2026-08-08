@@ -6,7 +6,7 @@ import { createGateModeFile, ensureGateExtension, removeGateModeFile } from "./p
  * Scheduled automation. Tasks are user-defined prompts (which may invoke
  * skills) run in a chosen working folder on an hourly/daily/weekly schedule.
  *
- * The scheduler lives in the main process and only runs while Pi Studio is
+ * The scheduler lives in the main process and only runs while Omp Studio is
  * open. Each fire spawns a fresh pi session in the task's folder, sends the
  * prompt, and waits for `agent_settled`. pi persists the session automatically,
  * so the result appears in the sidebar as a normal, reviewable thread.
@@ -163,10 +163,9 @@ async function execute(task: AutomationTask): Promise<void> {
       gateModeFile = createGateModeFile(getConfigDir(), permission);
       bridge = new PiBridge({
         cwd: task.cwd,
-        piCliPath: getConfig().piCliPath,
+        ompBinPath: getConfig().ompBinPath,
         extensions: [ensureGateExtension(getConfigDir())],
         gateModeFile,
-        name: `自动化: ${task.name}`,
         onEvent: (e: any) => {
           if (e?.type === "message_end" && e.message?.role === "assistant") {
             lastAssistantMessage = {

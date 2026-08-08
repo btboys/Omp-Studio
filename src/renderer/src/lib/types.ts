@@ -150,9 +150,9 @@ export interface ThreadState {
   thinking: string;
   levels: string[];
   commands: any[];
-  /** True while the backing pi process is still booting (optimistic open). */
+  /** True while the backing omp process is still booting (optimistic open). */
   loading?: boolean;
-  /** True once a live pi process backs this thread. A thread can show its full
+  /** True once a live omp process backs this thread. A thread can show its full
    *  transcript (read from disk) while still disconnected; interaction connects. */
   connected?: boolean;
   isStreaming: boolean;
@@ -160,7 +160,7 @@ export interface ThreadState {
   streaming: ViewMessage | null;
   toolRuns: Record<string, ToolRun>;
   error?: string;
-  /** Permission level the thread's pi process runs under. */
+  /** Permission level the thread's omp process runs under. */
   permission: PermissionLevel;
   /** text injected by an extension via set_editor_text */
   pendingEditorText?: string;
@@ -204,7 +204,8 @@ export interface Toast {
 }
 
 export interface AppConfig {
-  piCliPath: string;
+  /** Path to the omp (oh-my-pi) binary, or empty string to auto-detect. */
+  ompBinPath: string;
   pinnedProjects: string[];
   archivedProjects: string[];
   archivedThreads: ArchivedThread[];
@@ -215,17 +216,15 @@ export interface AppConfig {
 
 export interface AppRuntime {
   ok: boolean;
-  node?: string;
-  cli?: string;
+  bin?: string;
+  version?: string;
   error?: string;
 }
 
-/** Read-only snapshot of the pi runtime + config locations, for the Settings panel. */
+/** Read-only snapshot of the omp runtime + config locations, for the Settings panel. */
 export interface Diagnostics {
-  node: string | null;
-  cli: string | null;
-  nodeVersion: string | null;
-  piVersion: string | null;
+  bin: string | null;
+  ompVersion: string | null;
   agentDir: string;
   sessionsDir: string;
   settingsPath: string;
@@ -234,7 +233,7 @@ export interface Diagnostics {
   settingsExists: boolean;
   authExists: boolean;
   modelsExists: boolean;
-  /** Where the active pi runtime came from. */
+  /** Where the active omp runtime came from. */
   runtimeKind: "override" | "userData" | "bundled" | "system" | "unknown";
   /** True when the runtime is managed by the app (bundled or app-updated). */
   bundled: boolean;
@@ -273,7 +272,7 @@ export interface ProviderDef {
   [key: string]: unknown;
 }
 
-/** Top-level shape of ~/.pi/agent/models.json. */
+/** Top-level shape of ~/.omp/agent/models.yml (custom providers). */
 export interface ModelsFile {
   providers: Record<string, ProviderDef>;
   [key: string]: unknown;

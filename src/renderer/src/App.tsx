@@ -84,11 +84,11 @@ export default function App() {
                 <div className="empty-state-app-icon">
                   <img src={appIconUrl} alt="" aria-hidden="true" />
                 </div>
-                <h2>Pi Studio</h2>
+                <h2>Omp Studio</h2>
                 <p style={{ maxWidth: 420, margin: "0 auto 16px" }}>
-                  终端 pi 的 Windows 桌面端：完整继承模型、harness 与插件系统。左侧选择项目与线程，右侧预览文件。
+                  终端 omp 的 Windows 桌面端：完整继承模型、harness 与插件系统。左侧选择项目与线程，右侧预览文件。
                 </p>
-                {!runtime?.ok && runtime && <p style={{ color: "#b23a2c" }}>未检测到 pi：{runtime.error}</p>}
+                {!runtime?.ok && runtime && <p style={{ color: "#b23a2c" }}>未检测到 omp：{runtime.error}</p>}
                 <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
                   <button className="btn primary" onClick={newTask}>
                     <Plus size={14} /> 新建任务

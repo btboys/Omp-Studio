@@ -454,7 +454,7 @@ export function Composer({ threadId }: { threadId: string }) {
             <div className="pill perm-pill composer-optional-action" ref={permRef}>
               <button
                 className={`pill-btn perm-btn ${permission === "full" ? "perm-full" : ""}`}
-                title="权限级别：sandbox 仅自动放行明确只读的 shell 命令，并限制项目外写入；完全权限为 pi 默认 unrestricted 模式"
+                title="权限级别：sandbox 仅自动放行明确只读的 shell 命令，并限制项目外写入；完全权限为 omp 默认 unrestricted 模式"
                 onClick={() => setPermOpen((v) => !v)}
               >
                 <Shield size={13} /> {permission === "full" ? "完全权限" : "sandbox"} ▾
@@ -479,7 +479,7 @@ export function Composer({ threadId }: { threadId: string }) {
                     }}
                   >
                     <span className="o1">完全权限</span>
-                    <span className="o2">pi 默认，不拦截任何操作</span>
+                    <span className="o2">omp 默认，不拦截任何操作</span>
                   </button>
                 </div>
               )}

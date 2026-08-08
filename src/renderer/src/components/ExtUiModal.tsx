@@ -42,7 +42,7 @@ function Dialog({
   return (
     <div className="modal-backdrop" onMouseDown={cancel}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-title">{req.title || "Pi extension"}</div>
+        <div className="modal-title">{req.title || "omp extension"}</div>
         {req.message && <div className="modal-msg">{req.message}</div>}
 
         {method === "select" && (

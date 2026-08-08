@@ -1,5 +1,5 @@
 /**
- * Helpers for turning raw `pi update` CLI output into user-facing toast
+ * Helpers for turning raw `omp update` CLI output into user-facing toast
  * messages. The CLI emits ANSI color codes, so strip them before inspecting.
  */
 
@@ -44,7 +44,7 @@ export function cleanOutput(raw: string): string {
 }
 
 /**
- * True when `pi update --extensions` output indicates nothing needed updating.
+ * True when `omp update --plugins` output indicates nothing needed updating.
  * On a no-op run the CLI prints only the final "Updated packages" / "Updated
  * <source>" line; any real work (npm/git output, "Updating ...") leaves extra
  * lines behind.

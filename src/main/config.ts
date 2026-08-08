@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 
 /**
  * Persisted, app-level settings. Stored under Electron's userData dir so it is
- * independent from pi's own ~/.pi/agent config (which we intentionally share
- * with the terminal pi for models / extensions / auth).
+ * independent from omp's own ~/.omp/agent config (which we intentionally share
+ * with the terminal omp for models / extensions / auth).
  */
 export interface ArchivedThread {
   /** Stable session file path used as the thread id. */
@@ -17,11 +17,11 @@ export interface ArchivedThread {
 
 export interface AppConfig {
   /**
-   * Path to pi's cli.js, or empty string to auto-detect via `npm root -g`.
-   * We deliberately do NOT accept a shell executable here: the bridge spawns
-   * node + cli.js directly to avoid Windows .cmd / quoting pitfalls.
+   * Path to the omp (oh-my-pi) binary, or empty string to auto-detect
+   * (bundled runtime → PATH). The bridge spawns the binary directly with
+   * shell:false, so this must be an executable file path, not a shell command.
    */
-  piCliPath: string;
+  ompBinPath: string;
   /** Projects the user opened manually; shown pinned at the top of the sidebar. */
   pinnedProjects: string[];
   /** Project folders hidden from normal navigation until restored in Settings. */
@@ -70,7 +70,7 @@ export interface AutomationTask {
 }
 
 const DEFAULTS: AppConfig = {
-  piCliPath: "",
+  ompBinPath: "",
   pinnedProjects: [],
   archivedProjects: [],
   archivedThreads: [],
@@ -92,7 +92,9 @@ export function loadConfig(userDataDir: string): AppConfig {
   const file = configPath(userDataDir);
   if (existsSync(file)) {
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<AppConfig>;
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<AppConfig> & { piCliPath?: string };
+      // Migration: pre-omp builds stored the pi cli path under `piCliPath`.
+      if (!parsed.ompBinPath && parsed.piCliPath) parsed.ompBinPath = parsed.piCliPath;
       cached = {
         ...DEFAULTS,
         ...parsed,

@@ -1,13 +1,13 @@
 {
-  "name": "pi-studio",
+  "name": "omp-studio",
   "version": "0.3.1",
-  "piRuntimeVersion": "0.83.0",
+  "ompRuntimeVersion": "17.2.11",
   "private": true,
   "license": "MIT",
   "author": {
-    "name": "Pi Studio"
+    "name": "Omp Studio"
   },
-  "description": "Pi Studio - a cross-platform desktop client for the pi coding agent (models, harness, extensions, sessions).",
+  "description": "Omp Studio - a cross-platform desktop client for the oh-my-pi (omp) coding agent (models, harness, extensions, sessions).",
   "engines": {
     "node": ">=24.14.0 <25"
   },
@@ -28,6 +28,7 @@
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.9",
     "highlight.js": "^11.10.0",
+    "js-yaml": "^4.1.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "react": "^18.3.1",
@@ -42,6 +43,7 @@
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/js-yaml": "^4.0.9",
     "@vitejs/plugin-react": "^4.3.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
@@ -55,7 +57,7 @@
   },
   "build": {
     "appId": "com.pi-studio.app",
-    "productName": "Pi Studio",
+    "productName": "Omp Studio",
     "publish": [
       {
         "provider": "github",
@@ -91,7 +93,7 @@
     ],
     "win": {
       "icon": "resources/icon.ico",
-      "executableName": "Pi Studio",
+      "executableName": "Omp Studio",
       "target": [
         {
           "target": "nsis",
@@ -100,7 +102,7 @@
           ]
         }
       ],
-      "artifactName": "Pi-Studio-Setup-${version}.${ext}"
+      "artifactName": "Omp-Studio-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -109,21 +111,21 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Pi Studio"
+      "shortcutName": "Omp Studio"
     },
     "mac": {
       "icon": "resources/icon.icns",
       "target": [
         "dmg"
       ],
-      "artifactName": "Pi-Studio-${version}-${arch}.${ext}"
+      "artifactName": "Omp-Studio-${version}-${arch}.${ext}"
     },
     "linux": {
       "icon": "resources/icon.png",
       "target": [
         "AppImage"
       ],
-      "artifactName": "Pi-Studio-${version}-${arch}.${ext}"
+      "artifactName": "Omp-Studio-${version}-${arch}.${ext}"
     }
   }
 }

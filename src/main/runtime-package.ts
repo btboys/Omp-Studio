@@ -1,25 +1,26 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { spawn } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { app } from "electron";
 import { getConfigDir } from "./config";
 
 /**
- * The runtime archive is embedded in the desktop installer and extracted once
- * into userData. Keeping the extracted copy versioned still lets app-managed
- * Pi updates switch runtimes without replacing files held by live processes.
+ * The omp (oh-my-pi) binary is embedded in the desktop installer and copied
+ * once into userData. Keeping the extracted copy versioned still lets
+ * app-managed omp updates switch runtimes without replacing files held by
+ * live processes.
  */
 export interface RuntimeManifest {
   schema: 2;
@@ -32,19 +33,28 @@ export interface RuntimeManifest {
   sha512: string;
 }
 
-type RuntimePlatform = "win32" | "darwin";
+type RuntimePlatform = "win32" | "darwin" | "linux";
 type RuntimeArch = "x64" | "arm64";
 
 function supportsEmbeddedRuntime(): boolean {
   return (
-    (process.platform === "win32" || process.platform === "darwin") &&
+    (process.platform === "win32" || process.platform === "darwin" || process.platform === "linux") &&
     (process.arch === "x64" || process.arch === "arm64")
   );
 }
 
+/**
+ * Release asset name for a platform/arch pair, matching oh-my-pi's GitHub
+ * releases: `omp-<os>-<arch>` with os ∈ darwin|linux|windows, `.exe` on win32.
+ */
+export function ompBinaryFileName(platform: string = process.platform, arch: string = process.arch): string {
+  const os = platform === "win32" ? "windows" : platform;
+  const name = `omp-${os}-${arch}`;
+  return platform === "win32" ? `${name}.exe` : name;
+}
+
 export interface RuntimePaths {
-  node: string;
-  cli: string;
+  bin: string;
 }
 
 export type RuntimeProgressStage = "checking" | "installing" | "activating" | "done" | "error";
@@ -78,10 +88,6 @@ function runtimePointerPath(): string {
   return join(runtimeBaseDir(), "current.json");
 }
 
-function nodeFileName(): string {
-  return process.platform === "win32" ? "node.exe" : "node";
-}
-
 function isValidRuntimeVersion(version: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(version);
 }
@@ -92,15 +98,12 @@ function runtimeRootForVersion(version: string): string {
 }
 
 function isUsableRuntimeRoot(root: string): boolean {
-  return existsSync(join(root, "node", nodeFileName())) && existsSync(join(root, "pi", "dist", "cli.js"));
+  return existsSync(join(root, "bin", ompBinaryFileName()));
 }
 
 export function runtimePathsForRoot(root: string): RuntimePaths | null {
-  const paths = {
-    node: join(root, "node", nodeFileName()),
-    cli: join(root, "pi", "dist", "cli.js"),
-  };
-  return existsSync(paths.node) && existsSync(paths.cli) ? paths : null;
+  const paths = { bin: join(root, "bin", ompBinaryFileName()) };
+  return existsSync(paths.bin) ? paths : null;
 }
 
 function readPointer(): RuntimePointer | null {
@@ -113,10 +116,7 @@ function readPointer(): RuntimePointer | null {
   }
 }
 
-/**
- * Resolve the active runtime. The old runtime/pi layout remains supported so
- * an existing installation keeps working after the app itself is upgraded.
- */
+/** Resolve the active runtime root from the version pointer. */
 export function getActiveRuntimeRoot(): string | null {
   try {
     const pointer = readPointer();
@@ -124,9 +124,6 @@ export function getActiveRuntimeRoot(): string | null {
       const pointed = runtimeRootForVersion(pointer.version);
       if (isUsableRuntimeRoot(pointed)) return pointed;
     }
-
-    const legacy = join(runtimeBaseDir(), "pi");
-    if (existsSync(join(legacy, "dist", "cli.js"))) return legacy;
   } catch {
     /* config may not be loaded yet */
   }
@@ -136,17 +133,7 @@ export function getActiveRuntimeRoot(): string | null {
 export function getActiveRuntimeVersion(): string | null {
   const pointer = readPointer();
   if (pointer && isUsableRuntimeRoot(runtimeRootForVersion(pointer.version))) return pointer.version;
-  const root = getActiveRuntimeRoot();
-  if (!root) return null;
-  try {
-    const packagePath = existsSync(join(root, "pi", "package.json"))
-      ? join(root, "pi", "package.json")
-      : join(root, "package.json");
-    const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as { version?: unknown };
-    return typeof parsed.version === "string" ? parsed.version : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export function getActiveRuntimePaths(): RuntimePaths | null {
@@ -199,7 +186,7 @@ export function getRuntimePackageManifest(): RuntimeManifest | null {
       typeof parsed.runtimeVersion !== "string" ||
       !isValidRuntimeVersion(parsed.runtimeVersion) ||
       typeof parsed.fileName !== "string" ||
-      !/^[A-Za-z0-9._+-]+\.tar\.gz$/.test(parsed.fileName) ||
+      parsed.fileName !== ompBinaryFileName() ||
       typeof parsed.size !== "number" ||
       parsed.size <= 0 ||
       typeof parsed.sha512 !== "string"
@@ -212,16 +199,16 @@ export function getRuntimePackageManifest(): RuntimeManifest | null {
   }
 }
 
-function embeddedRuntimeArchivePath(manifest: RuntimeManifest): string {
+function embeddedRuntimeBinaryPath(manifest: RuntimeManifest): string {
   const resourcesPath = (process as any).resourcesPath as string | undefined;
   if (!app.isPackaged || !resourcesPath) {
-    throw new Error("embedded Pi runtime is only available in a packaged app");
+    throw new Error("embedded omp runtime is only available in a packaged app");
   }
-  const archive = join(resourcesPath, "runtime-package", manifest.fileName);
-  if (!existsSync(archive)) {
-    throw new Error(`embedded Pi runtime package is missing: ${archive}`);
+  const binary = join(resourcesPath, "runtime-package", manifest.fileName);
+  if (!existsSync(binary)) {
+    throw new Error(`embedded omp runtime package is missing: ${binary}`);
   }
-  return archive;
+  return binary;
 }
 
 function rmSafe(target: string): void {
@@ -232,26 +219,6 @@ function rmSafe(target: string): void {
   }
 }
 
-function tarBinary(): string {
-  if (process.platform === "win32") return join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
-  return "tar";
-}
-
-function runCommand(command: string, args: string[]): Promise<void> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) resolvePromise();
-      else reject(new Error(`${command} exited with code ${code}${stderr ? `: ${stderr.trim().slice(-500)}` : ""}`));
-    });
-  });
-}
-
 async function sha512File(file: string): Promise<string> {
   const hash = createHash("sha512");
   const input = createReadStream(file);
@@ -259,54 +226,50 @@ async function sha512File(file: string): Promise<string> {
   return hash.digest("base64");
 }
 
-function archiveRoot(extracted: string): string {
-  if (isUsableRuntimeRoot(extracted)) return extracted;
-  const entries = readdirSync(extracted).filter((name) => !name.startsWith("."));
-  if (entries.length === 1) {
-    const nested = join(extracted, entries[0]);
-    if (isUsableRuntimeRoot(nested)) return nested;
-  }
-  throw new Error("runtime archive is missing node/node.exe or pi/dist/cli.js");
-}
-
-/** Verify, extract and activate the runtime archive embedded in the installer. */
+/** Verify, copy and activate the omp binary embedded in the installer. */
 export async function installRuntimePackage(manifest: RuntimeManifest, onProgress?: ProgressFn): Promise<string> {
   if (!supportsEmbeddedRuntime()) {
-    throw new Error("standalone Pi runtime supports Windows and macOS on x64 or arm64");
+    throw new Error("standalone omp runtime supports Windows, macOS and Linux on x64 or arm64");
   }
   const progress = onProgress || (() => undefined);
   const target = runtimeRootForVersion(manifest.runtimeVersion);
   if (isUsableRuntimeRoot(target)) {
     activateRuntimeRoot(target, manifest.runtimeVersion);
-    progress({ stage: "done", message: `Pi runtime v${manifest.runtimeVersion} is ready`, pct: 100 });
+    progress({ stage: "done", message: `omp runtime v${manifest.runtimeVersion} is ready`, pct: 100 });
     return target;
   }
 
   const base = runtimeBaseDir();
-  const embeddedArchive = embeddedRuntimeArchivePath(manifest);
+  const embeddedBinary = embeddedRuntimeBinaryPath(manifest);
   const staging = join(base, `.runtime-staging-${process.pid}-${Date.now()}`);
-  const archive = join(staging, manifest.fileName);
-  const extracted = join(staging, "extracted");
+  const stagedBinary = join(staging, manifest.fileName);
   try {
     rmSafe(staging);
-    mkdirSync(extracted, { recursive: true });
-    progress({ stage: "checking", message: `Preparing embedded Pi runtime v${manifest.runtimeVersion}` });
-    copyFileSync(embeddedArchive, archive);
-    const actualSize = statSync(archive).size;
+    mkdirSync(staging, { recursive: true });
+    progress({ stage: "checking", message: `Preparing embedded omp runtime v${manifest.runtimeVersion}` });
+    copyFileSync(embeddedBinary, stagedBinary);
+    const actualSize = statSync(stagedBinary).size;
     if (actualSize !== manifest.size) throw new Error(`runtime package size mismatch: expected ${manifest.size}, got ${actualSize}`);
-    const actualHash = await sha512File(archive);
+    const actualHash = await sha512File(stagedBinary);
     if (actualHash !== manifest.sha512) throw new Error("runtime package integrity check failed");
 
-    progress({ stage: "installing", message: "Extracting embedded Pi runtime", pct: 0 });
-    await runCommand(tarBinary(), ["-xzf", archive, "-C", extracted]);
-    const root = archiveRoot(extracted);
+    progress({ stage: "installing", message: "Installing omp runtime", pct: 0 });
     mkdirSync(runtimeVersionsDir(), { recursive: true });
     rmSafe(target);
-    renameSync(root, target);
+    const binDir = join(target, "bin");
+    mkdirSync(binDir, { recursive: true });
+    renameSync(stagedBinary, join(binDir, manifest.fileName));
+    if (process.platform !== "win32") {
+      try {
+        chmodSync(join(binDir, manifest.fileName), 0o755);
+      } catch {
+        /* best effort; the file is copied from a packaged resource */
+      }
+    }
     if (!isUsableRuntimeRoot(target)) throw new Error("runtime package activation produced an incomplete directory");
-    progress({ stage: "activating", message: `Activating Pi runtime v${manifest.runtimeVersion}` });
+    progress({ stage: "activating", message: `Activating omp runtime v${manifest.runtimeVersion}` });
     activateRuntimeRoot(target, manifest.runtimeVersion);
-    progress({ stage: "done", message: `Pi runtime v${manifest.runtimeVersion} is ready`, pct: 100 });
+    progress({ stage: "done", message: `omp runtime v${manifest.runtimeVersion} is ready`, pct: 100 });
     return target;
   } finally {
     rmSafe(staging);

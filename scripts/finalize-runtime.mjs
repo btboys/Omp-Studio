@@ -16,5 +16,5 @@ if (!existsSync(source)) throw new Error(`runtime archive is missing: ${source}`
 const releaseDir = join(ROOT, "release");
 mkdirSync(releaseDir, { recursive: true });
 cpSync(source, join(releaseDir, manifest.fileName));
-cpSync(manifestPath, join(releaseDir, "Pi-Studio-Runtime-manifest.json"));
-console.log(`[finalize-runtime] copied ${manifest.fileName} and Pi-Studio-Runtime-manifest.json to ${releaseDir}`);
+cpSync(manifestPath, join(releaseDir, "Omp-Studio-Runtime-manifest.json"));
+console.log(`[finalize-runtime] copied ${manifest.fileName} and Omp-Studio-Runtime-manifest.json to ${releaseDir}`);

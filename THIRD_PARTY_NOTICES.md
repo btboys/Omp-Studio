@@ -1,21 +1,21 @@
 # Third-party notices
 
-Pi Studio is distributed under the MIT License for the Pi Studio code only. This file records the major components used by the source tree and the packaged application. Third-party software remains under its own license.
+Omp Studio is distributed under the MIT License for the Omp Studio code only. This file records the major components used by the source tree and the packaged application. Third-party software remains under its own license.
 
 When redistributing a built application, keep this notice together with the application and retain the license and copyright files shipped with the bundled dependencies.
 
 ## Bundled runtime
 
-### Pi coding agent
+### oh-my-pi (omp)
 
-- Package: `@earendil-works/pi-coding-agent`
-- Version in the current embedded runtime: `0.83.0`
+- Package: `@oh-my-pi/pi-coding-agent` (bundled as the native `omp` CLI binary)
+- Version in the current embedded runtime: `17.2.11` (`ompRuntimeVersion` in `package.json`)
 - License: MIT
-- Copyright: Mario Zechner
-- Source: <https://github.com/earendil-works/pi/tree/main/packages/coding-agent>
-- License text: <https://github.com/earendil-works/pi/blob/main/LICENSE>
+- Copyright: Mario Zechner; Can Bölük
+- Source: <https://github.com/can1357/oh-my-pi>
+- License text: <https://github.com/can1357/oh-my-pi/blob/main/LICENSE>
 
-Pi Studio launches the Pi coding agent as a bundled runtime. Pi's own source, trademarks, and dependencies are not relicensed by Pi Studio.
+Omp Studio launches the oh-my-pi (omp) runtime as a bundled runtime. omp's own source, trademarks, and dependencies are not relicensed by Omp Studio.
 
 ### Node.js
 
@@ -59,13 +59,13 @@ Build-time packages are listed separately because they are used to create the ap
 
 ## Transitive dependencies
 
-The Pi runtime and the Electron application include transitive npm dependencies. Their package manifests and license files are retained in the generated runtime tree where applicable. The authoritative inventories are:
+The omp runtime and the Electron application include transitive npm dependencies. Their package manifests and license files are retained in the generated runtime tree where applicable. The authoritative inventories are:
 
-- `package-lock.json` for the Pi Studio source dependencies.
-- The generated runtime manifest and embedded runtime archive for the Pi runtime.
+- `package-lock.json` for the Omp Studio source dependencies.
+- The generated runtime manifest and embedded runtime archive for the omp runtime.
 - The license files distributed beside the corresponding packages in the packaged application.
 
-Common license families in the bundled Pi runtime include MIT, Apache-2.0, BSD-3-Clause, BlueOak-1.0.0, ISC, and 0BSD. Each dependency's own license terms take precedence over this summary.
+Common license families in the bundled omp runtime include MIT, Apache-2.0, BSD-3-Clause, BlueOak-1.0.0, ISC, and 0BSD. Each dependency's own license terms take precedence over this summary.
 
 ## Electron and Chromium notices
 

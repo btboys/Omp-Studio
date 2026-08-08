@@ -33,7 +33,7 @@ jobs:
     # These are unsigned CI artifacts. Configure signing secrets and remove
     # this setting for production distribution builds.
     env:
-      PI_RUNTIME_VERSION: 0.83.0
+      OMP_RUNTIME_VERSION: 17.2.11
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
     steps:
@@ -57,10 +57,11 @@ jobs:
           if(actual.platform!==expected.platform||actual.arch!==expected.arch)throw new Error(JSON.stringify({expected,actual}));"
 
       - name: Install project dependencies
+        env:
+          # The project .npmrc routes electron binary downloads to the China
+          # mirror; GitHub-hosted runners are faster pulling from GitHub itself.
+          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/"
         run: npm ci
-
-      - name: Install the pinned Pi runtime
-        run: npm install --global --no-audit --no-fund @earendil-works/pi-coding-agent@${{ env.PI_RUNTIME_VERSION }}
 
       - name: Typecheck
         run: npm run typecheck
@@ -69,7 +70,7 @@ jobs:
         if: matrix.platform == 'win32'
         run: npm run test:permission
 
-      - name: Bundle native Node.js and Pi runtime
+      - name: Bundle the omp runtime binary
         run: npm run bundle
 
       - name: Verify runtime manifest

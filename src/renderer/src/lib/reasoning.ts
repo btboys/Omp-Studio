@@ -9,6 +9,7 @@ const LABELS: Record<Language, Record<string, string>> = {
     high: "high",
     xhigh: "xhigh",
     max: "max",
+    auto: "auto",
   },
   zh: {
     off: "关闭",
@@ -18,6 +19,7 @@ const LABELS: Record<Language, Record<string, string>> = {
     high: "高",
     xhigh: "极高",
     max: "最高",
+    auto: "自动",
   },
 };
 

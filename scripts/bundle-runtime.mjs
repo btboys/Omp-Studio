@@ -1,189 +1,39 @@
 #!/usr/bin/env node
 /**
- * Build the standalone Pi Studio runtime asset.
+ * Build the standalone Omp Studio runtime asset.
  *
- * This script creates the versioned Node.js + Pi archive that electron-builder
- * embeds in the desktop installer and writes its integrity manifest into
- * resources/. All pruning is implemented with Node's filesystem APIs so it is
- * deterministic on Windows (where `find` is not GNU find and `rm` is absent).
+ * Downloads the pinned oh-my-pi (`omp`) release binary for the current
+ * platform/arch, verifies its sha256 against the digest published by the
+ * GitHub releases API, and writes it plus the integrity manifest into
+ * resources/ so electron-builder can embed it in the installer.
  */
 
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const APP_PACKAGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-const EXPECTED_PI_VERSION = process.env.PI_RUNTIME_VERSION || APP_PACKAGE.piRuntimeVersion || "0.83.0";
-const STAGE = join(ROOT, ".runtime-stage");
+const EXPECTED_VERSION = process.env.OMP_RUNTIME_VERSION || APP_PACKAGE.ompRuntimeVersion || "17.2.11";
 const RUNTIME_OUT = join(ROOT, "runtime-release");
 const MANIFEST_OUT = join(ROOT, "resources", "runtime-manifest.json");
-const PLATFORM_SLUGS = { win32: "win", darwin: "mac" };
-const SUPPORTED_ARCHES = new Set(["x64", "arm64"]);
+const RELEASES_API = "https://api.github.com/repos/can1357/oh-my-pi/releases/latest";
 
 function log(message) {
   console.log(`[bundle-runtime] ${message}`);
 }
 
-function nodeExe() {
-  return process.platform === "win32" ? "node.exe" : "node";
-}
-
-function tarBinary() {
-  if (process.platform === "win32") return join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
-  return "tar";
-}
-
-function npmBinary() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
-function directoryStats(root) {
-  let files = 0;
-  let bytes = 0;
-  const walk = (dir) => {
-    let entries = [];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const abs = join(dir, entry.name);
-      if (entry.isDirectory()) walk(abs);
-      else if (entry.isFile()) {
-        files++;
-        try {
-          bytes += statSync(abs).size;
-        } catch {
-          /* best effort stats only */
-        }
-      }
-    }
-  };
-  walk(root);
-  return { files, bytes };
+/** Release asset name for the current platform/arch (e.g. omp-darwin-arm64). */
+function ompBinaryFileName(platform = process.platform, arch = process.arch) {
+  const os = platform === "win32" ? "windows" : platform;
+  const name = `omp-${os}-${arch}`;
+  return platform === "win32" ? `${name}.exe` : name;
 }
 
 function formatSize(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-}
-
-function pruneTree(root) {
-  const removableDirs = new Set([
-    ".github",
-    "__mocks__",
-    "__tests__",
-    "benchmark",
-    "benchmarks",
-    "coverage",
-    "docs",
-    "example",
-    "examples",
-    "test",
-    "tests",
-  ]);
-
-  const shouldRemoveFile = (name) =>
-    /\.(?:map|d\.ts|d\.mts|d\.cts|ts|mts|cts)$/i.test(name) ||
-    /^(?:README|CHANGELOG|HISTORY|CONTRIBUTING)(?:\.(?:md|markdown|txt|rst)|$)/i.test(name);
-
-  const walk = (dir) => {
-    let entries = [];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const abs = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === "@types" || removableDirs.has(entry.name)) {
-          rmSync(abs, { recursive: true, force: true });
-          continue;
-        }
-        walk(abs);
-      } else if (entry.isFile() && shouldRemoveFile(entry.name)) {
-        rmSync(abs, { force: true });
-      }
-    }
-    try {
-      if (readdirSync(dir).length === 0) rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* a concurrent scanner may briefly hold the directory */
-    }
-  };
-
-  walk(root);
-}
-
-function readPiVersion(dir) {
-  try {
-    const packageJson = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    return typeof packageJson.version === "string" ? packageJson.version : null;
-  } catch {
-    return null;
-  }
-}
-
-function isExpectedPiPackage(dir) {
-  return existsSync(join(dir, "dist", "cli.js")) && readPiVersion(dir) === EXPECTED_PI_VERSION;
-}
-
-function locatePiPackage() {
-  const explicit = process.env.PI_PACKAGE_DIR?.trim();
-  if (explicit) {
-    if (isExpectedPiPackage(explicit)) return explicit;
-    const actualVersion = readPiVersion(explicit) || "unknown";
-    throw new Error(`PI_PACKAGE_DIR must contain Pi v${EXPECTED_PI_VERSION}; found v${actualVersion}: ${explicit}`);
-  }
-
-  try {
-    const globalRoot = execFileSync(npmBinary(), ["root", "-g"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-    const globalPackage = join(globalRoot, "@earendil-works", "pi-coding-agent");
-    if (isExpectedPiPackage(globalPackage)) return globalPackage;
-  } catch {
-    /* fall through to PATH scan */
-  }
-
-  const pathDirs = (process.env.PATH || "").split(process.platform === "win32" ? ";" : ":");
-  for (const dir of pathDirs) {
-    const shim = join(dir, process.platform === "win32" ? "pi.cmd" : "pi");
-    const candidate = join(dir, "node_modules", "@earendil-works", "pi-coding-agent");
-    if (existsSync(shim) && isExpectedPiPackage(candidate)) return candidate;
-  }
-  return null;
-}
-
-function bundleNode() {
-  const dest = join(STAGE, "node", nodeExe());
-  mkdirSync(dirname(dest), { recursive: true });
-  log(`copying Node.js: ${process.execPath} -> ${dest}`);
-  cpSync(process.execPath, dest);
-  if (process.platform !== "win32") {
-    chmodSync(dest, statSync(process.execPath).mode & 0o777);
-  }
-}
-
-function bundlePi(source) {
-  const destination = join(STAGE, "pi");
-  mkdirSync(destination, { recursive: true });
-  log(`copying pi dist and dependencies from ${source}`);
-  cpSync(join(source, "dist"), join(destination, "dist"), { recursive: true });
-  cpSync(join(source, "node_modules"), join(destination, "node_modules"), { recursive: true });
-  cpSync(join(source, "package.json"), join(destination, "package.json"));
-
-  const before = directoryStats(destination);
-  pruneTree(destination);
-  const after = directoryStats(destination);
-  log(`pruned pi runtime: ${before.files} files/${formatSize(before.bytes)} -> ${after.files} files/${formatSize(after.bytes)}`);
-
-  const packageJson = JSON.parse(readFileSync(join(source, "package.json"), "utf8"));
-  if (typeof packageJson.version !== "string" || !packageJson.version) throw new Error("pi package has no version");
-  return packageJson.version;
 }
 
 function sha512Base64(file) {
@@ -192,42 +42,73 @@ function sha512Base64(file) {
   return hash.digest("base64");
 }
 
-function main() {
-  const platformSlug = PLATFORM_SLUGS[process.platform];
-  if (!platformSlug || !SUPPORTED_ARCHES.has(process.arch)) {
-    throw new Error(`Unsupported standalone runtime target: ${process.platform}/${process.arch}. Use Windows or macOS on x64 or arm64.`);
+async function fetchJson(url, timeoutMs = 30_000) {
+  const res = await fetch(url, {
+    headers: { accept: "application/json", "user-agent": "omp-studio-bundler" },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return res.json();
+}
+
+async function downloadTo(url, dest, timeoutMs = 600_000) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${url}`);
+  const body = await res.arrayBuffer();
+  writeFileSync(dest, Buffer.from(body));
+}
+
+/** Verify a sha256 hex digest (`sha256:<hex>`) from the releases API. */
+function verifySha256(file, digest) {
+  const m = /^sha256:([0-9a-fA-F]{64})$/.exec(digest || "");
+  if (!m) return false;
+  const actual = createHash("sha256").update(readFileSync(file)).digest("hex");
+  return actual === m[1].toLowerCase();
+}
+
+async function main() {
+  const fileName = ompBinaryFileName();
+  if (!["win32", "darwin", "linux"].includes(process.platform) || !["x64", "arm64"].includes(process.arch)) {
+    throw new Error(`Unsupported runtime target: ${process.platform}/${process.arch}. Use Windows, macOS or Linux on x64 or arm64.`);
   }
 
-  const source = locatePiPackage();
-  if (!source) {
-    throw new Error(`Could not locate @earendil-works/pi-coding-agent v${EXPECTED_PI_VERSION}. Set PI_PACKAGE_DIR to a matching package or install that version globally.`);
+  log(`resolving latest release info (expecting v${EXPECTED_VERSION})`);
+  const release = await fetchJson(RELEASES_API);
+  const tag = typeof release.tag_name === "string" ? release.tag_name.replace(/^v/, "") : "";
+  if (tag !== EXPECTED_VERSION) {
+    throw new Error(`Latest omp release is v${tag}, but package.json pins v${EXPECTED_VERSION}. Bump ompRuntimeVersion to match.`);
   }
+  const asset = (release.assets || []).find((a) => a && a.name === fileName);
+  if (!asset?.browser_download_url) {
+    throw new Error(`Release v${EXPECTED_VERSION} has no ${fileName} asset.`);
+  }
+  const expectedSize = typeof asset.size === "number" ? asset.size : null;
+  const expectedSha256 = typeof asset.digest === "string" ? asset.digest : null;
 
-  rmSync(STAGE, { recursive: true, force: true });
-  mkdirSync(STAGE, { recursive: true });
   rmSync(RUNTIME_OUT, { recursive: true, force: true });
   mkdirSync(RUNTIME_OUT, { recursive: true });
-  bundleNode();
-  const runtimeVersion = bundlePi(source);
-  if (runtimeVersion !== EXPECTED_PI_VERSION) {
-    throw new Error(`Pi runtime version mismatch: expected v${EXPECTED_PI_VERSION}, found v${runtimeVersion}`);
+  const downloadPath = join(RUNTIME_OUT, fileName + ".download");
+  log(`downloading ${fileName} (${expectedSize ? formatSize(expectedSize) : "unknown size"})`);
+  await downloadTo(asset.browser_download_url, downloadPath);
+  const size = statSync(downloadPath).size;
+  if (expectedSize !== null && size !== expectedSize) {
+    throw new Error(`size mismatch: expected ${expectedSize}, got ${size}`);
   }
-  const fileName = `Pi-Studio-Runtime-${runtimeVersion}-${platformSlug}-${process.arch}.tar.gz`;
-  const archive = join(RUNTIME_OUT, fileName);
-  rmSync(archive, { force: true });
+  if (!verifySha256(downloadPath, expectedSha256)) {
+    throw new Error("sha256 verification failed against the release digest");
+  }
+  if (process.platform !== "win32") chmodSync(downloadPath, 0o755);
+  renameSync(downloadPath, join(RUNTIME_OUT, fileName));
 
-  log(`creating archive ${archive}`);
-  execFileSync(tarBinary(), ["-czf", archive, "-C", STAGE, "."], { stdio: "inherit" });
-  const size = statSync(archive).size;
   const manifest = {
     schema: 2,
     embedded: true,
-    runtimeVersion,
+    runtimeVersion: EXPECTED_VERSION,
     platform: process.platform,
     arch: process.arch,
     fileName,
     size,
-    sha512: sha512Base64(archive),
+    sha512: sha512Base64(join(RUNTIME_OUT, fileName)),
   };
   mkdirSync(dirname(MANIFEST_OUT), { recursive: true });
   writeFileSync(MANIFEST_OUT, JSON.stringify(manifest, null, 2) + "\n", "utf8");
@@ -237,7 +118,8 @@ function main() {
 }
 
 try {
-  main();
-} finally {
-  rmSync(STAGE, { recursive: true, force: true });
+  await main();
+} catch (error) {
+  console.error(`[bundle-runtime] ${error.message || error}`);
+  process.exitCode = 1;
 }
