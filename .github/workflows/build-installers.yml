@@ -202,5 +202,8 @@ jobs:
       - name: Update release body
         uses: softprops/action-gh-release@v2
         with:
-          update_release_body: true
+          # update_release_body is not a valid input for this action (it only
+          # supports body / append_body); append keeps electron-builder's own
+          # body intact and never wipes the release when the changelog is empty.
+          append_body: true
           body: ${{ steps.notes.outputs.body }}
