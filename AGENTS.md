@@ -4,7 +4,7 @@
 
 Omp Studio is a cross-platform Electron desktop client for the [oh-my-pi](https://github.com/can1357/oh-my-pi) (omp, a fork of the [Pi coding agent](https://github.com/earendil-works/pi)). It provides a desktop workspace for omp projects, threads, model configuration, extensions, permission controls, scheduled automations, and file previews. The Electron main process spawns the omp CLI in RPC mode and bridges it to a React UI; it also manages an embedded, versioned Node.js + omp runtime. This is an independent community project, not affiliated with the Pi or omp maintainers.
 
-- Current release: `0.5.0` (package.json `version`); pinned omp runtime `17.2.11` (`ompRuntimeVersion`).
+- Current release: `0.5.1` (package.json `version`); pinned omp runtime `17.2.11` (`ompRuntimeVersion`).
 - Packaging targets: Windows x64 (NSIS), macOS arm64 (DMG), plus Linux AppImage config.
 - Supported dev Node version: `>=24.14.0 <25` (package.json `engines`).
 
