@@ -193,7 +193,7 @@ jobs:
           PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
           RANGE="${PREV:+$PREV..}HEAD"
           {
-            echo "body<<'EOF'"
+            echo "body<<EOF"
             git log --pretty=format:"- %s" "$RANGE" --no-merges
             echo
             echo "EOF"
