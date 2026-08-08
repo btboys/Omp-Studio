@@ -2,6 +2,14 @@ name: Build Installers
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version to release, e.g. 0.3.2 (the v prefix is added automatically).
+          Leave empty to auto-bump the patch version of package.json.
+        required: false
+        type: string
+        default: ''
   push:
     branches:
       - main
@@ -9,11 +17,58 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  # Manual release cut: bump package.json, commit, and push a v<version> tag,
+  # then the `package` job in the SAME run checks out that tag and builds and
+  # publishes the release. The tag is pushed only so the release is associated
+  # with a real tag; pushing with the default GITHUB_TOKEN does NOT re-trigger
+  # this workflow (GitHub deliberately skips re-triggering on GITHUB_TOKEN pushes),
+  # which is why prepare-release and package must run in one run.
+  prepare-release:
+    name: Prepare release (version bump + tag)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Bump version in package.json
+        id: bump
+        run: |
+          VERSION="$(node -e "
+            const fs=require('fs');
+            const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+            const raw=(process.argv[1]||'').replace(/^v/,'');
+            const v=raw || (()=>{const [a,b,c]=p.version.split('.').map(Number);return a+'.'+b+'.'+(c+1)})();
+            p.version=v;
+            fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
+            console.log(v);
+          " "${{ github.event.inputs.version }}")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "release: v${{ steps.bump.outputs.version }}"
+          git push
+
+      - name: Create and push version tag
+        run: |
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin "v${{ steps.bump.outputs.version }}"
+
   package:
     name: ${{ matrix.name }}
+    needs: prepare-release
+    # Runs when prepare-release succeeded (dispatch release cut) or was skipped
+    # (tag push or plain main-branch push). A failed release cut aborts the build.
+    if: always() && !cancelled() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -35,16 +90,32 @@ jobs:
     env:
       OMP_RUNTIME_VERSION: 17.2.11
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # Used by electron-builder --publish always.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          # Dispatch run: build from the tag prepare-release just created so
+          # artifacts carry the bumped version. Tag/branch runs: the ref itself.
+          ref: ${{ needs.prepare-release.outputs.version != '' && format('v{0}', needs.prepare-release.outputs.version) || github.ref }}
 
       - name: Set up native Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24.14.0
           cache: npm
+
+      - name: Sync package.json version with release tag
+        if: github.ref_type == 'tag'
+        run: >-
+          node -e "const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+          p.version=process.env.TAG_VERSION.replace(/^v/,'');
+          fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
 
       - name: Verify runner architecture
         env:
@@ -87,7 +158,9 @@ jobs:
         run: npm run build
 
       - name: Build installer for the native runner
-        run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+        run: >-
+          npx electron-builder --${{ matrix.target }} --${{ matrix.arch }}
+          --publish ${{ (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') && 'always' || 'never' }}
 
       - name: Copy runtime assets next to installer
         run: npm run finalize-runtime
@@ -99,3 +172,34 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 14
+
+  # Release cuts and tag builds only: after both platform installers are
+  # published, attach a changelog body to the release electron-builder created.
+  release-notes:
+    name: Release notes
+    if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog since last release
+        id: notes
+        run: |
+          PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          RANGE="${PREV:+$PREV..}HEAD"
+          {
+            echo "body<<'EOF'"
+            git log --pretty=format:"- %s" "$RANGE" --no-merges
+            echo
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update release body
+        uses: softprops/action-gh-release@v2
+        with:
+          update_release_body: true
+          body: ${{ steps.notes.outputs.body }}
