@@ -55,6 +55,14 @@ const api = {
     deleteTask: (id: string) => ipcRenderer.invoke("automation:deleteTask", id),
     runNow: (id: string) => ipcRenderer.invoke("automation:runNow", id),
   },
+  mcp: {
+    getServers: () => ipcRenderer.invoke("mcp:getServers"),
+    probeServers: () => ipcRenderer.invoke("mcp:probeServers"),
+    saveServer: (name: string, config: Record<string, unknown>) => ipcRenderer.invoke("mcp:saveServer", { name, config }),
+    removeServer: (name: string) => ipcRenderer.invoke("mcp:removeServer", name),
+    setServerEnabled: (name: string, enabled: boolean) => ipcRenderer.invoke("mcp:setServerEnabled", { name, enabled }),
+    setLists: (disabledServers: string[], enabledServers: string[]) => ipcRenderer.invoke("mcp:setLists", { disabledServers, enabledServers }),
+  },
   thread: {
     open: (args: { cwd: string; sessionFile?: string; name?: string; permission?: "sandbox" | "full" }) => ipcRenderer.invoke("thread:open", args),
     loadHistory: (args: { cwd: string; sessionFile: string }) => ipcRenderer.invoke("thread:loadHistory", args),

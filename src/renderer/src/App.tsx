@@ -10,6 +10,7 @@ import { ExtUiModal } from "./components/ExtUiModal";
 import { Settings } from "./components/Settings";
 import { SearchModal } from "./components/SearchModal";
 import { PluginsPanel } from "./components/PluginsPanel";
+import { McpPanel } from "./components/McpPanel";
 import { AutomationPanel } from "./components/AutomationPanel";
 import { Folder, Plus } from "./components/icons";
 import { LanguageBridge } from "./components/LanguageBridge";
@@ -108,6 +109,7 @@ export default function App() {
       <ExtUiModal />
       <SearchModal />
       <PluginsPanel />
+      <McpPanel />
       <AutomationPanel />
       <Settings />
     </div>

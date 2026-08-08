@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon } from "./icons";
+import { Plus, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
 
 const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
 const SIDEBAR_WIDTH_KEY = "pi-studio.sidebar-width";
@@ -356,6 +356,12 @@ export function Sidebar() {
               <Clock size={15} />
             </span>
             自动化
+          </button>
+          <button className="sb-nav-item" onClick={() => useStore.getState().openMcp()}>
+            <span className="ico">
+              <Plug size={15} />
+            </span>
+            MCP
           </button>
           <button className="sb-nav-item" onClick={() => useStore.getState().openPlugins()}>
             <span className="ico">

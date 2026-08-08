@@ -26,6 +26,7 @@ import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePi
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { readPreview } from "./preview-service";
 import { deleteProjectSessions, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit } from "./session-store";
+import { listMcpServers, probeMcpServers, removeMcpServer, saveMcpServer, setMcpLists, setMcpServerEnabled, type McpServerConfig } from "./mcp";
 import {
   listPackages,
   listSkills,
@@ -856,6 +857,36 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       ensureWarmBridge();
     }
     return { ok: res.code === 0, code: res.code, output: (res.stdout + res.stderr).trim() };
+  });
+
+  // ---- mcp servers (mcp.json) --------------------------------------------
+  ipcMain.handle("mcp:getServers", () => listMcpServers());
+  ipcMain.handle("mcp:probeServers", () => probeMcpServers());
+  ipcMain.handle("mcp:saveServer", async (_e, args: { name: string; config: McpServerConfig }) => {
+    await saveMcpServer(args.name, args.config);
+    // MCP servers connect during omp startup; recreate the spare so newly
+    // opened tasks immediately observe config changes.
+    dropWarmBridge();
+    ensureWarmBridge();
+    return probeMcpServers();
+  });
+  ipcMain.handle("mcp:removeServer", async (_e, name: string) => {
+    await removeMcpServer(name);
+    dropWarmBridge();
+    ensureWarmBridge();
+    return probeMcpServers();
+  });
+  ipcMain.handle("mcp:setServerEnabled", async (_e, args: { name: string; enabled: boolean }) => {
+    await setMcpServerEnabled(args.name, args.enabled);
+    dropWarmBridge();
+    ensureWarmBridge();
+    return probeMcpServers();
+  });
+  ipcMain.handle("mcp:setLists", async (_e, args: { disabledServers: string[]; enabledServers: string[] }) => {
+    await setMcpLists(args.disabledServers, args.enabledServers);
+    dropWarmBridge();
+    ensureWarmBridge();
+    return probeMcpServers();
   });
 
   // ---- automation (scheduled tasks) --------------------------------------

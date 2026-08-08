@@ -308,3 +308,43 @@ export interface PendingFile {
   abs: string;
   name: string;
 }
+
+/** A single MCP server definition in mcp.json (stdio/http/sse). */
+export interface McpServerConfig {
+  type?: "stdio" | "http" | "sse";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+export type McpSource = "omp" | "claude" | "codex";
+
+export interface McpServerInfo {
+  name: string;
+  /** Where the server came from: OMP's own mcp.json or a discovered source. */
+  source: McpSource;
+  /** Effective state: enabled flag in config AND not denylisted. */
+  enabled: boolean;
+  type: "stdio" | "http" | "sse" | "other";
+  /** Command (stdio) or URL (http/sse) shown in the list. Empty for discovered servers. */
+  endpoint: string;
+  /** Live probe result: connected / not connected / disabled (denylisted or enabled:false). */
+  status: "connected" | "not-connected" | "disabled";
+  /** True when the name comes from disabledServers/enabledServers (discovered elsewhere) rather than a config source. */
+  discovered: boolean;
+  config: McpServerConfig;
+}
+
+export interface McpState {
+  path: string;
+  servers: McpServerInfo[];
+  disabledServers: string[];
+  enabledServers: string[];
+  /** The three config sources, in display order, with their paths. */
+  sources: { id: McpSource; path: string }[];
+}

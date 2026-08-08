@@ -4363,6 +4363,101 @@ mark.hl {
   flex: 0 0 auto;
 }
 
+/* ---- mcp specifics ---- */
+.mcp-open-path {
+  margin-left: 8px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+.mcp-open-path:hover {
+  opacity: 0.8;
+}
+.mcp-editor {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.mcp-editor-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.mcp-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+.mcp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.mcp-field > span {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.mcp-field-wide {
+  grid-column: 1 / -1;
+}
+.mcp-textarea {
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 56px;
+}
+.mcp-enable-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.mcp-enable-row > span {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.mcp-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.mcp-status-connected {
+  background: #2e9e5b;
+  box-shadow: 0 0 0 2px rgba(46, 158, 91, 0.18);
+}
+.mcp-status-not-connected {
+  background: #b0b0a4;
+}
+.mcp-status-disabled {
+  background: transparent;
+  border: 1.5px solid #b0b0a4;
+}
+.mcp-kind-source {
+  background: #eef1f6;
+  color: #5a6b87;
+}
+:root[data-theme="dark"] .mcp-kind-source {
+  background: var(--surface-muted);
+  color: var(--text-dim);
+}
+.mcp-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  justify-content: flex-end;
+}
+
 /* ---- automation specifics ---- */
 .auto-freq {
   font-size: 11px;
@@ -4590,6 +4685,7 @@ mark.hl {
 :root[data-theme="dark"] .set-card,
 :root[data-theme="dark"] .set-addprov-card,
 :root[data-theme="dark"] .plugins-row,
+:root[data-theme="dark"] .mcp-editor,
 :root[data-theme="dark"] .auto-editor,
 :root[data-theme="dark"] .auto-day,
 :root[data-theme="dark"] .set-btn:not(.primary),

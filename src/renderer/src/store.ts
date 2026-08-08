@@ -7,6 +7,8 @@ import type {
   ContentBlock,
   ExtUiRequest,
   FileNode,
+  McpServerConfig,
+  McpState,
   ModelInfo,
   PendingFollowUp,
   PermissionLevel,
@@ -601,6 +603,18 @@ interface PiStore {
   saveTask: (task: AutomationTask) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   runTaskNow: (id: string) => Promise<void>;
+
+  // mcp overlay
+  mcpOpen: boolean;
+  mcpState: McpState | null;
+  mcpLoading: boolean;
+  openMcp: () => void;
+  closeMcp: () => void;
+  loadMcp: () => Promise<void>;
+  saveMcpServer: (name: string, config: McpServerConfig) => Promise<void>;
+  removeMcpServer: (name: string) => Promise<void>;
+  setMcpServerEnabled: (name: string, enabled: boolean) => Promise<void>;
+  setMcpLists: (disabledServers: string[], enabledServers: string[]) => Promise<void>;
 
   // thread permission / folder
   setPermission: (threadId: string, level: PermissionLevel) => Promise<void>;
@@ -1650,6 +1664,71 @@ export const useStore = create<PiStore>()((set, get) => ({
       await get().refreshProjects();
     } catch (e: any) {
       get().pushToast("error", "执行失败：" + (e?.message || e));
+    }
+  },
+
+  // ---- mcp servers ----
+  mcpOpen: false,
+  mcpState: null,
+  mcpLoading: false,
+  openMcp: () => {
+    set({ mcpOpen: true });
+    get().loadMcp();
+  },
+  closeMcp: () => set({ mcpOpen: false }),
+  loadMcp: async () => {
+    set({ mcpLoading: true });
+    try {
+      // Fast path: aggregated list with cached statuses. Connection probing is
+      // async (spawns stdio servers) so render immediately, then refresh when
+      // the probe finishes.
+      const mcpState = await window.pi.mcp.getServers();
+      set({ mcpState, mcpLoading: false });
+      const probed = await window.pi.mcp.probeServers();
+      set({ mcpState: probed });
+    } catch (e: any) {
+      set({ mcpLoading: false });
+      get().pushToast("error", "加载 MCP 服务器失败：" + (e?.message || e));
+    }
+  },
+  saveMcpServer: async (name, config) => {
+    try {
+      const mcpState = await window.pi.mcp.saveServer(name, config);
+      set({ mcpState });
+    } catch (e: any) {
+      get().pushToast("error", "保存失败：" + (e?.message || e));
+      throw e; // let the panel keep the draft open instead of losing input
+    }
+  },
+  removeMcpServer: async (name) => {
+    try {
+      const mcpState = await window.pi.mcp.removeServer(name);
+      set({ mcpState });
+    } catch (e: any) {
+      get().pushToast("error", "移除失败：" + (e?.message || e));
+    }
+  },
+  setMcpServerEnabled: async (name, enabled) => {
+    // Optimistic flip; main reconciles the authoritative state.
+    set((s) =>
+      s.mcpState
+        ? { mcpState: { ...s.mcpState, servers: s.mcpState.servers.map((sv) => (sv.name === name ? { ...sv, enabled } : sv)) } }
+        : s,
+    );
+    try {
+      const mcpState = await window.pi.mcp.setServerEnabled(name, enabled);
+      set({ mcpState });
+    } catch (e: any) {
+      get().pushToast("error", "切换失败：" + (e?.message || e));
+      get().loadMcp();
+    }
+  },
+  setMcpLists: async (disabledServers, enabledServers) => {
+    try {
+      const mcpState = await window.pi.mcp.setLists(disabledServers, enabledServers);
+      set({ mcpState });
+    } catch (e: any) {
+      get().pushToast("error", "保存失败：" + (e?.message || e));
     }
   },
 
