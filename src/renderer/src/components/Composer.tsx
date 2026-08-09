@@ -343,6 +343,8 @@ export function Composer({ threadId }: { threadId: string }) {
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // Prompt enhancement is running; don't let Enter send or stage meanwhile.
+      if (enhanceBusy) return;
       if (isStreaming) {
         // Alt+Enter interrupts now (steering); Enter stages a pending follow-up.
         if (e.altKey) send("steer");
@@ -554,6 +556,52 @@ export function Composer({ threadId }: { threadId: string }) {
                 <span className="composer-branch-name">{gitBranch}</span>
               </span>
             )}
+            <div className="pill composer-enhance" ref={enhanceRef}>
+              <button
+                className="iconbtn"
+                title="优化提示词：结合项目上下文重写为结构化表达（可预览后再发送）"
+                onClick={() => {
+                  setProjectOpen(false);
+                  enhanceOpen ? setEnhanceOpen(false) : void runEnhance();
+                }}
+                disabled={enhanceBusy}
+              >
+                {enhanceBusy ? <span className="spinner" /> : <MagicWand size={16} />}
+              </button>
+              {enhanceOpen && enhanceResult && (
+                <div className="pill-pop enhance-pop">
+                  <div className="enhance-pop-head">
+                    <span>优化后的提示词</span>
+                    {enhanceResult.contextUsed && (
+                      <span className="enhance-pop-hint">基于：{enhanceResult.contextUsed}</span>
+                    )}
+                  </div>
+                  <textarea
+                    autoFocus
+                    value={enhanceResult.prompt}
+                    onChange={(e) => setEnhanceResult({ ...enhanceResult, prompt: e.target.value })}
+                    placeholder="优化后的提示词"
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setEnhanceOpen(false);
+                      } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        sendEnhanced();
+                      }
+                    }}
+                  />
+                  <div className="enhance-pop-actions">
+                    <button className="set-btn ghost" onClick={() => setEnhanceOpen(false)}>
+                      取消
+                    </button>
+                    <button className="set-btn" onClick={sendEnhanced} disabled={!enhanceResult.prompt.trim()}>
+                      发送优化版
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
         {slashMenuOpen && (
@@ -681,49 +729,6 @@ export function Composer({ threadId }: { threadId: string }) {
             <button className="iconbtn" title="Add files" onClick={addFiles}>
               <Plus size={17} />
             </button>
-            <div className="pill composer-enhance" ref={enhanceRef}>
-              <button
-                className="iconbtn"
-                title="优化提示词：结合项目上下文重写为结构化表达（可预览后再发送）"
-                onClick={() => (enhanceOpen ? setEnhanceOpen(false) : void runEnhance())}
-                disabled={enhanceBusy}
-              >
-                <MagicWand size={16} />
-              </button>
-              {enhanceOpen && enhanceResult && (
-                <div className="pill-pop enhance-pop">
-                  <div className="enhance-pop-head">
-                    <span>优化后的提示词</span>
-                    {enhanceResult.contextUsed && (
-                      <span className="enhance-pop-hint">基于：{enhanceResult.contextUsed}</span>
-                    )}
-                  </div>
-                  <textarea
-                    autoFocus
-                    value={enhanceResult.prompt}
-                    onChange={(e) => setEnhanceResult({ ...enhanceResult, prompt: e.target.value })}
-                    placeholder="优化后的提示词"
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setEnhanceOpen(false);
-                      } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        sendEnhanced();
-                      }
-                    }}
-                  />
-                  <div className="enhance-pop-actions">
-                    <button className="set-btn ghost" onClick={() => setEnhanceOpen(false)}>
-                      取消
-                    </button>
-                    <button className="set-btn" onClick={sendEnhanced} disabled={!enhanceResult.prompt.trim()}>
-                      发送优化版
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
             <div className="pill perm-pill composer-optional-action" ref={permRef}>
               <button
                 className={`pill-btn perm-btn ${permission === "full" ? "perm-full" : ""}`}
@@ -880,7 +885,7 @@ export function Composer({ threadId }: { threadId: string }) {
                   className="send-btn"
                   title="存为待处理 follow-up（Enter）；Alt+Enter 立即 steering"
                   onClick={() => queuePending()}
-                  disabled={!text.trim() && !images.length && !files.length}
+                  disabled={(enhanceBusy || (!text.trim() && !images.length && !files.length))}
                 >
                   <Send size={15} />
                 </button>
@@ -889,7 +894,7 @@ export function Composer({ threadId }: { threadId: string }) {
                 </button>
               </>
             ) : (
-              <button className="send-btn" title="Send" onClick={() => send()} disabled={!text.trim() && !images.length && !files.length}>
+              <button className="send-btn" title="Send" onClick={() => send()} disabled={enhanceBusy || (!text.trim() && !images.length && !files.length)}>
                 <Send size={15} />
               </button>
             )}

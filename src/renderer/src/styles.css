@@ -1725,14 +1725,26 @@ body.sidebar-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pill.composer-enhance {
+  position: static;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.composer-enhance .iconbtn {
+  background: #fafaf7;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+:root[data-theme="dark"] .composer-enhance .iconbtn {
+  background: var(--control);
+}
 .composer-project-row {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px 0;
-  width: fit-content;
-  max-width: calc(100% - 24px);
+  width: 100%;
   z-index: 8;
 }
 .composer-branch-pill {
@@ -2219,16 +2231,19 @@ body.sidebar-resizing * {
   overflow: hidden;
 }
 .enhance-pop {
-  width: 520px;
-  max-width: min(78vw, 520px);
+  width: 100%;
+  max-width: none;
+  min-width: 0;
   max-height: 480px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  right: auto;
+  top: auto;
+  bottom: calc(100% + 8px);
   left: 0;
+  right: 0;
   transform-origin: bottom left;
 }
 .enhance-pop-head {
