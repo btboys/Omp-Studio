@@ -5226,6 +5226,11 @@ mark.hl {
   background: rgba(214, 116, 16, 0.22);
   color: #f0a55e;
 }
+:root[data-theme="dark"] .iconbtn:disabled:hover,
+:root[data-theme="dark"] .chat-head .iconbtn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
+}
 :root[data-theme="dark"] .sb-nav-item:hover,
 :root[data-theme="dark"] .sb-section-head button:hover,
 :root[data-theme="dark"] .project-head:hover,
