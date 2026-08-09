@@ -3493,6 +3493,12 @@ textarea.modal-input {
 .set-control {
   min-width: 0;
 }
+.set-role-grid { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+.set-role-head, .set-role-row { display: grid; grid-template-columns: 96px 1fr 1.6fr 104px; gap: 8px; align-items: center; }
+.set-role-head { font-size: 12px; }
+.set-role-name { font-size: 13px; }
+.set-role-title { font-size: 12px; margin-top: 14px; }
+
 .set-hint {
   font-size: 11px;
   color: var(--text-faint);

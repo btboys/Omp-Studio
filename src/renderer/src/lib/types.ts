@@ -89,6 +89,8 @@ export interface ModelInfo {
   provider: string;
   id: string;
   name?: string;
+  baseUrl?: string;
+  api?: string;
   contextWindow?: number;
   reasoning?: boolean;
   input?: string[];

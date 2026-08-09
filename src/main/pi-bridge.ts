@@ -266,13 +266,15 @@ export function getOmpVersion(bin: string): Promise<string | null> {
 export const OMP_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"] as const;
 
 /** Map an omp Model object to the renderer's ModelInfo shape. */
-function toModelInfo(model: any): { provider: string; id: string; name?: string; contextWindow?: number; reasoning?: boolean; input?: string[] } | null {
+function toModelInfo(model: any): { provider: string; id: string; name?: string; baseUrl?: string; api?: string; contextWindow?: number; reasoning?: boolean; input?: string[] } | null {
   if (!model || typeof model !== "object") return null;
   const provider = model.provider && typeof model.provider === "object" ? model.provider.id : model.provider;
   const id = typeof model.id === "string" ? model.id : model.modelId;
   if (!provider || !id) return null;
   const out: any = { provider, id };
   if (typeof model.name === "string") out.name = model.name;
+  if (typeof model.baseUrl === "string") out.baseUrl = model.baseUrl;
+  if (typeof model.api === "string") out.api = model.api;
   if (typeof model.contextWindow === "number") out.contextWindow = model.contextWindow;
   if (typeof model.reasoning === "boolean") out.reasoning = model.reasoning;
   if (Array.isArray(model.input)) out.input = model.input;

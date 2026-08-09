@@ -111,13 +111,15 @@ const api = {
   },
   settings: {
     getModels: () => ipcRenderer.invoke("settings:getModels"),
+    getLiveProviders: () => ipcRenderer.invoke("settings:getLiveProviders"),
     testModel: (args: { providerId: string; provider: Record<string, unknown>; modelId: string }) =>
       ipcRenderer.invoke("settings:testModel", args),
     saveModels: (providers: Record<string, unknown>) => ipcRenderer.invoke("settings:saveModels", providers),
     getThinking: () => ipcRenderer.invoke("settings:getThinking"),
     saveThinking: (patch: Record<string, unknown>) => ipcRenderer.invoke("settings:saveThinking", patch),
-    getDefaultRole: () => ipcRenderer.invoke("settings:getDefaultRole"),
-    setDefaultRole: (provider: string, model: string | null) => ipcRenderer.invoke("settings:setDefaultRole", provider, model),
+    getModelRoles: () => ipcRenderer.invoke("settings:getModelRoles"),
+    setModelRole: (role: string, provider: string, model: string | null, level?: string | null) =>
+      ipcRenderer.invoke("settings:setModelRole", role, provider, model, level),
     getDiagnostics: () => ipcRenderer.invoke("settings:getDiagnostics"),
     getPaths: () => ipcRenderer.invoke("settings:getPaths"),
     openPath: (abs: string) => ipcRenderer.invoke("settings:openPath", abs),

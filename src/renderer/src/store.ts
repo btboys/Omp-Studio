@@ -1308,6 +1308,32 @@ export const useStore = create<PiStore>()((set, get) => ({
         // A brand-new session just appeared on disk (temp id remapped to the
         // real session file); refresh the sidebar so it shows under its project.
         if (id !== threadId) get().refreshProjects();
+        // Fresh thread: omp resolved the session model at process boot. If it
+        // differs from the configured modelRoles.default, the default was
+        // unusable (provider without credentials) and omp silently fell back.
+        if (!t.sessionFile && res.model) {
+          window.pi.settings
+            .getModelRoles()
+            .then((roles: Record<string, { provider: string; model: string }> | null) => {
+              const role = roles?.default;
+              if (!role?.provider || !role.model) return;
+              const actual = res.model;
+              if (actual.provider === role.provider && actual.id === role.model) return;
+              const zh = get().config?.language === "zh";
+              const usable = (res.models || []).some((m: any) => m.provider === role.provider && m.id === role.model);
+              get().pushToast(
+                "warning",
+                usable
+                  ? zh
+                    ? `默认模型 ${role.provider}/${role.model} 未生效，当前会话使用 ${actual.provider}/${actual.id}`
+                    : `Default model ${role.provider}/${role.model} was not applied; this session uses ${actual.provider}/${actual.id}`
+                  : zh
+                    ? `默认模型 ${role.provider}/${role.model} 不可用（供应商未配置凭证），已回退到 ${actual.provider}/${actual.id}`
+                    : `Default model ${role.provider}/${role.model} is unavailable (provider has no credentials); fell back to ${actual.provider}/${actual.id}`,
+              );
+            })
+            .catch(() => {});
+        }
         window.pi.thread
           .getThinkingLevels(id)
           .then((r: any) => set((s) => (s.threads[id] ? { threads: { ...s.threads, [id]: { ...s.threads[id], levels: r?.levels || ["off"] } } } : s)))

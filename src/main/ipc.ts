@@ -30,10 +30,10 @@ import {
   getModelsPath,
   getSettingsPath,
   readModelsFile,
-  readDefaultRoleModel,
+  readModelRoles,
   readThinking,
   testModelAvailability,
-  writeDefaultRoleModel,
+  writeModelRole,
   writeModelsProviders,
   writeThinking,
 } from "./models-service";
@@ -593,6 +593,23 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   // ---- settings: models.json / settings.json / diagnostics ----------------
   ipcMain.handle("settings:getModels", () => readModelsFile());
+  ipcMain.handle("settings:getLiveProviders", async () => {
+    // omp's live registry: the providers it can actually authenticate right
+    // now. The models tab shows these read-only so built-in providers no
+    // longer look like empty custom configs. Prefer an already-running
+    // process; probe with a throwaway one before any thread exists.
+    const running = [...bridges.values()].find((h) => h.bridge.running) || (warmHandle?.bridge.running ? warmHandle : null);
+    if (running) return running.bridge.getAvailableModels();
+    const probe = new PiBridge({ cwd: warmCwd(), onEvent: () => {}, onExtUi: () => {}, onExit: () => {} });
+    try {
+      await probe.start();
+      return await probe.getAvailableModels();
+    } catch {
+      return { models: [] };
+    } finally {
+      probe.stop();
+    }
+  });
   ipcMain.handle(
     "settings:testModel",
     (_e, args: { providerId: string; provider: Record<string, unknown>; modelId: string }) =>
@@ -607,9 +624,22 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return { ok: true };
   });
   ipcMain.handle("settings:getThinking", () => readThinking());
-  ipcMain.handle("settings:saveThinking", (_e, patch: Record<string, unknown>) => writeThinking(patch as any));
-  ipcMain.handle("settings:getDefaultRole", () => readDefaultRoleModel());
-  ipcMain.handle("settings:setDefaultRole", (_e, provider: string, model: string | null) => writeDefaultRoleModel(provider, model));
+  ipcMain.handle("settings:saveThinking", (_e, patch: Record<string, unknown>) => {
+    const next = writeThinking(patch as any);
+    // defaultThinkingLevel is read at process boot; the standby is stale now.
+    dropWarmBridge();
+    ensureWarmBridge();
+    return next;
+  });
+  ipcMain.handle("settings:getModelRoles", () => readModelRoles());
+  ipcMain.handle("settings:setModelRole", (_e, role: string, provider: string, model: string | null, level?: string | null) => {
+    const next = writeModelRole(role, provider, model, level);
+    // Role models resolve at process boot; the standby spare still carries
+    // the previous routing. Recreate it (same as settings:saveModels).
+    dropWarmBridge();
+    ensureWarmBridge();
+    return next;
+  });
   ipcMain.handle("settings:getDiagnostics", () => getDiagnostics());
   ipcMain.handle("settings:openPath", async (_e, abs: string) => {
     try {

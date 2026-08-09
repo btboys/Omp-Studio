@@ -126,17 +126,35 @@ export function readModelsFile(): ModelsFile {
   return { ...base, providers: merged };
 }
 
-/**
- * The default session model: `modelRoles.default` in config.yml ("provider/model").
- * This is what omp resolves for new sessions (settings.json `defaultProvider`/
- * `defaultModel` are the legacy pi keys omp no longer routes on).
- */
-export function readDefaultRoleModel(): { provider: string; model: string } | null {
-  const cfg = parseYamlFile<{ modelRoles?: Record<string, unknown> }>(getConfigYmlPath());
-  const value = cfg?.modelRoles?.default;
+/** One parsed `modelRoles.<role>` entry: "provider/model[:level]". */
+export interface RoleSelection {
+  provider: string;
+  model: string;
+  level?: string;
+}
+
+function parseRoleValue(value: unknown): RoleSelection | null {
   const [provider, rest] = String(value || "").split("/");
-  const model = rest?.split(":")[0];
-  return provider && model ? { provider, model } : null;
+  if (!provider || !rest) return null;
+  const [model, level] = rest.split(":");
+  if (!model) return null;
+  return level ? { provider, model, level } : { provider, model };
+}
+
+/**
+ * omp's scenario routing table: config.yml `modelRoles` (default/smol/slow/
+ * vision/plan/designer/commit/tiny/task/advisor). `modelRoles.default` is the
+ * new-session model; settings.json `defaultProvider`/`defaultModel` are the
+ * legacy pi keys omp no longer routes on.
+ */
+export function readModelRoles(): Record<string, RoleSelection> {
+  const cfg = parseYamlFile<{ modelRoles?: Record<string, unknown> }>(getConfigYmlPath());
+  const out: Record<string, RoleSelection> = {};
+  for (const [role, value] of Object.entries(cfg?.modelRoles || {})) {
+    const parsed = parseRoleValue(value);
+    if (parsed) out[role] = parsed;
+  }
+  return out;
 }
 
 /**
@@ -157,14 +175,19 @@ export function readLightweightRoleModel(): string | null {
   return null;
 }
 
-export function writeDefaultRoleModel(provider: string, model: string | null): { provider: string; model: string } | null {
+export function writeModelRole(
+  role: string,
+  provider: string,
+  model: string | null,
+  level?: string | null,
+): Record<string, RoleSelection> {
   const existing = parseYamlFile<Record<string, unknown>>(getConfigYmlPath()) || {};
   const roles: Record<string, unknown> =
-    existing.modelRoles && typeof existing.modelRoles === "object" ? (existing.modelRoles as Record<string, unknown>) : {};
-  if (!model) delete roles.default;
-  else roles.default = `${provider}/${model}`;
+    existing.modelRoles && typeof existing.modelRoles === "object" ? { ...(existing.modelRoles as Record<string, unknown>) } : {};
+  if (!model) delete roles[role];
+  else roles[role] = `${provider}/${model}${level ? `:${level}` : ""}`;
   writeYamlAtomic(getConfigYmlPath(), { ...existing, modelRoles: roles });
-  return readDefaultRoleModel();
+  return readModelRoles();
 }
 
 /**

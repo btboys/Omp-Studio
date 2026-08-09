@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { useStore } from "../store";
-import type { ApiType, Diagnostics, ModelDef, ModelsFile, ProviderDef, ThinkingDefaults } from "../lib/types";
+import type { ApiType, Diagnostics, ModelDef, ModelInfo, ModelsFile, ProviderDef, ThinkingDefaults } from "../lib/types";
 import { cleanOutput, hasLibuvAssertion, lastLine, stripAnsi } from "../lib/update";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { Archive, Check, Close, Edit, Plus, Refresh, Folder } from "./icons";
@@ -549,6 +549,23 @@ interface NewProviderDraft {
   modelId: string;
 }
 
+type RoleSel = { provider: string; model: string; level?: string };
+
+/** omp's scenario roles (the runtime's MODEL_ROLE_IDS). */
+const MODEL_ROLES: { id: string; zh: string; en: string; hintZh: string; hintEn: string }[] = [
+  { id: "default", zh: "默认", en: "Default", hintZh: "新会话使用的模型", hintEn: "Model for new sessions" },
+  { id: "smol", zh: "轻量", en: "Smol", hintZh: "一次性小任务（标题、摘要等）", hintEn: "Small one-shot tasks (titles, summaries)" },
+  { id: "slow", zh: "深度", en: "Slow", hintZh: "最强档位，用于深度推理场景", hintEn: "Most capable tier for deep reasoning" },
+  { id: "vision", zh: "视觉", en: "Vision", hintZh: "图片与视觉识别", hintEn: "Image / vision tasks" },
+  { id: "plan", zh: "规划", en: "Plan", hintZh: "规划模式", hintEn: "Plan mode" },
+  { id: "designer", zh: "设计", en: "Designer", hintZh: "设计类任务", hintEn: "Design tasks" },
+  { id: "commit", zh: "提交信息", en: "Commit", hintZh: "生成 git 提交信息", hintEn: "git commit messages" },
+  { id: "tiny", zh: "极小", en: "Tiny", hintZh: "开销最小的琐碎任务", hintEn: "Trivial low-cost tasks" },
+  { id: "task", zh: "子任务", en: "Task", hintZh: "子代理任务", hintEn: "Subagent tasks" },
+  { id: "advisor", zh: "顾问", en: "Advisor", hintZh: "后台顾问", hintEn: "Background advisor" },
+];
+const ROLE_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 const emptyNewProvider = (): NewProviderDraft => ({
   id: "",
   baseUrl: "",
@@ -592,10 +609,35 @@ export function Settings() {
   const [tab, setTab] = useState<Tab>("models");
   const [draft, setDraft] = useState<ModelsFile>({ providers: {} });
   const [initialProviders, setInitialProviders] = useState("{}");
+  /** omp's live registry (authenticated providers), shown read-only. */
+  const [liveProviders, setLiveProviders] = useState<Record<string, { baseUrl?: string; api?: string; models: ModelInfo[] }>>({});
+  const refreshLiveProviders = () =>
+    window.pi.settings
+      .getLiveProviders()
+      .then((r: any) => {
+        const out: Record<string, { baseUrl?: string; api?: string; models: ModelInfo[] }> = {};
+        for (const m of (r?.models || []) as ModelInfo[]) {
+          const p = (out[m.provider] ||= { models: [] });
+          if (!p.baseUrl && m.baseUrl) p.baseUrl = m.baseUrl;
+          if (!p.api && m.api) p.api = m.api;
+          if (!p.models.some((x) => x.id === m.id)) p.models.push(m);
+        }
+        setLiveProviders(out);
+      })
+      .catch(() => undefined);
   const [thinking, setThinking] = useState<ThinkingDefaults>({});
   const [initialThinking, setInitialThinking] = useState("{}");
-  /** omp's live default session model (config.yml modelRoles.default). */
-  const [defaultRole, setDefaultRole] = useState<{ provider: string; model: string } | null>(null);
+  /** omp's scenario model routing (config.yml modelRoles). */
+  const [roles, setRoles] = useState<Record<string, RoleSel>>({});
+  const stageRole = (id: string, sel: RoleSel) => setRoles((rs) => ({ ...rs, [id]: sel }));
+  const saveRole = async (id: string, provider: string, model: string | null, level?: string | null) => {
+    try {
+      const next = await window.pi.settings.setModelRole(id, provider, model, level ?? null);
+      setRoles(next || {});
+    } catch (err: unknown) {
+      pushToast("error", "保存失败：" + (err instanceof Error ? err.message : String(err)));
+    }
+  };
   const [invalidJson, setInvalidJson] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<null | "models" | "thinking">(null);
   const [flash, setFlash] = useState<null | "models" | "thinking">(null);
@@ -795,19 +837,21 @@ export function Settings() {
           window.pi.settings.getDiagnostics(),
           window.pi.settings.getPaths(),
           window.pi.app.getVersion(),
-          window.pi.settings.getDefaultRole(),
+          window.pi.settings.getModelRoles(),
         ]);
         setDraft(clone(models));
         setInitialProviders(JSON.stringify(models.providers || {}));
         setThinking(think || {});
         setInitialThinking(JSON.stringify(think || {}));
-        setDefaultRole(role);
+        setRoles(role || {});
         setDiag(d);
         setPaths(p);
         setAppVersion(typeof version === "string" ? version : null);
       } catch (e: any) {
         pushToast("error", "读取配置失败：" + (e?.message || e));
       }
+      // Live registry probe can cold-start an omp process; don't block the panel.
+      refreshLiveProviders();
       // Version check is network-bound; don't let it hold up the panel.
       window.pi.app
         .checkCoreUpdate()
@@ -930,6 +974,7 @@ export function Settings() {
     setDraft(clone(models));
     setInitialProviders(JSON.stringify(models.providers || {}));
     setInvalidJson({});
+    refreshLiveProviders();
   };
 
   /* ---- save ---- */
@@ -937,8 +982,15 @@ export function Settings() {
     if (Object.values(invalidJson).some((valid) => !valid)) return pushToast("error", "请先修正标红的高级 JSON 字段");
     setSaving("models");
     try {
-      await window.pi.settings.saveModels(draft.providers);
+      // Role-referenced models (config.yml modelRoles) surface as baseUrl-less
+      // shells via readModelsFile; persisting one that shadows a built-in
+      // provider would break it, so drop those from the write.
+      const providers = Object.fromEntries(
+        Object.entries(draft.providers).filter(([k, p]) => p?.baseUrl || !liveProviders[k]),
+      );
+      await window.pi.settings.saveModels(providers);
       await refreshOpenThreadModels();
+      refreshLiveProviders();
       setInitialProviders(JSON.stringify(draft.providers));
       setFlash("models");
       setTimeout(() => setFlash(null), 1500);
@@ -973,9 +1025,27 @@ export function Settings() {
   if (!open) return null;
 
   const providerKeys = Object.keys(draft.providers);
-  const defaultModelDefs = defaultRole?.provider ? draft.providers[defaultRole.provider]?.models || [] : [];
-  const defaultModels = defaultModelDefs.map((m) => m.id);
-  const selectedDefaultModel = defaultModelDefs.find((m) => m.id === defaultRole?.model);
+  const liveProviderKeys = Object.keys(liveProviders);
+  // Hide baseUrl-less shells of providers the live registry confirms as
+  // built-in — they are shown read-only above, not as empty custom configs.
+  const customProviderKeys = providerKeys.filter((k) => draft.providers[k]?.baseUrl || !liveProviders[k]);
+  // omp's live registry (providers with credentials) is larger than
+  // models.yml; merge it so any model omp can actually run is selectable.
+  const registryProviders: Record<string, { id: string; name?: string }[]> = {};
+  for (const thread of Object.values(useStore.getState().threads)) {
+    for (const m of thread.models || []) {
+      const list = (registryProviders[m.provider] ||= []);
+      if (!list.some((x) => x.id === m.id)) list.push({ id: m.id, name: m.name });
+    }
+  }
+  const providerOptions = [...new Set([...providerKeys, ...Object.keys(registryProviders)])];
+  const modelOptionsFor = (provider?: string): { id: string; name?: string }[] => {
+    if (!provider) return [];
+    const base = draft.providers[provider]?.models || [];
+    return [...base, ...(registryProviders[provider] || []).filter((m) => !base.some((b) => b.id === m.id))];
+  };
+  const defaultSel = roles.default || null;
+  const selectedDefaultModel = modelOptionsFor(defaultSel?.provider).find((m) => m.id === defaultSel?.model);
   const availableThinkingLevels = supportedThinkingLevels(selectedDefaultModel);
 
   const changeLanguage = async (language: "en" | "zh") => {
@@ -1219,9 +1289,35 @@ export function Settings() {
                   </form>
                 )}
 
-                {providerKeys.length === 0 && !adding && <div className="set-empty">尚无提供商。点“添加提供商”接入自定义 API（OpenAI / Anthropic / Gemini 兼容端点、Ollama、代理等）。</div>}
+                {liveProviderKeys.length > 0 && (
+                  <div className="set-card">
+                    <div className="set-card-title">{language === "zh" ? "已启用的提供商" : "Active providers"}</div>
+                    <div className="set-hint">
+                      {language === "zh"
+                        ? "omp 实时注册表（凭证可用的内置/自定义提供商），只读；自定义覆盖请在下方 models.yml 中配置。"
+                        : "omp's live registry (providers with working credentials), read-only. Add custom overrides via models.yml below."}
+                    </div>
+                    <div className="archived-project-list">
+                      {liveProviderKeys.map((k) => (
+                        <div className="archived-project-row" key={k}>
+                          <div className="archived-project-main">
+                            <div className="archived-project-name">
+                              {k}
+                              <span className="muted"> · {liveProviders[k].models.length} {language === "zh" ? "个模型" : "models"}</span>
+                            </div>
+                            <div className="archived-project-path">
+                              {[liveProviders[k].baseUrl, liveProviders[k].api].filter(Boolean).join(" · ")}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                {providerKeys.map((k) => (
+                {customProviderKeys.length === 0 && !adding && <div className="set-empty">尚无自定义提供商。点“添加提供商”接入自定义 API（OpenAI / Anthropic / Gemini 兼容端点、Ollama、代理等）。</div>}
+
+                {customProviderKeys.map((k) => (
                   <ProviderCard
                     key={k}
                     k={k}
@@ -1250,57 +1346,73 @@ export function Settings() {
                     ))}
                   </select>
                 </Field>
-                <Field label="默认提供商" hint="写入 config.yml 的 modelRoles.default，新会话默认使用该提供商">
-                  <select
-                    className="set-select"
-                    value={defaultRole?.provider || ""}
-                    onChange={async (e) => {
-                      const provider = e.target.value || null;
-                      if (!provider) {
-                        // Cleared: delete the default role entirely.
-                        try {
-                          const next = await window.pi.settings.setDefaultRole("", null);
-                          setDefaultRole(next);
-                        } catch (err: unknown) {
-                          pushToast("error", "保存失败：" + (err instanceof Error ? err.message : String(err)));
-                        }
-                        return;
-                      }
-                      // Provider chosen; the model select now drives the write.
-                      setDefaultRole({ provider, model: "" });
-                    }}
-                  >
-                    <option value="">（未设）</option>
-                    {providerKeys.map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="默认模型">
-                  <select
-                    className="set-select"
-                    value={defaultRole?.model || ""}
-                    disabled={!defaultRole?.provider}
-                    onChange={async (e) => {
-                      const model = e.target.value || null;
-                      try {
-                        const next = await window.pi.settings.setDefaultRole(defaultRole?.provider || "", model);
-                        setDefaultRole(next);
-                      } catch (err: unknown) {
-                        pushToast("error", "保存失败：" + (err instanceof Error ? err.message : String(err)));
-                      }
-                    }}
-                  >
-                    <option value="">（未设）</option>
-                    {defaultModels.map((id) => (
-                      <option key={id} value={id}>
-                        {id}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+                <div className="set-role-title muted">
+                  {language === "zh"
+                    ? "场景模型（写入 config.yml 的 modelRoles，provider/model[:思考档位]）"
+                    : "Scenario models (written to config.yml modelRoles as provider/model[:level])"}
+                </div>
+                <div className="set-role-grid">
+                  <div className="set-role-head muted">
+                    <span>{language === "zh" ? "场景" : "Role"}</span>
+                    <span>{language === "zh" ? "提供商" : "Provider"}</span>
+                    <span>{language === "zh" ? "模型" : "Model"}</span>
+                    <span>{language === "zh" ? "思考" : "Thinking"}</span>
+                  </div>
+                  {MODEL_ROLES.map((r) => {
+                    const sel = roles[r.id] || null;
+                    const modelOpts = modelOptionsFor(sel?.provider);
+                    return (
+                      <div className="set-role-row" key={r.id}>
+                        <span className="set-role-name" title={language === "zh" ? r.hintZh : r.hintEn}>
+                          {language === "zh" ? r.zh : r.en}
+                        </span>
+                        <select
+                          className="set-select"
+                          value={sel?.provider || ""}
+                          onChange={async (e) => {
+                            const provider = e.target.value;
+                            if (!provider) return saveRole(r.id, "", null);
+                            // Provider chosen; the model select now drives the write.
+                            stageRole(r.id, { provider, model: "" });
+                          }}
+                        >
+                          <option value="">（未设）</option>
+                          {providerOptions.map((k) => (
+                            <option key={k} value={k}>
+                              {k}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="set-select"
+                          value={sel?.model || ""}
+                          disabled={!sel?.provider}
+                          onChange={(e) => saveRole(r.id, sel?.provider || "", e.target.value || null, sel?.level || null)}
+                        >
+                          <option value="">（未设）</option>
+                          {modelOpts.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name || m.id}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="set-select"
+                          value={sel?.level || ""}
+                          disabled={!sel?.model}
+                          onChange={(e) => saveRole(r.id, sel?.provider || "", sel?.model || null, e.target.value || null)}
+                        >
+                          <option value="">（默认）</option>
+                          {ROLE_LEVELS.map((l) => (
+                            <option key={l} value={l}>
+                              {reasoningLevelLabel(l, language)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
                 <Field label="隐藏思考块">
                   <Toggle checked={!!thinking.hideThinkingBlock} onChange={(v) => setThinking((t) => ({ ...t, hideThinkingBlock: v }))} />
                 </Field>
