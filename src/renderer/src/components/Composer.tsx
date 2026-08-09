@@ -85,7 +85,12 @@ export function Composer({ threadId }: { threadId: string }) {
     };
   }, [cwd, isStreaming]);
 
-  const [text, setText] = useState("");
+  // Per-tab draft lives in the store: switching tabs no longer shares one
+  // composer instance's local state (which made the text effectively global).
+  const text = useStore((s) => s.drafts[threadId] ?? "");
+  const setComposerDraft = useStore((s) => s.setComposerDraft);
+  const setText = (v: string | ((prev: string) => string)) =>
+    setComposerDraft(threadId, typeof v === "function" ? v(useStore.getState().drafts[threadId] ?? "") : v);
   const [images, setImages] = useState<PendingImage[]>([]);
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [modelOpen, setModelOpen] = useState(false);

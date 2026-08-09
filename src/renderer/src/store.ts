@@ -587,6 +587,8 @@ interface PiStore {
   /** Sidebar flash target after "reveal in sidebar". */
   sidebarFlashThreadId: string | null;
   threads: Record<string, ThreadState>;
+  /** Unsent composer text, keyed by thread id so each tab keeps its own draft. */
+  drafts: Record<string, string>;
 
   // files / preview
   fileTree: Record<string, FileTreeEntry>;
@@ -644,6 +646,7 @@ interface PiStore {
   sendPendingSteering: (threadId: string) => Promise<void>;
   abortThread: (id: string) => Promise<void>;
   refreshOpenThreadModels: () => Promise<void>;
+  setComposerDraft: (id: string, text: string) => void;
   setModel: (id: string, provider: string, modelId: string) => Promise<void>;
   setThinking: (id: string, level: string) => Promise<void>;
   newSessionInThread: (id: string) => Promise<void>;
@@ -852,6 +855,7 @@ export const useStore = create<PiStore>()((set, get) => ({
   chatScrollSeq: 0,
   sidebarFlashThreadId: null,
   threads: {},
+  drafts: {},
   fileTree: {},
   previewPath: null,
   previewRoot: null,
@@ -1297,13 +1301,18 @@ export const useStore = create<PiStore>()((set, get) => ({
           let openThreadIds = s.openThreadIds;
           let pinnedThreadIds = s.pinnedThreadIds;
           let activeThreadId = s.activeThreadId;
+          let drafts = s.drafts;
           if (id !== threadId) {
             delete threads[threadId];
             openThreadIds = openThreadIds.map((x) => (x === threadId ? id : x));
             pinnedThreadIds = pinnedThreadIds.map((x) => (x === threadId ? id : x));
             if (activeThreadId === threadId) activeThreadId = id;
+            if (threadId in drafts) {
+              drafts = { ...drafts, [id]: drafts[threadId] };
+              delete drafts[threadId];
+            }
           }
-          return { threads, openThreadIds, pinnedThreadIds, activeThreadId };
+          return { threads, openThreadIds, pinnedThreadIds, activeThreadId, drafts };
         });
         // A brand-new session just appeared on disk (temp id remapped to the
         // real session file); refresh the sidebar so it shows under its project.
@@ -1363,12 +1372,17 @@ export const useStore = create<PiStore>()((set, get) => ({
       const pinnedThreadIds = s.pinnedThreadIds.filter((x) => x !== id);
       const threads = { ...s.threads };
       delete threads[id];
+      let drafts = s.drafts;
+      if (id in drafts) {
+        drafts = { ...drafts };
+        delete drafts[id];
+      }
       let activeThreadId = s.activeThreadId;
       if (activeThreadId === id) activeThreadId = openThreadIds[openThreadIds.length - 1] || null;
       const activeProjectCwd = activeThreadId ? threads[activeThreadId]?.cwd || null : null;
       const sidebarFlashThreadId = s.sidebarFlashThreadId === id ? null : s.sidebarFlashThreadId;
       persistOpenTabs(openThreadIds, activeThreadId, pinnedThreadIds);
-      return { openThreadIds, pinnedThreadIds, threads, activeThreadId, activeProjectCwd, sidebarFlashThreadId };
+      return { openThreadIds, pinnedThreadIds, threads, drafts, activeThreadId, activeProjectCwd, sidebarFlashThreadId };
     });
   },
 
@@ -1616,6 +1630,17 @@ export const useStore = create<PiStore>()((set, get) => ({
       return { threads };
     });
   },
+
+  setComposerDraft: (id, text) =>
+    set((s) => {
+      if (!text) {
+        if (!(id in s.drafts)) return s;
+        const drafts = { ...s.drafts };
+        delete drafts[id];
+        return { drafts };
+      }
+      return { drafts: { ...s.drafts, [id]: text } };
+    }),
 
   setModel: async (id, provider, modelId) => {
     if (!(await get().ensureConnected(id))) return;
@@ -2239,13 +2264,14 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
     try {
       // Resolve the old optimistic id first so its process can be closed
-      // reliably. Open the replacement before closing it: activeThreadId never
-      // becomes null, so React preserves the Composer's unsent local draft.
+      // reliably. The composer draft moves to the replacement thread below.
       const oldId = (await get().ensureConnected(threadId)) || threadId;
       await window.pi.app.openProject(cwd);
       await get().refreshProjects();
       const newId = await get().openThread(cwd, undefined, original.permission);
       if (!newId) return;
+      const draft = get().drafts[oldId];
+      if (draft) get().setComposerDraft(newId, draft);
       await get().closeThread(oldId);
     } catch (e: any) {
       get().pushToast("error", "切换文件夹失败：" + (e?.message || e));
