@@ -3127,6 +3127,11 @@ textarea.modal-input {
   display: grid;
   gap: 8px;
 }
+/* Live provider registry rows render only the main column (no icon/actions),
+   so collapse the archive row's 3-column grid to a single column. */
+.archived-project-row.live-provider-row {
+  grid-template-columns: minmax(0, 1fr);
+}
 .archived-thread-section {
   margin-top: 22px;
   padding-top: 18px;

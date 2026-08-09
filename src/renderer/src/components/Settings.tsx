@@ -13,7 +13,7 @@ import appIconUrl from "../../../../resources/icon.png";
 
 const API_TYPES: ApiType[] = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
 const THINK_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"] as const;
-function supportedThinkingLevels(model?: ModelDef): readonly string[] {
+function supportedThinkingLevels(model?: { reasoning?: boolean; thinkingLevelMap?: Record<string, string | null> }): readonly string[] {
   // This is a desired global default, not the live model capability list.
   // Keep unmapped levels visible so models without an explicit map can still
   // choose max here; the live composer still narrows levels using Pi's
@@ -1032,18 +1032,30 @@ export function Settings() {
   const customProviderKeys = providerKeys.filter((k) => draft.providers[k]?.baseUrl || !liveProviders[k]);
   // omp's live registry (providers with credentials) is larger than
   // models.yml; merge it so any model omp can actually run is selectable.
-  const registryProviders: Record<string, { id: string; name?: string }[]> = {};
+  // Keep the full ModelInfo (reasoning/thinkingLevelMap) — the thinking-level
+  // dropdown gates options on the default model's capabilities, and models.yml
+  // shells (the synthetic modelRoles entries) carry no capability flags.
+  const registryProviders: Record<string, ModelInfo[]> = {};
+  const addRegistryModel = (m: ModelInfo) => {
+    const list = (registryProviders[m.provider] ||= []);
+    if (!list.some((x) => x.id === m.id)) list.push(m);
+  };
   for (const thread of Object.values(useStore.getState().threads)) {
-    for (const m of thread.models || []) {
-      const list = (registryProviders[m.provider] ||= []);
-      if (!list.some((x) => x.id === m.id)) list.push({ id: m.id, name: m.name });
-    }
+    for (const m of thread.models || []) addRegistryModel(m);
+  }
+  for (const p of Object.values(liveProviders)) {
+    for (const m of p.models || []) addRegistryModel(m);
   }
   const providerOptions = [...new Set([...providerKeys, ...Object.keys(registryProviders)])];
-  const modelOptionsFor = (provider?: string): { id: string; name?: string }[] => {
+  const modelOptionsFor = (provider?: string): (ModelDef | ModelInfo)[] => {
     if (!provider) return [];
+    const reg = registryProviders[provider] || [];
     const base = draft.providers[provider]?.models || [];
-    return [...base, ...(registryProviders[provider] || []).filter((m) => !base.some((b) => b.id === m.id))];
+    // Live registry models carry real capabilities (reasoning/thinkingLevelMap)
+    // and win over models.yml shells — e.g. the synthetic modelRoles entries
+    // from readModelsFile() have no capability flags. Models known only to
+    // models.yml still come through after them.
+    return [...reg, ...base.filter((m) => !reg.some((r) => r.id === m.id))];
   };
   const defaultSel = roles.default || null;
   const selectedDefaultModel = modelOptionsFor(defaultSel?.provider).find((m) => m.id === defaultSel?.model);
@@ -1305,7 +1317,7 @@ export function Settings() {
                     </div>
                     <div className="archived-project-list">
                       {liveProviderKeys.map((k) => (
-                        <div className="archived-project-row" key={k}>
+                        <div className="archived-project-row live-provider-row" key={k}>
                           <div className="archived-project-main">
                             <div className="archived-project-name">
                               {k}
