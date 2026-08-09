@@ -167,7 +167,16 @@ export function Chat() {
           ) : (
             <>
               <div key={activeThreadId} className="chat-head-title" title={title} onDoubleClick={startRename}>
-                {title}
+                <span className="chat-head-title-text">{title}</span>
+                <button
+                  type="button"
+                  className="chat-head-rename"
+                  title="重命名"
+                  aria-label={`重命名：${title}`}
+                  onClick={startRename}
+                >
+                  <Edit size={13} />
+                </button>
               </div>
               {thread.cwd && (
                 <div className="chat-head-subrow">
@@ -191,9 +200,6 @@ export function Chat() {
             <span className="spinner" /> 连接中
           </span>
         )}
-        <button className="iconbtn" title="重命名" onClick={startRename}>
-          <Edit size={14} />
-        </button>
         <div className="spacer" />
         <div className="ctx-wrap" ref={ctxRef}>
           <button className={`iconbtn ${ctxOpen ? "on" : ""}`} title="当前会话上下文用量" onClick={toggleCtx}>
