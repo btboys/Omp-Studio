@@ -1,7 +1,7 @@
 {
   "name": "omp-studio",
   "version": "0.5.3",
-  "ompRuntimeVersion": "17.2.11",
+  "ompRuntimeVersion": "17.2.12",
   "private": true,
   "license": "MIT",
   "author": {
