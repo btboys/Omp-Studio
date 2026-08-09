@@ -3954,6 +3954,14 @@ textarea.modal-input {
   color: var(--text);
   font-family: var(--mono);
 }
+.set-about-row a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 12px;
+}
+.set-about-row a:hover {
+  text-decoration: underline;
+}
 .set-diag-err {
   background: #fdf3f1;
   border: 1px solid #ecc;

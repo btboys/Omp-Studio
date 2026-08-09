@@ -1752,6 +1752,18 @@ export function Settings() {
                     <span>{language === "zh" ? "软件版本" : "Software version"}</span>
                     <code>{appVersion ? `v${appVersion}` : "—"}</code>
                   </div>
+                  <div className="set-about-row">
+                    <span>{language === "zh" ? "项目主页" : "Project"}</span>
+                    <a href="https://github.com/btboys/Omp-Studio" target="_blank" rel="noreferrer">
+                      github.com/btboys/Omp-Studio
+                    </a>
+                  </div>
+                  <div className="set-about-row">
+                    <span>{language === "zh" ? "作者" : "Author"}</span>
+                    <a href="https://github.com/btboys" target="_blank" rel="noreferrer">
+                      夏悸 · btboys
+                    </a>
+                  </div>
                 </div>
               </div>
             )}
