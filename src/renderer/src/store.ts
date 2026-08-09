@@ -660,6 +660,8 @@ interface PiStore {
   toggleSidebar: () => void;
   /** Collapse/expand the todo panel above the composer for a thread. */
   setTodoCollapsed: (id: string, collapsed: boolean) => void;
+  /** Collapse/expand the subagent panel above the composer for a thread. */
+  setSubagentCollapsed: (id: string, collapsed: boolean) => void;
   togglePreview: () => void;
   togglePreviewExpanded: () => void;
   loadFileTree: (cwd: string, rel?: string) => Promise<void>;
@@ -1803,6 +1805,12 @@ export const useStore = create<PiStore>()((set, get) => ({
       const t = s.threads[id];
       if (!t || (t.todoCollapsed ?? false) === collapsed) return s;
       return { threads: { ...s.threads, [id]: { ...t, todoCollapsed: collapsed } } };
+    }),
+  setSubagentCollapsed: (id, collapsed) =>
+    set((s) => {
+      const t = s.threads[id];
+      if (!t || (t.subagentCollapsed ?? false) === collapsed) return s;
+      return { threads: { ...s.threads, [id]: { ...t, subagentCollapsed: collapsed } } };
     }),
   togglePreview: () =>
     set((s) => ({

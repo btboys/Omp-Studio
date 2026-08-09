@@ -1600,12 +1600,12 @@ body.sidebar-resizing * {
 .composer-confirmation-region:empty {
   display: none;
 }
-/* ---------- todo panel ---------- */
-.todo-panel-wrap {
+/* ---------- stack panels (todo / subagents) ---------- */
+.stack-panel-wrap {
   flex: 0 0 auto;
   padding: 0 28px 10px;
 }
-.todo-panel {
+.stack-panel {
   max-width: 860px;
   margin: 0 auto;
   border: 1px solid var(--border-strong);
@@ -1613,7 +1613,7 @@ body.sidebar-resizing * {
   background: var(--bg);
   overflow: hidden;
 }
-.todo-panel-head {
+.stack-panel-head {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1628,29 +1628,29 @@ body.sidebar-resizing * {
   font-weight: 600;
   text-align: left;
 }
-.todo-panel-head:hover {
+.stack-panel-head:hover {
   background: rgba(0, 0, 0, 0.04);
 }
-.todo-panel-title {
+.stack-panel-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--text);
 }
-.todo-panel-title svg {
+.stack-panel-title svg {
   color: var(--accent);
 }
-.todo-panel-count {
+.stack-panel-count {
   margin-left: auto;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
-.todo-panel-chevron {
+.stack-panel-chevron {
   color: var(--text-faint);
   transform: rotate(90deg);
   transition: transform 0.12s ease;
 }
-.todo-panel-wrap.collapsed .todo-panel-chevron {
+.stack-panel-wrap.collapsed .stack-panel-chevron {
   transform: none;
 }
 .todo-panel-list {
@@ -1688,6 +1688,64 @@ body.sidebar-resizing * {
 .todo-item.done .todo-text {
   color: var(--text-dim);
   text-decoration: line-through;
+}
+.subagent-list {
+  margin: 0;
+  padding: 0 12px 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.subagent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.subagent-status {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+}
+.subagent-status.running {
+  color: var(--accent);
+}
+.subagent-status.done {
+  color: var(--accent);
+}
+.subagent-status.error {
+  color: #c0392b;
+}
+.subagent-status .spinner {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+.subagent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-item.done .subagent-name {
+  color: var(--text-dim);
+}
+.subagent-agent {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
 }
 .extui-card {
   width: 100%;
@@ -2297,7 +2355,7 @@ body.sidebar-resizing * {
  */
 @container thread-panel (max-width: 680px) {
   .composer-wrap,
-  .todo-panel-wrap {
+  .stack-panel-wrap {
     padding-inline: 14px;
   }
 
@@ -2318,7 +2376,7 @@ body.sidebar-resizing * {
 
 @container thread-panel (max-width: 500px) {
   .composer-wrap,
-  .todo-panel-wrap {
+  .stack-panel-wrap {
     padding-inline: 8px;
   }
 
@@ -5225,7 +5283,7 @@ mark.hl {
 :root[data-theme="dark"] .search-clear:hover,
 :root[data-theme="dark"] .code-copy:hover,
 :root[data-theme="dark"] .thinking-toggle:hover,
-:root[data-theme="dark"] .todo-panel-head:hover,
+:root[data-theme="dark"] .stack-panel-head:hover,
 :root[data-theme="dark"] .tool-head:hover,
 :root[data-theme="dark"] .msg-actions button:hover,
 :root[data-theme="dark"] .pf-btn:hover,

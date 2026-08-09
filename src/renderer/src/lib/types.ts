@@ -176,6 +176,8 @@ export interface ThreadState {
   extWidgets?: Record<string, string>;
   /** Whether the todo panel above the composer is collapsed for this thread. */
   todoCollapsed?: boolean;
+  /** Whether the subagent panel above the composer is collapsed for this thread. */
+  subagentCollapsed?: boolean;
 }
 
 export interface PreviewPayload {

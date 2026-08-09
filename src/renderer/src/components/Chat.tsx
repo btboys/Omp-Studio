@@ -7,7 +7,7 @@ import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
-import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight } from "./icons";
+import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, Close } from "./icons";
 import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
@@ -42,6 +42,35 @@ function stripTodoLines(text: string): string {
     .split(/\r?\n/)
     .filter((line) => !TODO_LINE.test(line))
     .join("\n");
+}
+
+/** One subagent row in the panel: a task in a `task` tool call's batch. */
+interface SubagentRow {
+  name: string;
+  agent?: string;
+  run: ToolRun;
+}
+
+/** The current subagent batch: its rows plus the key of the message that owns it. */
+interface SubagentInfo {
+  sourceKey: string;
+  rows: SubagentRow[];
+}
+
+/** Tool names that spawn subagents (omp gates them separately in sandbox mode). */
+const SUBAGENT_TOOL = "task";
+
+/** Parse the subagent rows of a `task` tool call, falling back to the batch intent. */
+function subagentRowsOf(block: ContentBlock, run: ToolRun): SubagentRow[] {
+  const args = ((block as { type: "toolCall"; arguments: any }).arguments || {}) as {
+    tasks?: { name?: string; agent?: string }[];
+    i?: string;
+  };
+  const tasks = Array.isArray(args.tasks) && args.tasks.length ? args.tasks : null;
+  if (tasks) {
+    return tasks.map((t) => ({ name: String(t?.name || ""), agent: t?.agent ? String(t.agent) : undefined, run }));
+  }
+  return [{ name: String(args.i || ""), run }];
 }
 
 export function Chat() {
@@ -119,6 +148,27 @@ export function Chat() {
     }
     return null;
   }, [thread?.messages, streaming]);
+
+  // Current subagent batch = the newest assistant message (committed or
+  // streaming) whose `task` tool calls have live runs. Shown in a collapsible
+  // panel above the composer, mirroring the todo panel.
+  const subagentInfo = useMemo<SubagentInfo | null>(() => {
+    const msgs = thread ? [...thread.messages, ...(streaming ? [streaming] : [])] : [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== "assistant") continue;
+      const rows: SubagentRow[] = [];
+      for (const b of m.blocks || []) {
+        if (b.type !== "toolCall") continue;
+        if (b.name !== SUBAGENT_TOOL) continue;
+        const run = thread?.toolRuns[b.id];
+        if (!run) continue;
+        rows.push(...subagentRowsOf(b, run));
+      }
+      if (rows.length) return { sourceKey: m.key, rows };
+    }
+    return null;
+  }, [thread?.messages, streaming, thread?.toolRuns]);
 
   if (!thread || !activeThreadId) return null;
 
@@ -356,6 +406,7 @@ export function Chat() {
       </div>
 
       {todoInfo && <TodoPanel threadId={activeThreadId} items={todoInfo.items} />}
+      {subagentInfo && <SubagentPanel threadId={activeThreadId} rows={subagentInfo.rows} />}
 
       <div className="composer-confirmation-region" aria-live="assertive">
         <ExtUiPromptCard threadId={activeThreadId} />
@@ -684,23 +735,23 @@ function TodoPanel({ threadId, items }: { threadId: string; items: TodoItem[] })
   const language = useStore((s) => s.config?.language || "en");
   const done = items.filter((i) => i.done).length;
   return (
-    <section className={`todo-panel-wrap ${collapsed ? "collapsed" : ""}`}>
-      <div className="todo-panel">
+    <section className={`stack-panel-wrap ${collapsed ? "collapsed" : ""}`}>
+      <div className="stack-panel">
         <button
           type="button"
-          className="todo-panel-head"
+          className="stack-panel-head"
           aria-expanded={!collapsed}
           title={language === "zh" ? (collapsed ? "展开待办" : "收起待办") : collapsed ? "Expand todos" : "Collapse todos"}
           onClick={() => setTodoCollapsed(threadId, !collapsed)}
         >
-          <span className="todo-panel-title">
+          <span className="stack-panel-title">
             <Check size={13} />
             {language === "zh" ? "待办" : "Todos"}
           </span>
-          <span className="todo-panel-count">
+          <span className="stack-panel-count">
             {done}/{items.length}
           </span>
-          <ChevronRight size={13} className="todo-panel-chevron" />
+          <ChevronRight size={13} className="stack-panel-chevron" />
         </button>
         {!collapsed && (
           <ul className="todo-panel-list">
@@ -710,6 +761,50 @@ function TodoPanel({ threadId, items }: { threadId: string; items: TodoItem[] })
                   {it.done && <Check size={9} />}
                 </span>
                 <span className="todo-text">{it.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Collapsible panel above the composer showing the current subagent batch. */
+function SubagentPanel({ threadId, rows }: { threadId: string; rows: SubagentRow[] }) {
+  const collapsed = useStore((s) => !!s.threads[threadId]?.subagentCollapsed);
+  const setSubagentCollapsed = useStore((s) => s.setSubagentCollapsed);
+  const language = useStore((s) => s.config?.language || "en");
+  const running = rows.filter((r) => r.run.running).length;
+  const done = rows.filter((r) => r.run.completed && !r.run.isError).length;
+  return (
+    <section className={`stack-panel-wrap ${collapsed ? "collapsed" : ""}`}>
+      <div className="stack-panel">
+        <button
+          type="button"
+          className="stack-panel-head"
+          aria-expanded={!collapsed}
+          title={language === "zh" ? (collapsed ? "展开子任务" : "收起子任务") : collapsed ? "Expand subagents" : "Collapse subagents"}
+          onClick={() => setSubagentCollapsed(threadId, !collapsed)}
+        >
+          <span className="stack-panel-title">
+            <Branch size={13} />
+            {language === "zh" ? "子任务" : "Subagents"}
+          </span>
+          <span className="stack-panel-count">
+            {running > 0 ? `${running} ${language === "zh" ? "运行中" : "running"}` : `${done}/${rows.length}`}
+          </span>
+          <ChevronRight size={13} className="stack-panel-chevron" />
+        </button>
+        {!collapsed && (
+          <ul className="subagent-list">
+            {rows.map((r, i) => (
+              <li key={i} className={`subagent-item ${r.run.isError ? "error" : r.run.completed ? "done" : ""}`}>
+                <span className={`subagent-status ${r.run.running ? "running" : r.run.isError ? "error" : r.run.completed ? "done" : "pending"}`} aria-hidden="true">
+                  {r.run.running ? <span className="spinner" /> : r.run.isError ? <Close size={9} /> : r.run.completed ? <Check size={9} /> : null}
+                </span>
+                <span className="subagent-name">{r.name || "task"}</span>
+                {r.agent && <span className="subagent-agent">{r.agent}</span>}
               </li>
             ))}
           </ul>
