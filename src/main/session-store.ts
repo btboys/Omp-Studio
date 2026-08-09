@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, rmSync, statSync, truncateSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -207,8 +207,6 @@ export interface ThreadHistory {
   /** Current thinking level from the last thinking_level_change entry. */
   thinkingLevel: string | null;
   messages: any[];
-  /** Stable ids for user/assistant messages used by message-level branching. */
-  branchMessages: { entryId: string; role: "user" | "assistant"; text: string }[];
 }
 
 export async function readThreadHistory(file: string): Promise<ThreadHistory> {
@@ -217,7 +215,6 @@ export async function readThreadHistory(file: string): Promise<ThreadHistory> {
   let model: { provider: string; id: string } | null = null;
   let thinkingLevel: string | null = null;
   const messages: any[] = [];
-  const branchMessages: { entryId: string; role: "user" | "assistant"; text: string }[] = [];
   await forEachLine(file, (line) => {
     let e: any;
     try {
@@ -238,13 +235,7 @@ export async function readThreadHistory(file: string): Promise<ThreadHistory> {
         if (typeof e.title === "string" && e.title.trim()) sessionName = e.title.trim();
         break;
       case "message":
-        if (e.message) {
-          messages.push(e.message);
-          if ((e.message.role === "user" || e.message.role === "assistant") && e.id) {
-            const text = textOfContent(e.message.content);
-            branchMessages.push({ entryId: e.id, role: e.message.role, text });
-          }
-        }
+        if (e.message) messages.push(e.message);
         break;
       case "model_change":
         if (typeof e.model === "string" && e.model) model = splitModel(e.model);
@@ -257,7 +248,55 @@ export async function readThreadHistory(file: string): Promise<ThreadHistory> {
         break;
     }
   });
-  return { cwd, sessionName, model, thinkingLevel, messages, branchMessages };
+  return { cwd, sessionName, model, thinkingLevel, messages };
+}
+
+/**
+ * Remove the last exchange from a session file: the final user prompt and
+ * everything written after it (its assistant reply, tool results, …). The
+ * file is truncated at the byte offset of that user message line, so history
+ * before the exchange is untouched. Returns ok:false when there is nothing
+ * to undo or the file cannot be written.
+ */
+/** True when a parsed session line is a user message entry. */
+function isUserMessageLine(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  if (!("type" in e) || e.type !== "message") return false;
+  if (!("message" in e)) return false;
+  const m = e.message;
+  return !!m && typeof m === "object" && "role" in m && m.role === "user";
+}
+
+export function undoLastTurn(file: string): { ok: boolean; message?: string } {
+  let buf: Buffer;
+  try {
+    buf = readFileSync(file);
+  } catch {
+    return { ok: false, message: "无法读取会话文件" };
+  }
+  let lineStart = 0;
+  let lastUserOffset = -1;
+  while (lineStart < buf.length) {
+    const nl = buf.indexOf(0x0a, lineStart);
+    const lineEnd = nl === -1 ? buf.length : nl;
+    const line = buf.toString("utf8", lineStart, lineEnd).trim();
+    if (line) {
+      try {
+        if (isUserMessageLine(JSON.parse(line))) lastUserOffset = lineStart;
+      } catch {
+        /* skip malformed lines */
+      }
+    }
+    if (nl === -1) break;
+    lineStart = nl + 1;
+  }
+  if (lastUserOffset < 0) return { ok: false, message: "会话中没有可撤销的用户消息" };
+  try {
+    truncateSync(file, lastUserOffset);
+  } catch (e) {
+    return { ok: false, message: "写入失败：" + (e instanceof Error ? e.message : String(e)) };
+  }
+  return { ok: true };
 }
 
 export interface ThreadSearchHit {

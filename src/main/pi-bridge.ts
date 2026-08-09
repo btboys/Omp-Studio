@@ -569,25 +569,6 @@ export class PiBridge {
   getMessages(): Promise<unknown> {
     return this.send("get_messages");
   }
-  /**
-   * Branching messages for the fork UI. omp's `get_branch_messages` returns
-   * user messages only (omp's `branch` command only accepts user entries), so
-   * assistant replies get no branch anchor — Fork/Clone appear on user turns.
-   */
-  getBranchMessages(): Promise<{ messages: { entryId: string; role: "user"; text: string }[] }> {
-    return this.send("get_branch_messages").then((res: any) => {
-      const messages = Array.isArray(res?.messages) ? res.messages : [];
-      return {
-        messages: messages
-          .filter((m: any) => m && typeof m.entryId === "string")
-          .map((m: any) => ({ entryId: m.entryId, role: "user" as const, text: typeof m.text === "string" ? m.text : "" })),
-      };
-    });
-  }
-  /** Fork the session at a user-message entry id (omp `branch` RPC). */
-  branchAt(entryId: string): Promise<unknown> {
-    return this.send("branch", { entryId });
-  }
   setModel(provider: string, modelId: string): Promise<unknown> {
     return this.send("set_model", { provider, modelId });
   }

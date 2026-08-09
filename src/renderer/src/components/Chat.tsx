@@ -7,7 +7,7 @@ import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
-import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, Close } from "./icons";
+import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, Close, Undo } from "./icons";
 import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
@@ -60,17 +60,36 @@ interface SubagentInfo {
 /** Tool names that spawn subagents (omp gates them separately in sandbox mode). */
 const SUBAGENT_TOOL = "task";
 
-/** Parse the subagent rows of a `task` tool call, falling back to the batch intent. */
-function subagentRowsOf(block: ContentBlock, run: ToolRun): SubagentRow[] {
-  const args = ((block as { type: "toolCall"; arguments: any }).arguments || {}) as {
-    tasks?: { name?: string; agent?: string }[];
-    i?: string;
-  };
-  const tasks = Array.isArray(args.tasks) && args.tasks.length ? args.tasks : null;
-  if (tasks) {
-    return tasks.map((t) => ({ name: String(t?.name || ""), agent: t?.agent ? String(t.agent) : undefined, run }));
+type ToolCallBlock = Extract<ContentBlock, { type: "toolCall" }>;
+
+interface TaskItem {
+  name?: string;
+  agent?: string;
+}
+
+/** Narrow omp's `task` tool payload (tasks[] batch + intent) without casts. */
+function taskArgsOf(raw: unknown): { tasks: TaskItem[]; i: string } {
+  if (!raw || typeof raw !== "object") return { tasks: [], i: "" };
+  const tasks: TaskItem[] = [];
+  if ("tasks" in raw && Array.isArray(raw.tasks)) {
+    for (const t of raw.tasks) {
+      if (!t || typeof t !== "object") continue;
+      if (!("name" in t) && !("agent" in t)) continue;
+      tasks.push({
+        name: "name" in t && typeof t.name === "string" ? t.name : undefined,
+        agent: "agent" in t && typeof t.agent === "string" ? t.agent : undefined,
+      });
+    }
   }
-  return [{ name: String(args.i || ""), run }];
+  const i = "i" in raw && typeof raw.i === "string" ? raw.i : "";
+  return { tasks, i };
+}
+
+/** Parse the subagent rows of a `task` tool call, falling back to the batch intent. */
+function subagentRowsOf(block: ToolCallBlock, run: ToolRun): SubagentRow[] {
+  const { tasks, i } = taskArgsOf(block.arguments);
+  if (tasks.length) return tasks.map((t) => ({ name: t.name || "", agent: t.agent, run }));
+  return [{ name: i, run }];
 }
 
 export function Chat() {
@@ -80,6 +99,7 @@ export function Chat() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const togglePreview = useStore((s) => s.togglePreview);
   const reloadThread = useStore((s) => s.reloadThread);
+  const undoLastTurn = useStore((s) => s.undoLastTurn);
   const renameThread = useStore((s) => s.renameThread);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -197,6 +217,10 @@ export function Chat() {
 
   const firstUserText = thread.messages.find((m) => m.role === "user")?.text || "";
   const title = getDisplayThreadTitle(thread.sessionName, firstUserText).slice(0, 40) || "新会话";
+
+  // Undo needs a persisted session with at least one user prompt, and must wait
+  // for any in-flight reply to settle before the file can be truncated.
+  const canUndo = !thread.isStreaming && !!thread.sessionFile && thread.messages.some((m) => m.role === "user");
 
   const lastGroup = groups[groups.length - 1];
   const streamingExtends = !!streaming && !!lastGroup && lastGroup.role === "assistant";
@@ -360,6 +384,14 @@ export function Chat() {
             </div>
           )}
         </div>
+        <button
+          className="iconbtn"
+          title="撤销最近一次对话（删除最后一条提示词及其回复，重新加载会话）"
+          disabled={!canUndo}
+          onClick={() => void undoLastTurn(activeThreadId)}
+        >
+          <Undo size={15} />
+        </button>
         <button className="iconbtn" title="重新加载会话" onClick={() => reloadThread(activeThreadId)}>
           <Refresh size={15} />
         </button>
@@ -371,7 +403,7 @@ export function Chat() {
       <div className="chat-scroll" ref={scrollRef}>
         <div className="messages">
           {headGroups.map((g) => (
-            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} locked={thread.isStreaming} stripKey={todoInfo?.sourceKey ?? null} onPreviewImage={setPreviewImage} />
+            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} onPreviewImage={setPreviewImage} />
           ))}
           {streaming && streamingExtends && lastGroup && (
             <MessageGroup
@@ -379,7 +411,6 @@ export function Chat() {
               threadId={activeThreadId}
               group={{ key: lastGroup.key, role: "assistant", items: [...lastGroup.items, streaming] }}
               toolRuns={thread.toolRuns}
-              locked
               streaming
               stripKey={todoInfo?.sourceKey ?? null}
               onPreviewImage={setPreviewImage}
@@ -391,7 +422,6 @@ export function Chat() {
               threadId={activeThreadId}
               group={{ key: streaming.key, role: "assistant", items: [streaming] }}
               toolRuns={thread.toolRuns}
-              locked
               streaming
               stripKey={todoInfo?.sourceKey ?? null}
               onPreviewImage={setPreviewImage}
@@ -460,7 +490,6 @@ const MessageGroup = memo(MessageGroupInner, (prev, next) => {
   if (
     prev.group !== next.group ||
     prev.threadId !== next.threadId ||
-    prev.locked !== next.locked ||
     !!prev.streaming !== !!next.streaming ||
     prev.stripKey !== next.stripKey ||
     prev.onPreviewImage !== next.onPreviewImage
@@ -479,7 +508,6 @@ function MessageGroupInner({
   threadId,
   group,
   toolRuns,
-  locked,
   streaming,
   stripKey,
   onPreviewImage,
@@ -487,18 +515,14 @@ function MessageGroupInner({
   threadId: string;
   group: MsgGroup;
   toolRuns: Record<string, ToolRun>;
-  locked?: boolean;
   streaming?: boolean;
   /** Key of the message whose todo lines are lifted into the todo panel. */
   stripKey?: string | null;
   onPreviewImage: (src: string) => void;
 }) {
-  const forkThreadFromAgentReply = useStore((s) => s.forkThreadFromAgentReply);
-  const cloneThread = useStore((s) => s.cloneThread);
   const openPreview = useStore((s) => s.openPreview);
   const cwd = useStore((s) => s.threads[threadId]?.cwd || "");
   const language = useStore((s) => s.config?.language || "en");
-  const [branching, setBranching] = useState<"fork" | "clone" | null>(null);
   const artifacts = useMemo(
     () => (group.role === "assistant" ? collectFileArtifacts(group.items, toolRuns, cwd) : []),
     [cwd, group.items, group.role, toolRuns],
@@ -608,16 +632,6 @@ function MessageGroupInner({
     }
     openPreview(artifact.path, cwd);
   };
-  const runBranchAction = async (kind: "fork" | "clone") => {
-    if (locked || branching || !last.branchEntryId) return;
-    setBranching(kind);
-    try {
-      if (kind === "fork") await forkThreadFromAgentReply(threadId, last.branchEntryId);
-      else await cloneThread(threadId, last.branchEntryId);
-    } finally {
-      setBranching(null);
-    }
-  };
   return (
     <div className="msg assistant">
       <div className="msg-avatar" aria-label="Omp Studio Agent">
@@ -682,50 +696,11 @@ function MessageGroupInner({
           <div className="msg-footer">
             {last.model && <span>{last.model}</span>}
             {last.timestamp && <span>{formatClock(last.timestamp)}</span>}
-            <span className="msg-actions">
-              <button title="Copy" onClick={() => navigator.clipboard?.writeText(plainOfGroup(group))}>
-                <Copy size={12} />
-              </button>
-              <button title="Good">
-                <ThumbUp size={12} />
-              </button>
-              <button title="Bad">
-                <ThumbDown size={12} />
-              </button>
-            </span>
-            <span className="msg-branch-actions" aria-label="从此 Agent 回复分支">
-              <button
-                disabled={locked || !!branching || !last.branchEntryId}
-                title={last.branchEntryId ? "从这条 Agent 回复开始创建新分支" : "连接并保存会话后可 Fork"}
-                onClick={() => runBranchAction("fork")}
-              >
-                <Branch size={11} /> {branching === "fork" ? "Forking…" : "Fork"}
-              </button>
-              <button
-                disabled={locked || !!branching || !last.branchEntryId}
-                title={last.branchEntryId ? "复制截至这条 Agent 回复的分支" : "连接并保存会话后可 Clone"}
-                onClick={() => runBranchAction("clone")}
-              >
-                <Copy size={11} /> {branching === "clone" ? "Cloning…" : "Clone"}
-              </button>
-            </span>
           </div>
         )}
       </div>
     </div>
   );
-}
-
-function plainOfGroup(g: MsgGroup): string {
-  return g.items
-    .map((m) =>
-      (m.blocks || [])
-        .map((b) => (b.type === "text" ? b.text : b.type === "thinking" ? b.thinking : ""))
-        .filter(Boolean)
-        .join("\n\n")
-    )
-    .filter(Boolean)
-    .join("\n\n");
 }
 
 /** Collapsible panel above the composer showing the current todo list. */

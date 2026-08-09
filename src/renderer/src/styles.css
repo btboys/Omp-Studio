@@ -1516,58 +1516,6 @@ body.sidebar-resizing * {
   color: var(--text-faint);
   font-size: 11.5px;
 }
-.msg-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.msg:hover .msg-actions {
-  opacity: 1;
-}
-.msg-actions button {
-  background: transparent;
-  border: none;
-  color: var(--text-faint);
-  padding: 2px 6px;
-  border-radius: 5px;
-  font-size: 12px;
-}
-.msg-actions button:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--text);
-}
-.msg-branch-actions {
-  display: flex;
-  gap: 3px;
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.msg.assistant:hover .msg-branch-actions,
-.msg.assistant:focus-within .msg-branch-actions {
-  opacity: 1;
-}
-.msg-branch-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  border-radius: 5px;
-  padding: 2px 6px;
-  background: transparent;
-  color: var(--text-faint);
-  font: inherit;
-  font-size: 11px;
-}
-.msg-branch-actions button:hover:not(:disabled) {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.msg-branch-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
 .streaming-dot {
   display: inline-block;
   width: 7px;
@@ -2313,6 +2261,14 @@ body.sidebar-resizing * {
 .iconbtn:hover {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text);
+}
+.iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.iconbtn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
 }
 .pill {
   position: relative;
@@ -5285,7 +5241,6 @@ mark.hl {
 :root[data-theme="dark"] .thinking-toggle:hover,
 :root[data-theme="dark"] .stack-panel-head:hover,
 :root[data-theme="dark"] .tool-head:hover,
-:root[data-theme="dark"] .msg-actions button:hover,
 :root[data-theme="dark"] .pf-btn:hover,
 :root[data-theme="dark"] .sb-head-btn:hover {
   background: rgba(255, 255, 255, 0.07);

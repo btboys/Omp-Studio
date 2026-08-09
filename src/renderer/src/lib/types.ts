@@ -106,8 +106,6 @@ export type ContentBlock =
 export interface ViewMessage {
   /** stable key */
   key: string;
-  /** Stable Pi session entry id used by message-level branching. */
-  branchEntryId?: string;
   role: "user" | "assistant" | "system";
   timestamp?: number;
   /** user/system plain text (may include image blocks for user) */

@@ -257,47 +257,8 @@ function addThinking(blocks: ContentBlock[], delta: string): ContentBlock[] {
 
 const newAssistant = (key?: string): ViewMessage => ({ key: key || `a-${uid()}`, role: "assistant", blocks: [], timestamp: Date.now() });
 
-/** Match visible user/assistant messages to Pi's stable session-entry ids.
- * Text plus branch order handles repeated content without leaking ids from an
- * inactive branch. */
-function attachBranchEntryIds(
-  messages: ViewMessage[],
-  branchMessages: { entryId: string; role: "user" | "assistant"; text: string }[] | undefined,
-): ViewMessage[] {
-  if (!branchMessages?.length) return messages;
-  let cursor = 0;
-  return messages.map((message) => {
-    if (message.role !== "user" && message.role !== "assistant") return message;
-    const text =
-      message.role === "user"
-        ? message.text || ""
-        : (message.blocks || []).map((block) => (block.type === "text" ? block.text : "")).filter(Boolean).join("\n");
-    let match = -1;
-    for (let i = cursor; i < branchMessages.length; i++) {
-      if (branchMessages[i]?.role === message.role && branchMessages[i]?.text === text) {
-        match = i;
-        break;
-      }
-    }
-    if (match < 0) {
-      for (let i = cursor; i < branchMessages.length; i++) {
-        if (branchMessages[i]?.role === message.role) {
-          match = i;
-          break;
-        }
-      }
-    }
-    if (match < 0) return message;
-    cursor = match + 1;
-    return { ...message, branchEntryId: branchMessages[match].entryId };
-  });
-}
-
 /** Convert a flat list of pi AgentMessages into renderable views + initial tool runs. */
-function historyToView(
-  messages: any[],
-  branchMessages?: { entryId: string; role: "user" | "assistant"; text: string }[],
-): { views: ViewMessage[]; toolRuns: Record<string, ToolRun> } {
+function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Record<string, ToolRun> } {
   const toolResultById: Record<string, { text: string; isError: boolean }> = {};
   for (const m of messages || []) {
     if (m?.role === "toolResult" && m.toolCallId) {
@@ -338,7 +299,7 @@ function historyToView(
       });
     }
   });
-  return { views: attachBranchEntryIds(views, branchMessages), toolRuns };
+  return { views, toolRuns };
 }
 
 function pendingToArgs(p: PendingFollowUp): {
@@ -369,7 +330,7 @@ function emptyThread(cwd: string): ThreadState {
 }
 
 function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?: string): ThreadState {
-  const { views, toolRuns } = historyToView(res.messages || [], res.branchMessages || []);
+  const { views, toolRuns } = historyToView(res.messages || []);
   return {
     ...emptyThread(res.cwd || fallback.cwd),
     sessionFile: res.sessionFile,
@@ -652,8 +613,6 @@ interface PiStore {
   setModel: (id: string, provider: string, modelId: string) => Promise<void>;
   setThinking: (id: string, level: string) => Promise<void>;
   newSessionInThread: (id: string) => Promise<void>;
-  forkThreadFromAgentReply: (id: string, entryId: string) => Promise<void>;
-  cloneThread: (id: string, entryId: string) => Promise<void>;
   renameThread: (id: string, name: string) => Promise<void>;
 
   setSidebarTab: (t: "threads" | "files" | "git") => void;
@@ -734,6 +693,8 @@ interface PiStore {
 
   // thread permission / folder
   setPermission: (threadId: string, level: PermissionLevel) => Promise<void>;
+  /** Delete the last exchange (final user prompt and its reply) from the session file, then reload the thread. */
+  undoLastTurn: (threadId: string) => Promise<void>;
   reloadThread: (threadId: string) => Promise<void>;
   /** Move a not-yet-sent task to another working folder without losing the composer draft. */
   changeDraftThreadFolder: (threadId: string, cwd: string) => Promise<void>;
@@ -807,27 +768,6 @@ function scheduleEventFlush(): void {
         const { imgs, atts } = pendingToArgs(p);
         st.sendPrompt(threadId, p.text, imgs, atts);
       }
-      // Message events do not include their persisted session entry ids.
-      // Refresh once the turn settles so the Agent reply's Fork/Clone actions
-      // are available without reopening the thread.
-      window.pi.thread
-        .getBranchMessages(threadId)
-        .then((res: any) =>
-          useStore.setState((s) =>
-            s.threads[threadId]
-              ? {
-                  threads: {
-                    ...s.threads,
-                    [threadId]: {
-                      ...s.threads[threadId],
-                      messages: attachBranchEntryIds(s.threads[threadId].messages, res?.messages || []),
-                    },
-                  },
-                }
-              : s,
-          ),
-        )
-        .catch(() => {});
       // The first session entry may only be visible on disk once the turn has
       // settled. Keep the project/thread index in lockstep with that lifecycle.
       const latest = useStore.getState();
@@ -972,7 +912,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       if (!cwd) continue;
       try {
         const hist: any = await window.pi.thread.loadHistory({ cwd, sessionFile });
-        const { views, toolRuns } = historyToView(hist.messages || [], hist.branchMessages || []);
+        const { views, toolRuns } = historyToView(hist.messages || []);
         const thread: ThreadState = {
           ...emptyThread(hist.cwd || cwd),
           sessionFile: hist.sessionFile || sessionFile,
@@ -1220,7 +1160,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       // process in the background — no blocking "starting pi" spinner.
       try {
         const hist: any = await window.pi.thread.loadHistory({ cwd, sessionFile });
-        const { views, toolRuns } = historyToView(hist.messages || [], hist.branchMessages || []);
+        const { views, toolRuns } = historyToView(hist.messages || []);
         const thread: ThreadState = {
           ...emptyThread(hist.cwd || cwd),
           sessionFile: hist.sessionFile || sessionFile,
@@ -1288,7 +1228,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         // the id, so the thread keeps its key; the remap guard is defensive.
         const res: any = await window.pi.thread.open({ cwd: t.cwd, sessionFile: t.sessionFile || undefined, permission: t.permission });
         const id = res.threadId || threadId;
-        const { views, toolRuns } = historyToView(res.messages || [], res.branchMessages || []);
+        const { views, toolRuns } = historyToView(res.messages || []);
         set((s) => {
           const prev = s.threads[threadId] || s.threads[id];
           // Preserve optimistic user bubbles added before the connect finished
@@ -1701,7 +1641,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       const res: any = await window.pi.thread.newSession(id);
       if (res?.cancelled) return;
       const newId = res.threadId || id;
-      const { views, toolRuns } = historyToView(res.messages || [], res.branchMessages || []);
+      const { views, toolRuns } = historyToView(res.messages || []);
       const thread: ThreadState = {
         ...emptyThread(res.cwd || get().threads[id]?.cwd || ""),
         sessionFile: res.sessionFile,
@@ -1724,66 +1664,6 @@ export const useStore = create<PiStore>()((set, get) => ({
       if (newId !== id) get().refreshProjects();
     } catch (e: any) {
       get().pushToast("error", e?.message || "new session failed");
-    }
-  },
-
-  forkThreadFromAgentReply: async (id, entryId) => {
-    const liveId = await get().ensureConnected(id);
-    if (!liveId) return;
-    const source = get().threads[liveId];
-    if (!source || source.isStreaming) {
-      get().pushToast("warning", "请等待当前回复结束后再 Fork。");
-      return;
-    }
-    try {
-      const res: any = await window.pi.thread.fork({ threadId: liveId, entryId });
-      if (res?.cancelled) return;
-      const newId = res.threadId || liveId;
-      const next = threadFromResponse(res, source, res.selectedText || undefined);
-      set((s) => {
-        const threads: Record<string, ThreadState> = { ...s.threads };
-        if (newId !== liveId) {
-          threads[liveId] = { ...source, connected: false, isStreaming: false, streaming: null };
-        }
-        threads[newId] = next;
-        const openThreadIds =
-          newId === liveId || s.openThreadIds.includes(newId) ? s.openThreadIds : [...s.openThreadIds, newId];
-        return { threads, openThreadIds, activeThreadId: newId, activeProjectCwd: next.cwd };
-      });
-      get().pushToast("info", "已从所选 Agent 回复创建 Fork。");
-      get().refreshProjects();
-    } catch (e: any) {
-      get().pushToast("error", e?.message || "fork failed");
-    }
-  },
-
-  cloneThread: async (id, entryId) => {
-    const liveId = await get().ensureConnected(id);
-    if (!liveId) return;
-    const source = get().threads[liveId];
-    if (!source || source.isStreaming) {
-      get().pushToast("warning", "请等待当前回复结束后再 Clone。");
-      return;
-    }
-    try {
-      const res: any = await window.pi.thread.clone({ threadId: liveId, entryId });
-      if (res?.cancelled) return;
-      const newId = res.threadId || liveId;
-      const next = threadFromResponse(res, source);
-      set((s) => {
-        const threads: Record<string, ThreadState> = { ...s.threads };
-        if (newId !== liveId) {
-          threads[liveId] = { ...source, connected: false, isStreaming: false, streaming: null };
-        }
-        threads[newId] = next;
-        const openThreadIds =
-          newId === liveId || s.openThreadIds.includes(newId) ? s.openThreadIds : [...s.openThreadIds, newId];
-        return { threads, openThreadIds, activeThreadId: newId, activeProjectCwd: next.cwd };
-      });
-      get().pushToast("info", "已 Clone 截至所选 Agent 回复的分支。");
-      get().refreshProjects();
-    } catch (e: any) {
-      get().pushToast("error", e?.message || "clone failed");
     }
   },
 
@@ -2197,6 +2077,34 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("error", "切换权限失败：" + (e?.message || e));
     }
   },
+  undoLastTurn: async (threadId) => {
+    const t = get().threads[threadId];
+    if (!t) return;
+    if (t.isStreaming) {
+      get().pushToast("warning", "请等待当前回复结束后再撤销。");
+      return;
+    }
+    if (!t.sessionFile) {
+      get().pushToast("warning", "会话尚未落盘，暂无可撤销内容。");
+      return;
+    }
+    if (!t.messages.some((m) => m.role === "user")) {
+      get().pushToast("warning", "没有可撤销的对话。");
+      return;
+    }
+    try {
+      const res = await window.pi.thread.undoLastTurn({ sessionFile: t.sessionFile });
+      if (!res.ok) {
+        get().pushToast("error", res.message || "撤销失败");
+        return;
+      }
+      await get().reloadThread(threadId);
+      void get().refreshProjects();
+      get().pushToast("info", "已撤销最近一次对话");
+    } catch (e) {
+      get().pushToast("error", "撤销失败：" + (e instanceof Error ? e.message : String(e)));
+    }
+  },
   reloadThread: async (threadId) => {
     const t = get().threads[threadId];
     if (!t) return;
@@ -2245,7 +2153,7 @@ export const useStore = create<PiStore>()((set, get) => ({
 
     try {
       const hist: any = await window.pi.thread.loadHistory({ cwd, sessionFile });
-      const { views, toolRuns } = historyToView(hist.messages || [], hist.branchMessages || []);
+      const { views, toolRuns } = historyToView(hist.messages || []);
       const nextId = hist.sessionFile || sessionFile;
       const thread: ThreadState = {
         ...emptyThread(hist.cwd || cwd),

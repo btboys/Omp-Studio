@@ -45,7 +45,7 @@ import { getOmpConfig, resetOmpConfigKey, setOmpConfigKey } from "./omp-config";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
 import { readPreview } from "./preview-service";
-import { deleteProjectSessions, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit } from "./session-store";
+import { deleteProjectSessions, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit, undoLastTurn } from "./session-store";
 import { listMcpServers, probeMcpServers, removeMcpServer, saveMcpServer, setMcpLists, setMcpServerEnabled, type McpServerConfig } from "./mcp";
 import {
   isLocalExtensionSource,
@@ -344,11 +344,10 @@ function scheduleWarmRecreate(): void {
 
 async function gatherThread(bridge: PiBridge, threadId: string, permission: PermissionLevel, handle?: BridgeHandle) {
   const state: any = await bridge.getState();
-  const [msgRes, modelsRes, cmdsRes, branchRes]: any[] = await Promise.all([
+  const [msgRes, modelsRes, cmdsRes]: any[] = await Promise.all([
     bridge.getMessages(),
     bridge.getAvailableModels(),
     bridge.getCommands().catch(() => ({ commands: [] })),
-    bridge.getBranchMessages().catch(() => ({ messages: [] })),
   ]);
   if (handle && typeof state?.sessionName === "string" && state.sessionName.trim()) {
     handle.sessionLabel = state.sessionName.trim();
@@ -362,7 +361,6 @@ async function gatherThread(bridge: PiBridge, threadId: string, permission: Perm
     thinkingLevel: state.thinkingLevel ?? "off",
     isStreaming: !!state.isStreaming,
     messages: msgRes?.messages ?? [],
-    branchMessages: branchRes?.messages ?? [],
     models: modelsRes?.models ?? [],
     commands: cmdsRes?.commands ?? [],
     permission,
@@ -733,11 +731,17 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       thinkingLevel: hist.thinkingLevel || "off",
       isStreaming: false,
       messages: hist.messages,
-      branchMessages: hist.branchMessages,
       models: [],
       commands: [],
       permission,
     };
+  });
+
+  /** Delete the last exchange from a session file (see session-store.undoLastTurn). */
+  ipcMain.handle("thread:undoLastTurn", async (_e, args: { sessionFile: string }) => {
+    const { sessionFile } = args;
+    if (!sessionFile || !existsSync(sessionFile)) throw new Error("会话文件不存在");
+    return undoLastTurn(sessionFile);
   });
 
   ipcMain.handle("thread:open", async (_e, args: { cwd: string; sessionFile?: string; name?: string; permission?: PermissionLevel }) => {
@@ -908,44 +912,6 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const newId = state.sessionFile || threadId;
     h.setId(newId);
     return { cancelled: false, ...(await gatherThread(h.bridge, newId, h.permission, h)) };
-  });
-
-  ipcMain.handle("thread:getBranchMessages", async (_e, threadId: string) => {
-    const h = bridges.get(threadId);
-    if (!h) return { messages: [] };
-    const res = await h.bridge.getBranchMessages();
-    return { messages: res?.messages ?? [] };
-  });
-
-  const finishBranch = async (h: BridgeHandle, oldId: string, selectedText?: string) => {
-    const state: any = await h.bridge.getState();
-    const newId = state.sessionFile || oldId;
-    h.setId(newId);
-    const perms = getConfig().threadPermissions;
-    if (state.sessionFile && perms[state.sessionFile] !== h.permission) {
-      updateConfig({ threadPermissions: { ...perms, [state.sessionFile]: h.permission } });
-    }
-    return { ...(await gatherThread(h.bridge, newId, h.permission, h)), selectedText };
-  };
-
-  ipcMain.handle("thread:fork", async (_e, args: { threadId: string; entryId: string }) => {
-    const h = bridges.get(args.threadId);
-    if (!h) throw new Error("Thread not open");
-    const previousFile = (await h.bridge.getState() as any)?.sessionFile;
-    await h.bridge.branchAt(args.entryId);
-    const currentFile = (await h.bridge.getState() as any)?.sessionFile;
-    if (!currentFile || currentFile === previousFile) throw new Error("Fork did not create a new session");
-    return { cancelled: false, ...(await finishBranch(h, args.threadId)) };
-  });
-
-  ipcMain.handle("thread:clone", async (_e, args: { threadId: string; entryId: string }) => {
-    const h = bridges.get(args.threadId);
-    if (!h) throw new Error("Thread not open");
-    const previousFile = (await h.bridge.getState() as any)?.sessionFile;
-    await h.bridge.branchAt(args.entryId);
-    const currentFile = (await h.bridge.getState() as any)?.sessionFile;
-    if (!currentFile || currentFile === previousFile) throw new Error("Clone did not create a new session");
-    return { cancelled: false, ...(await finishBranch(h, args.threadId)) };
   });
 
   ipcMain.handle("thread:setName", async (_e, args: { threadId: string; name: string }) => {

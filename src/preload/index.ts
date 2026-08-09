@@ -101,9 +101,8 @@ const api = {
     setThinking: (args: { threadId: string; level: string }) => ipcRenderer.invoke("thread:setThinking", args),
     getThinkingLevels: (threadId: string) => ipcRenderer.invoke("thread:getThinkingLevels", threadId),
     newSession: (threadId: string) => ipcRenderer.invoke("thread:newSession", threadId),
-    getBranchMessages: (threadId: string) => ipcRenderer.invoke("thread:getBranchMessages", threadId),
-    fork: (args: { threadId: string; entryId: string }) => ipcRenderer.invoke("thread:fork", args),
-    clone: (args: { threadId: string; entryId: string }) => ipcRenderer.invoke("thread:clone", args),
+    undoLastTurn: (args: { sessionFile: string }): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke("thread:undoLastTurn", args),
     setName: (args: { threadId: string; name: string }) => ipcRenderer.invoke("thread:setName", args),
     getStats: (threadId: string) => ipcRenderer.invoke("thread:getStats", threadId),
     getCommands: (threadId: string) => ipcRenderer.invoke("thread:getCommands", threadId),
