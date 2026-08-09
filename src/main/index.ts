@@ -6,8 +6,13 @@ import { loadConfig, getConfig, updateConfig } from "./config";
 import { cleanupOldRuntimes } from "./core-updater";
 import { registerHtmlPreviewProtocol, registerHtmlPreviewScheme } from "./html-preview-protocol";
 import { registerIpc, stopAllBridges } from "./ipc";
+import { mergeShellEnv } from "./shell-env";
 import { ompBinaryFileName } from "./runtime-package";
 import { stopAutomations, stopScheduler } from "./automation";
+
+// GUI launches inherit launchd's sparse environment; pull in the user's
+// login-shell env (API keys, PATH) before any omp process can spawn.
+mergeShellEnv();
 
 const APP_USER_MODEL_ID = "com.pi-studio.app";
 
