@@ -33,23 +33,40 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
 
   const root = status?.repo ? status.root : null;
 
+  // Drop out-of-order responses: after a tab switch a slow refresh from the
+  // previous repo must not clobber the active one (which would also point
+  // commits/discards at the wrong repo via `root`).
+  const refreshSeq = useRef(0);
+  const prevCwdRef = useRef<string | null>(null);
+
   const refresh = async (target: string) => {
+    const seq = ++refreshSeq.current;
     const [st, br, lg] = await Promise.all([
       window.pi.git.status(target).catch(() => null),
       window.pi.git.branches(target).catch(() => []),
       window.pi.git.log(target, 50).catch(() => []),
     ]);
+    if (seq !== refreshSeq.current) return; // superseded by a newer refresh
     setStatus(st);
     setBranches(br || []);
     setLog(lg || []);
   };
 
   useEffect(() => {
+    refreshSeq.current++; // invalidate any in-flight refresh from the previous repo
+    const cwdChanged = prevCwdRef.current !== cwd;
+    prevCwdRef.current = cwd;
     if (!cwd) {
       setStatus(null);
       setBranches([]);
       setLog([]);
+      setMessage("");
       return;
+    }
+    if (cwdChanged) {
+      // Never keep showing the previous tab's repo while the new one loads.
+      setStatus(null);
+      setMessage("");
     }
     void refresh(cwd);
     // runningKey: refresh when a run starts/stops (agent edits land on disk).
