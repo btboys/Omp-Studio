@@ -627,7 +627,30 @@ export function Settings() {
         setLiveProviders(out);
       })
       .catch(() => undefined);
-  const handleAuthChanged = () => {
+  const handleAuthChanged = async () => {
+    // omp processes cache the credential snapshot at boot; an open thread's
+    // process predates the login/logout and will neither list nor accept the
+    // changed provider. Reopen every connected, idle thread so its bridge
+    // boots with the new credentials (composer model list + set_model).
+    // Streaming threads are left alone — killing one would drop the in-flight
+    // response; they pick up the change on their next reopen.
+    const st = useStore.getState();
+    const prevActive = st.activeThreadId;
+    const prevActiveThread = prevActive ? st.threads[prevActive] : null;
+    const toReopen = Object.entries(st.threads).filter(([, t]) => t.connected && !t.isStreaming);
+    for (const [id, t] of toReopen) {
+      try {
+        await st.closeThread(id);
+        await st.openThread(t.cwd, t.sessionFile || id, t.permission);
+      } catch {
+        /* one bad thread must not block the rest */
+      }
+    }
+    // The loop leaves the last-reopened tab active; restore the user's one.
+    const wasReopened = toReopen.some(([id]) => id === prevActive);
+    if (prevActiveThread?.cwd && wasReopened && useStore.getState().activeThreadId !== prevActive) {
+      st.openThread(prevActiveThread.cwd, prevActiveThread.sessionFile || prevActive || undefined, prevActiveThread.permission).catch(() => {});
+    }
     refreshLiveProviders();
     refreshOpenThreadModels();
   };

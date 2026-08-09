@@ -269,6 +269,12 @@ let lastOpenCwd: string | null = null;
 let warmFailures = 0;
 let warmEnabled = false;
 let sendToRenderer: ((ch: string, p: unknown) => void) | null = null;
+/**
+ * Set after a successful auth change (login/logout): running bridges booted
+ * before it cache the old credential snapshot, so the next live-registry read
+ * must come from a fresh process rather than a stale bridge.
+ */
+let authRegistryDirty = false;
 
 function warmCwd(): string {
   // Prefer the project actually used most recently (persisted), so the first
@@ -623,6 +629,20 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     // now. The models tab shows these read-only so built-in providers no
     // longer look like empty custom configs. Prefer an already-running
     // process; probe with a throwaway one before any thread exists.
+    if (authRegistryDirty) {
+      // A login/logout just landed: running bridges booted before it still
+      // cache the old credentials, so probe a fresh process instead.
+      authRegistryDirty = false;
+      const probe = new PiBridge({ cwd: warmCwd(), onEvent: () => {}, onExtUi: () => {}, onExit: () => {} });
+      try {
+        await probe.start();
+        return await probe.getAvailableModels();
+      } catch {
+        return { models: [] };
+      } finally {
+        probe.stop();
+      }
+    }
     const running = [...bridges.values()].find((h) => h.bridge.running) || (warmHandle?.bridge.running ? warmHandle : null);
     if (running) return running.bridge.getAvailableModels();
     const probe = new PiBridge({ cwd: warmCwd(), onEvent: () => {}, onExtUi: () => {}, onExit: () => {} });
@@ -661,6 +681,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
           // The standby caches the model registry at boot; a fresh login must
           // not leak into a stale spare when the next thread opens.
           if (res.ok) {
+            authRegistryDirty = true;
             dropWarmBridge();
             ensureWarmBridge();
           }
@@ -687,6 +708,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     try {
       const res = await logoutAuthProvider(providerId);
       if (res.ok) {
+        authRegistryDirty = true;
         dropWarmBridge();
         ensureWarmBridge();
       }
