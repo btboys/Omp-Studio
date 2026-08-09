@@ -242,3 +242,10 @@ export const Gauge = (p: P) => (
     <path d="M3.34 19a10 10 0 1 1 17.32 0" />
   </svg>
 );
+export const MagicWand = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m14.5 4.5 5 5" />
+    <path d="M19 4.5 17.5 7 15 8.5l2.5 1.5 1.5 2.5 1.5-2.5L23 8.5 20.5 7z" />
+    <path d="m6.5 17.5 9-9" />
+  </svg>
+);

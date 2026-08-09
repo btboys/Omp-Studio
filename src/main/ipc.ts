@@ -39,6 +39,7 @@ import {
   writeThinking,
 } from "./models-service";
 import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
+import { enhancePrompt } from "./prompt-enhance";
 import { getOmpConfig, resetOmpConfigKey, setOmpConfigKey } from "./omp-config";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
@@ -457,6 +458,12 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("app:getTotalUsage", () => getTotalUsage());
+
+  // Restructure a user prompt with project context before sending (composer
+  // wand). Returns null when no lightweight model endpoint is available.
+  ipcMain.handle("app:enhancePrompt", (_e, cwd: string, text: string) =>
+    enhancePrompt(typeof cwd === "string" ? cwd : "", typeof text === "string" ? text : ""),
+  );
 
   // Current git branch of a thread's working directory (worktree-aware:
   // `branch --show-current` reports the branch checked out in that worktree).

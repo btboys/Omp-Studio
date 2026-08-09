@@ -444,7 +444,7 @@ async function readProviderKey(provider: string): Promise<string | null> {
   }
 }
 
-async function chatCandidates(): Promise<ChatEndpoint[]> {
+export async function chatCandidates(): Promise<ChatEndpoint[]> {
   const out: ChatEndpoint[] = [];
   const seen = new Set<string>();
   const push = async (provider: string, model: string) => {
@@ -481,20 +481,25 @@ async function chatCandidates(): Promise<ChatEndpoint[]> {
   return out;
 }
 
-async function chatCompletion(endpoint: ChatEndpoint, userPrompt: string): Promise<string | null> {
+export async function chatCompletion(endpoint: ChatEndpoint, userPrompt: string, opts?: {
+  system?: string;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<string | null> {
   const body: Record<string, unknown> = {
     model: endpoint.model,
     messages: [
       {
         role: "system",
         content:
+          opts?.system ??
           "You write git commit messages. Reply with ONLY the commit message (Conventional Commits). No quotes, no markdown fence, no explanation. Subject <= 72 chars.",
       },
       { role: "user", content: userPrompt },
     ],
-    max_tokens: 120,
+    max_tokens: opts?.maxTokens ?? 120,
   };
-  if (!endpoint.omitTemperature) body.temperature = 0.2;
+  if (!endpoint.omitTemperature) body.temperature = opts?.temperature ?? 0.2;
   const { status, text: raw } = await postJson(
     endpoint.url,
     {

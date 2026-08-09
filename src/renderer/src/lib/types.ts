@@ -415,3 +415,11 @@ export interface OmpConfigSection {
   id: OmpConfigSectionId;
   entries: OmpConfigEntry[];
 }
+
+/** Composer prompt enhancement result (project-aware restructure). */
+export interface EnhancePromptResult {
+  /** Restructured prompt, ready to send. */
+  prompt: string;
+  /** Short summary of the project context the model used. */
+  contextUsed: string;
+}

@@ -23,6 +23,7 @@ const api = {
     searchThreads: (query: string) => ipcRenderer.invoke("app:searchThreads", query),
     getTotalUsage: () => ipcRenderer.invoke("app:getTotalUsage"),
     getGitBranch: (cwd: string) => ipcRenderer.invoke("app:getGitBranch", cwd),
+    enhancePrompt: (cwd: string, text: string) => ipcRenderer.invoke("app:enhancePrompt", cwd, text),
     getGitInfo: (cwd: string) => ipcRenderer.invoke("app:getGitInfo", cwd),
     openProject: (absPath: string) => ipcRenderer.invoke("app:openProject", absPath),
     prewarm: (cwd: string) => ipcRenderer.invoke("app:prewarm", cwd),

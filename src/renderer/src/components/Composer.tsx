@@ -3,8 +3,8 @@ import { useStore } from "../store";
 import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
-import type { FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
-import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch } from "./icons";
+import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
+import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand } from "./icons";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
@@ -100,6 +100,9 @@ export function Composer({ threadId }: { threadId: string }) {
   const [permOpen, setPermOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState("");
+  const [enhanceOpen, setEnhanceOpen] = useState(false);
+  const [enhanceBusy, setEnhanceBusy] = useState(false);
+  const [enhanceResult, setEnhanceResult] = useState<EnhancePromptResult | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [atIndex, setAtIndex] = useState(0);
@@ -112,12 +115,14 @@ export function Composer({ threadId }: { threadId: string }) {
   const cmdRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
   const projectRef = useRef<HTMLDivElement>(null);
+  const enhanceRef = useRef<HTMLDivElement>(null);
 
   // close popups on outside click / Escape
   useOutsideClose(permRef, permOpen, () => setPermOpen(false));
   useOutsideClose(cmdRef, cmdOpen, () => setCmdOpen(false));
   useOutsideClose(modelRef, modelOpen, () => setModelOpen(false));
   useOutsideClose(projectRef, projectOpen, () => setProjectOpen(false));
+  useOutsideClose(enhanceRef, enhanceOpen, () => setEnhanceOpen(false));
 
   // extension-injected editor text
   const lastInjected = useRef<string | undefined>(undefined);
@@ -183,15 +188,68 @@ export function Composer({ threadId }: { threadId: string }) {
     }
   };
 
-  const send = async (mode?: "steer" | "followUp") => {
-    const t = text.trim();
-    if (!t && !images.length && !files.length) return;
+  const dispatchSend = async (t: string, mode?: "steer" | "followUp") => {
     const imgs = images.map((im) => ({ data: im.base64, mimeType: im.mimeType }));
     const atts = files.map((f) => ({ abs: f.abs, name: f.name }));
     setText("");
     setImages([]);
     setFiles([]);
+    setEnhanceOpen(false);
+    setEnhanceResult(null);
     await sendPrompt(threadId, t, imgs.length ? imgs : undefined, atts.length ? atts : undefined, mode);
+  };
+
+  const send = async (mode?: "steer" | "followUp") => {
+    const t = text.trim();
+    if (!t && !images.length && !files.length) return;
+    await dispatchSend(t, mode);
+  };
+
+  // Project-aware prompt restructure (composer wand). Never blocks sending:
+  // on failure the user keeps the original text.
+  const runEnhance = async () => {
+    const t = text.trim();
+    if (!t) {
+      useStore.getState().pushToast("warning", "先输入要优化的提示词");
+      return;
+    }
+    if (enhanceBusy) return;
+    setEnhanceBusy(true);
+    try {
+      const res = await window.pi.app.enhancePrompt(cwd, t);
+      if (res) {
+        setEnhanceResult(res);
+        setEnhanceOpen(true);
+      } else {
+        useStore.getState().pushToast("warning", "提示词优化不可用（未找到可用的模型凭证），已保留原文");
+      }
+    } catch (e: any) {
+      useStore.getState().pushToast("error", "提示词优化失败：" + (e?.message || e));
+    } finally {
+      setEnhanceBusy(false);
+    }
+  };
+
+  // Send the reviewed optimized prompt, honouring the streaming rules the
+  // plain send path applies (Enter during streaming stages a follow-up).
+  const sendEnhanced = () => {
+    if (!enhanceResult) return;
+    const t = enhanceResult.prompt.trim();
+    if (!t) return;
+    if (isStreaming) {
+      if (pending) {
+        void dispatchSend(t, "followUp");
+      } else {
+        setPendingFollowUp(threadId, { text: t, images, files });
+        setText("");
+        setImages([]);
+        setFiles([]);
+        setEnhanceOpen(false);
+        setEnhanceResult(null);
+      }
+      return;
+    }
+    void dispatchSend(t);
   };
 
   // While streaming, Enter stages the message as a pending follow-up card
@@ -602,7 +660,7 @@ export function Composer({ threadId }: { threadId: string }) {
           <textarea
             ref={taRef}
             rows={1}
-            placeholder={isStreaming ? "输入插话… Enter 存为待处理 follow-up（完成后发送），Alt+Enter 立即 steering（中断当前）" : "随心输入  ·  @ 引用项目文件  ·  / 命令  ·  + 添加文件"}
+            placeholder={isStreaming ? "输入插话… Enter 存为待处理 follow-up（完成后发送），Alt+Enter 立即 steering（中断当前）" : "随心输入  ·  @ 引用项目文件  ·  / 命令  ·  + 添加文件  ·  ✦ 优化提示词"}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
@@ -623,6 +681,49 @@ export function Composer({ threadId }: { threadId: string }) {
             <button className="iconbtn" title="Add files" onClick={addFiles}>
               <Plus size={17} />
             </button>
+            <div className="pill composer-enhance" ref={enhanceRef}>
+              <button
+                className="iconbtn"
+                title="优化提示词：结合项目上下文重写为结构化表达（可预览后再发送）"
+                onClick={() => (enhanceOpen ? setEnhanceOpen(false) : void runEnhance())}
+                disabled={enhanceBusy}
+              >
+                <MagicWand size={16} />
+              </button>
+              {enhanceOpen && enhanceResult && (
+                <div className="pill-pop enhance-pop">
+                  <div className="enhance-pop-head">
+                    <span>优化后的提示词</span>
+                    {enhanceResult.contextUsed && (
+                      <span className="enhance-pop-hint">基于：{enhanceResult.contextUsed}</span>
+                    )}
+                  </div>
+                  <textarea
+                    autoFocus
+                    value={enhanceResult.prompt}
+                    onChange={(e) => setEnhanceResult({ ...enhanceResult, prompt: e.target.value })}
+                    placeholder="优化后的提示词"
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setEnhanceOpen(false);
+                      } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        sendEnhanced();
+                      }
+                    }}
+                  />
+                  <div className="enhance-pop-actions">
+                    <button className="set-btn ghost" onClick={() => setEnhanceOpen(false)}>
+                      取消
+                    </button>
+                    <button className="set-btn" onClick={sendEnhanced} disabled={!enhanceResult.prompt.trim()}>
+                      发送优化版
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="pill perm-pill composer-optional-action" ref={permRef}>
               <button
                 className={`pill-btn perm-btn ${permission === "full" ? "perm-full" : ""}`}

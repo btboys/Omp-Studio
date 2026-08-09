@@ -2218,6 +2218,63 @@ body.sidebar-resizing * {
   max-height: 360px;
   overflow: hidden;
 }
+.enhance-pop {
+  width: 520px;
+  max-width: min(78vw, 520px);
+  max-height: 480px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  right: auto;
+  left: 0;
+  transform-origin: bottom left;
+}
+.enhance-pop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.enhance-pop-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.enhance-pop textarea {
+  width: 100%;
+  min-height: 130px;
+  max-height: 320px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 8px 10px;
+  outline: none;
+}
+.enhance-pop textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.enhance-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.enhance-pop-actions .set-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+}
 .command-search {
   display: flex;
   align-items: center;
