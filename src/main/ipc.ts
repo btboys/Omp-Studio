@@ -42,6 +42,7 @@ import {
 import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
 import { enhancePrompt } from "./prompt-enhance";
 import { getOmpConfig, resetOmpConfigKey, setOmpConfigKey } from "./omp-config";
+import { getActiveAuthSession, listAuthProviders, logoutAuthProvider, startAuthLogin, stopAllAuthSessions } from "./auth-service";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
 import { readPreview } from "./preview-service";
@@ -382,6 +383,7 @@ export function stopAllBridges(): void {
   for (const h of bridges.values()) h.bridge.stop();
   bridges.clear();
   dropWarmBridge();
+  stopAllAuthSessions();
 }
 
 export function registerIpc(getWin: () => BrowserWindow | null): void {
@@ -638,6 +640,61 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     (_e, args: { providerId: string; provider: Record<string, unknown>; modelId: string }) =>
       testModelAvailability(args.providerId, args.provider as any, args.modelId),
   );
+  // ---- built-in provider login / logout (omp auth-broker) ---------------
+  ipcMain.handle("settings:listAuthProviders", async () => {
+    try {
+      return { ok: true, providers: await listAuthProviders() };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+  ipcMain.handle("settings:authLoginStart", async (_e, providerId: string) => {
+    try {
+      const session = startAuthLogin(providerId, {
+        onUrl: (url) => void shell.openExternal(url),
+        onLine: (line) => send("pi:auth", { sessionId: providerId, type: "line", text: line }),
+        onAwaitingInput: () => send("pi:auth", { sessionId: providerId, type: "awaiting-input" }),
+      });
+      session.done
+        .then((res) => {
+          send("pi:auth", { sessionId: providerId, type: "done", ok: res.ok, message: res.message });
+          // The standby caches the model registry at boot; a fresh login must
+          // not leak into a stale spare when the next thread opens.
+          if (res.ok) {
+            dropWarmBridge();
+            ensureWarmBridge();
+          }
+        })
+        .catch((err: unknown) => {
+          send("pi:auth", { sessionId: providerId, type: "done", ok: false, message: (err as Error)?.message || String(err) });
+        });
+      return { ok: true, sessionId: providerId };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+  ipcMain.handle("settings:authLoginInput", (_e, sessionId: string, text: string) => {
+    const session = getActiveAuthSession();
+    if (session && session.providerId === sessionId) session.sendInput(text);
+    return { ok: true };
+  });
+  ipcMain.handle("settings:authLoginCancel", (_e, sessionId: string) => {
+    const session = getActiveAuthSession();
+    if (session && session.providerId === sessionId) session.cancel();
+    return { ok: true };
+  });
+  ipcMain.handle("settings:authLogout", async (_e, providerId: string) => {
+    try {
+      const res = await logoutAuthProvider(providerId);
+      if (res.ok) {
+        dropWarmBridge();
+        ensureWarmBridge();
+      }
+      return res;
+    } catch (e: any) {
+      return { ok: false, output: e?.message || String(e) };
+    }
+  });
   ipcMain.handle("settings:saveModels", (_e, providers: Record<string, unknown>) => {
     writeModelsProviders(providers as any);
     // The standby process also caches its model registry. Recreate it now so a

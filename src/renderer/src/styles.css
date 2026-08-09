@@ -3895,6 +3895,85 @@ textarea.modal-input {
   margin-top: 4px;
   line-height: 1.45;
 }
+/* ---------- built-in provider sign-in (auth-broker) ---------- */
+.auth-prov-filter {
+  margin: 10px 0 6px;
+}
+.auth-prov-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  margin-top: 4px;
+}
+.auth-prov-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.auth-prov-row:last-child {
+  border-bottom: none;
+}
+.auth-prov-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.auth-prov-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-prov-id {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.auth-prov-status {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+.auth-prov-status.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.auth-login-modal {
+  width: min(520px, 94vw);
+}
+.auth-login-log {
+  max-height: 240px;
+  overflow-y: auto;
+  background: #f7f7f2;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 9px 11px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  user-select: text;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 10px;
+}
+.auth-login-wait {
+  color: var(--text-faint);
+  font-style: italic;
+}
+:root[data-theme="dark"] .auth-login-log {
+  background: var(--surface-muted);
+}
 .set-input,
 .set-select {
   width: 100%;

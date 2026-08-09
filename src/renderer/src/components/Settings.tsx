@@ -5,6 +5,7 @@ import { cleanOutput, hasLibuvAssertion, lastLine, stripAnsi } from "../lib/upda
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { Archive, Check, Close, Edit, Plus, Refresh, Folder } from "./icons";
 import { OmpConfigPanel } from "./OmpConfigPanel";
+import { ProviderAuthPanel } from "./ProviderAuthPanel";
 import appIconUrl from "../../../../resources/icon.png";
 
 /* ------------------------------------------------------------------ *
@@ -626,6 +627,10 @@ export function Settings() {
         setLiveProviders(out);
       })
       .catch(() => undefined);
+  const handleAuthChanged = () => {
+    refreshLiveProviders();
+    refreshOpenThreadModels();
+  };
   const [thinking, setThinking] = useState<ThinkingDefaults>({});
   const [initialThinking, setInitialThinking] = useState("{}");
   /** omp's scenario model routing (config.yml modelRoles). */
@@ -1211,6 +1216,8 @@ export function Settings() {
                     </button>
                   )}
                 </div>
+
+                <ProviderAuthPanel language={language} liveProviders={liveProviders} onAuthChanged={handleAuthChanged} />
 
                 {adding && (
                   <form

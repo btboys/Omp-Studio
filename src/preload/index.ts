@@ -113,6 +113,11 @@ const api = {
   settings: {
     getModels: () => ipcRenderer.invoke("settings:getModels"),
     getLiveProviders: () => ipcRenderer.invoke("settings:getLiveProviders"),
+    listAuthProviders: () => ipcRenderer.invoke("settings:listAuthProviders"),
+    authLoginStart: (providerId: string) => ipcRenderer.invoke("settings:authLoginStart", providerId),
+    authLoginInput: (sessionId: string, text: string) => ipcRenderer.invoke("settings:authLoginInput", sessionId, text),
+    authLoginCancel: (sessionId: string) => ipcRenderer.invoke("settings:authLoginCancel", sessionId),
+    authLogout: (providerId: string) => ipcRenderer.invoke("settings:authLogout", providerId),
     testModel: (args: { providerId: string; provider: Record<string, unknown>; modelId: string }) =>
       ipcRenderer.invoke("settings:testModel", args),
     saveModels: (providers: Record<string, unknown>) => ipcRenderer.invoke("settings:saveModels", providers),
@@ -147,6 +152,8 @@ const api = {
     appUpdate: (cb: (p: { stage: string; message: string; pct?: number; version?: string; releaseUrl?: string | null }) => void) =>
       on("pi:appUpdate", cb),
     coreUpdate: (cb: (p: { stage: string; message: string; pct?: number }) => void) => on("pi:coreUpdate", cb),
+    auth: (cb: (p: { sessionId: string; type: "line" | "awaiting-input" | "done"; text?: string; ok?: boolean; message?: string }) => void) =>
+      on("pi:auth", cb),
     updateStatus: (cb: (p: { app: { hasUpdate: boolean; latest: string | null; current: string; releaseUrl: string | null; supported: boolean; installable: boolean; downloaded: boolean; note?: string | null; error?: string }; core: { hasUpdate: boolean; latest: string | null; current: string | null; note?: string | null; error?: string } }) => void) =>
       on("pi:updateStatus", cb),
     notifyActivate: (cb: (p: { threadId: string; cwd?: string }) => void) => on("pi:notify-activate", cb),
