@@ -3585,6 +3585,38 @@ textarea.modal-input {
   animation: spin 0.8s linear infinite;
   display: inline-block;
 }
+/* Startup splash: covers bootstrap (config/projects/tab restore) so the UI
+   doesn't flash the English default or empty state before language loads. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  transition: opacity 0.4s ease;
+}
+.splash-box {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+}
+.splash-box h2 {
+  color: var(--text-dim);
+  font-weight: 600;
+  margin: 0;
+}
+.splash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+.splash-leave {
+  opacity: 0;
+  pointer-events: none;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "./store";
 import { usePiEvents } from "./lib/usePiEvents";
 import { TitleBar } from "./components/TitleBar";
@@ -26,7 +26,25 @@ export default function App() {
   const projects = useStore((s) => s.projects);
   const runtime = useStore((s) => s.runtime);
   const theme = useStore((s) => s.config?.theme || "light");
+  const bootstrapped = useStore((s) => s.bootstrapped);
   usePiEvents();
+
+  // Startup splash: bootstrap() loads config/projects/tabs over a few seconds;
+  // without it the UI flashes the English default and empty state before
+  // flipping to the saved language. Cover that window, then fade out.
+  const [splashGone, setSplashGone] = useState(false);
+  const [splashForced, setSplashForced] = useState(false);
+  const splashZh = (navigator.language || "en").toLowerCase().startsWith("zh");
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const t = setTimeout(() => setSplashGone(true), 450); // match .splash transition
+    return () => clearTimeout(t);
+  }, [bootstrapped]);
+  // Emergency escape if an IPC call hangs; don't lock the UI behind the splash forever.
+  useEffect(() => {
+    const t = setTimeout(() => setSplashForced(true), 20_000);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     bootstrap();
@@ -99,6 +117,20 @@ export default function App() {
 
   return (
     <div className="app">
+      {!splashGone && (
+        <div className={`splash${bootstrapped || splashForced ? " splash-leave" : ""}`}>
+          <div className="splash-box">
+            <div className="empty-state-app-icon">
+              <img src={appIconUrl} alt="" aria-hidden="true" />
+            </div>
+            <h2>Omp Studio</h2>
+            <div className="splash-row">
+              <span className="spinner" />
+              {splashZh ? "正在启动…" : "Starting…"}
+            </div>
+          </div>
+        </div>
+      )}
       <LanguageBridge />
       <TitleBar />
       <div className={`body ${previewExpanded ? "preview-expanded" : ""}`}>

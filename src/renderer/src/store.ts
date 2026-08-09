@@ -530,6 +530,8 @@ interface PiStore {
   runtime: AppRuntime | null;
   projects: ProjectSummary[];
   projectsLoading: boolean;
+  /** True once bootstrap (config + projects + tab restore) has completed. */
+  bootstrapped: boolean;
 
   // layout
   sidebarOpen: boolean;
@@ -795,6 +797,7 @@ export const useStore = create<PiStore>()((set, get) => ({
   runtime: null,
   projects: [],
   projectsLoading: false,
+  bootstrapped: false,
   sidebarOpen: true,
   previewOpen: false,
   previewExpanded: false,
@@ -883,6 +886,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       // Always unlock persistence, even if restore throws/hangs mid-way then recovers.
       openTabsHydrated = true;
       persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds);
+      set({ bootstrapped: true });
     }
   },
 
