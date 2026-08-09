@@ -9,7 +9,7 @@ When redistributing a built application, keep this notice together with the appl
 ### oh-my-pi (omp)
 
 - Package: `@oh-my-pi/pi-coding-agent` (bundled as the native `omp` CLI binary)
-- Version in the current embedded runtime: `17.2.11` (`ompRuntimeVersion` in `package.json`)
+- Version in the current embedded runtime: `17.2.12` (`ompRuntimeVersion` in `package.json`)
 - License: MIT
 - Copyright: Mario Zechner; Can Bölük
 - Source: <https://github.com/can1357/oh-my-pi>

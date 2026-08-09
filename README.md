@@ -58,7 +58,7 @@ npm run dist              # Bundle, build, and create the installer
 npm run pack              # Create an unpacked directory build
 ```
 
-Build output is written to `release/`. `npm run dist` creates the Electron installer with the omp runtime binary embedded inside it; the generated binary in `release/` is retained for QA and does not need to be uploaded separately. The repository pins the omp runtime `17.2.11` in `package.json` (`ompRuntimeVersion`), and the packaging script verifies that version against the latest GitHub release before downloading. Set `OMP_RUNTIME_VERSION` to package a different pinned version.
+Build output is written to `release/`. `npm run dist` creates the Electron installer with the omp runtime binary embedded inside it; the generated binary in `release/` is retained for QA and does not need to be uploaded separately. The repository pins the omp runtime `17.2.12` in `package.json` (`ompRuntimeVersion`), and the packaging script verifies that version against the latest GitHub release before downloading. Set `OMP_RUNTIME_VERSION` to package a different pinned version.
 
 ## Configuration and data
 

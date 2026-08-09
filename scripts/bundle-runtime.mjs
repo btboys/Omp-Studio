@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const APP_PACKAGE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-const EXPECTED_VERSION = process.env.OMP_RUNTIME_VERSION || APP_PACKAGE.ompRuntimeVersion || "17.2.11";
+const EXPECTED_VERSION = process.env.OMP_RUNTIME_VERSION || APP_PACKAGE.ompRuntimeVersion || "17.2.12";
 const RUNTIME_OUT = join(ROOT, "runtime-release");
 const MANIFEST_OUT = join(ROOT, "resources", "runtime-manifest.json");
 const RELEASES_API = "https://api.github.com/repos/can1357/oh-my-pi/releases/latest";
