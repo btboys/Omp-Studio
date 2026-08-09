@@ -658,6 +658,8 @@ interface PiStore {
 
   setSidebarTab: (t: "threads" | "files" | "git") => void;
   toggleSidebar: () => void;
+  /** Collapse/expand the todo panel above the composer for a thread. */
+  setTodoCollapsed: (id: string, collapsed: boolean) => void;
   togglePreview: () => void;
   togglePreviewExpanded: () => void;
   loadFileTree: (cwd: string, rel?: string) => Promise<void>;
@@ -1796,6 +1798,12 @@ export const useStore = create<PiStore>()((set, get) => ({
 
   setSidebarTab: (t) => set({ sidebarTab: t }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  setTodoCollapsed: (id, collapsed) =>
+    set((s) => {
+      const t = s.threads[id];
+      if (!t || (t.todoCollapsed ?? false) === collapsed) return s;
+      return { threads: { ...s.threads, [id]: { ...t, todoCollapsed: collapsed } } };
+    }),
   togglePreview: () =>
     set((s) => ({
       previewOpen: !s.previewOpen,

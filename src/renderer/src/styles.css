@@ -1600,6 +1600,95 @@ body.sidebar-resizing * {
 .composer-confirmation-region:empty {
   display: none;
 }
+/* ---------- todo panel ---------- */
+.todo-panel-wrap {
+  flex: 0 0 auto;
+  padding: 0 28px 10px;
+}
+.todo-panel {
+  max-width: 860px;
+  margin: 0 auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.todo-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.todo-panel-head:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.todo-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.todo-panel-title svg {
+  color: var(--accent);
+}
+.todo-panel-count {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.todo-panel-chevron {
+  color: var(--text-faint);
+  transform: rotate(90deg);
+  transition: transform 0.12s ease;
+}
+.todo-panel-wrap.collapsed .todo-panel-chevron {
+  transform: none;
+}
+.todo-panel-list {
+  margin: 0;
+  padding: 0 12px 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.todo-check {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.todo-check.checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.todo-item.done .todo-text {
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
 .extui-card {
   width: 100%;
   max-width: 860px;
@@ -2207,7 +2296,8 @@ body.sidebar-resizing * {
  * while removing secondary text pills before they can wrap vertically.
  */
 @container thread-panel (max-width: 680px) {
-  .composer-wrap {
+  .composer-wrap,
+  .todo-panel-wrap {
     padding-inline: 14px;
   }
 
@@ -2227,7 +2317,8 @@ body.sidebar-resizing * {
 }
 
 @container thread-panel (max-width: 500px) {
-  .composer-wrap {
+  .composer-wrap,
+  .todo-panel-wrap {
     padding-inline: 8px;
   }
 
@@ -5134,6 +5225,7 @@ mark.hl {
 :root[data-theme="dark"] .search-clear:hover,
 :root[data-theme="dark"] .code-copy:hover,
 :root[data-theme="dark"] .thinking-toggle:hover,
+:root[data-theme="dark"] .todo-panel-head:hover,
 :root[data-theme="dark"] .tool-head:hover,
 :root[data-theme="dark"] .msg-actions button:hover,
 :root[data-theme="dark"] .pf-btn:hover,

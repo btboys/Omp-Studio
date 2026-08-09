@@ -7,9 +7,42 @@ import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
-import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch } from "./icons";
+import { Sidebar, PanelRight, Copy, ThumbUp, ThumbDown, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight } from "./icons";
 import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
+
+/** One extracted markdown checkbox item. */
+export interface TodoItem {
+  done: boolean;
+  text: string;
+}
+
+/** The current todo list: its items plus the key of the message that owns it. */
+interface TodoInfo {
+  sourceKey: string;
+  items: TodoItem[];
+}
+
+/** GFM task-list line: `- [ ] foo`, `* [x] bar`, `1. [X] baz`. */
+const TODO_LINE = /^\s*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s+(.*)$/;
+
+/** Extract markdown checkbox items from assistant text; null when none present. */
+function extractTodos(text: string): TodoItem[] | null {
+  const items: TodoItem[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(TODO_LINE);
+    if (m) items.push({ done: m[1].toLowerCase() === "x", text: m[2].trim() });
+  }
+  return items.length ? items : null;
+}
+
+/** Render-time only: drop the todo lines from a message so the panel owns them. */
+function stripTodoLines(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !TODO_LINE.test(line))
+    .join("\n");
+}
 
 export function Chat() {
   const activeThreadId = useStore((s) => s.activeThreadId);
@@ -71,6 +104,21 @@ export function Chat() {
   // Must stay above any early return: thread.loading used to skip this hook and
   // white-screen the app (React hook-order violation).
   const groups = useMemo(() => groupMessages(thread?.messages || []), [thread?.messages]);
+
+  // Current todos = checkbox list from the newest assistant message (committed
+  // or streaming) that contains one. That message's list is stripped from the
+  // stream and shown in the collapsible panel above the composer.
+  const todoInfo = useMemo<TodoInfo | null>(() => {
+    const msgs = thread ? [...thread.messages, ...(streaming ? [streaming] : [])] : [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== "assistant") continue;
+      const text = (m.blocks || []).map((b) => (b.type === "text" ? b.text : "")).join("\n");
+      const items = extractTodos(text);
+      if (items) return { sourceKey: m.key, items };
+    }
+    return null;
+  }, [thread?.messages, streaming]);
 
   if (!thread || !activeThreadId) return null;
 
@@ -273,7 +321,7 @@ export function Chat() {
       <div className="chat-scroll" ref={scrollRef}>
         <div className="messages">
           {headGroups.map((g) => (
-            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} locked={thread.isStreaming} onPreviewImage={setPreviewImage} />
+            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} locked={thread.isStreaming} stripKey={todoInfo?.sourceKey ?? null} onPreviewImage={setPreviewImage} />
           ))}
           {streaming && streamingExtends && lastGroup && (
             <MessageGroup
@@ -283,6 +331,7 @@ export function Chat() {
               toolRuns={thread.toolRuns}
               locked
               streaming
+              stripKey={todoInfo?.sourceKey ?? null}
               onPreviewImage={setPreviewImage}
             />
           )}
@@ -294,6 +343,7 @@ export function Chat() {
               toolRuns={thread.toolRuns}
               locked
               streaming
+              stripKey={todoInfo?.sourceKey ?? null}
               onPreviewImage={setPreviewImage}
             />
           )}
@@ -304,6 +354,8 @@ export function Chat() {
           )}
         </div>
       </div>
+
+      {todoInfo && <TodoPanel threadId={activeThreadId} items={todoInfo.items} />}
 
       <div className="composer-confirmation-region" aria-live="assertive">
         <ExtUiPromptCard threadId={activeThreadId} />
@@ -358,8 +410,9 @@ const MessageGroup = memo(MessageGroupInner, (prev, next) => {
     prev.group !== next.group ||
     prev.threadId !== next.threadId ||
     prev.locked !== next.locked ||
-    !!prev.streaming !== !!next.streaming
-    || prev.onPreviewImage !== next.onPreviewImage
+    !!prev.streaming !== !!next.streaming ||
+    prev.stripKey !== next.stripKey ||
+    prev.onPreviewImage !== next.onPreviewImage
   ) {
     return false;
   }
@@ -377,6 +430,7 @@ function MessageGroupInner({
   toolRuns,
   locked,
   streaming,
+  stripKey,
   onPreviewImage,
 }: {
   threadId: string;
@@ -384,6 +438,8 @@ function MessageGroupInner({
   toolRuns: Record<string, ToolRun>;
   locked?: boolean;
   streaming?: boolean;
+  /** Key of the message whose todo lines are lifted into the todo panel. */
+  stripKey?: string | null;
   onPreviewImage: (src: string) => void;
 }) {
   const forkThreadFromAgentReply = useStore((s) => s.forkThreadFromAgentReply);
@@ -518,7 +574,13 @@ function MessageGroupInner({
       </div>
       <div className="msg-body">
         {group.items.map((m) =>
-          (m.blocks || []).map((b, i) => <BlockView key={`${m.key}:${i}`} block={b} toolRuns={toolRuns} />)
+          (m.blocks || []).map((b, i) =>
+            b.type === "text" && m.key === stripKey ? (
+              <Markdown key={`${m.key}:${i}`} text={stripTodoLines(b.text)} />
+            ) : (
+              <BlockView key={`${m.key}:${i}`} block={b} toolRuns={toolRuns} />
+            )
+          )
         )}
         {streaming && !hasBlocks && <span className="muted">思考中</span>}
         {streaming && <span className="streaming-dot" />}
@@ -613,6 +675,48 @@ function plainOfGroup(g: MsgGroup): string {
     )
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** Collapsible panel above the composer showing the current todo list. */
+function TodoPanel({ threadId, items }: { threadId: string; items: TodoItem[] }) {
+  const collapsed = useStore((s) => !!s.threads[threadId]?.todoCollapsed);
+  const setTodoCollapsed = useStore((s) => s.setTodoCollapsed);
+  const language = useStore((s) => s.config?.language || "en");
+  const done = items.filter((i) => i.done).length;
+  return (
+    <section className={`todo-panel-wrap ${collapsed ? "collapsed" : ""}`}>
+      <div className="todo-panel">
+        <button
+          type="button"
+          className="todo-panel-head"
+          aria-expanded={!collapsed}
+          title={language === "zh" ? (collapsed ? "展开待办" : "收起待办") : collapsed ? "Expand todos" : "Collapse todos"}
+          onClick={() => setTodoCollapsed(threadId, !collapsed)}
+        >
+          <span className="todo-panel-title">
+            <Check size={13} />
+            {language === "zh" ? "待办" : "Todos"}
+          </span>
+          <span className="todo-panel-count">
+            {done}/{items.length}
+          </span>
+          <ChevronRight size={13} className="todo-panel-chevron" />
+        </button>
+        {!collapsed && (
+          <ul className="todo-panel-list">
+            {items.map((it, i) => (
+              <li key={i} className={`todo-item ${it.done ? "done" : ""}`}>
+                <span className={`todo-check ${it.done ? "checked" : ""}`} aria-hidden="true">
+                  {it.done && <Check size={9} />}
+                </span>
+                <span className="todo-text">{it.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function BlockView({ block, toolRuns }: { block: ContentBlock; toolRuns: Record<string, ToolRun> }) {

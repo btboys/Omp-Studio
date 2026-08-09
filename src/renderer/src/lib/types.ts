@@ -174,6 +174,8 @@ export interface ThreadState {
   extStatuses?: Record<string, string>;
   /** Named widgets pushed by an extension via setWidget. */
   extWidgets?: Record<string, string>;
+  /** Whether the todo panel above the composer is collapsed for this thread. */
+  todoCollapsed?: boolean;
 }
 
 export interface PreviewPayload {
