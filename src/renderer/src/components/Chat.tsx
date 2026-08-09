@@ -464,7 +464,7 @@ function referencedRunIds(m: ViewMessage): string[] {
  *  (a whole agent round) rendered under a single avatar. */
 interface MsgGroup {
   key: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   items: ViewMessage[];
 }
 
@@ -475,7 +475,7 @@ function groupMessages(messages: ViewMessage[]): MsgGroup[] {
     if (m.role === "assistant" && last && last.role === "assistant") {
       last.items.push(m);
     } else {
-      groups.push({ key: m.key, role: m.role === "assistant" ? "assistant" : "user", items: [m] });
+      groups.push({ key: m.key, role: m.role === "assistant" ? "assistant" : m.role === "system" ? "system" : "user", items: [m] });
     }
   }
   return groups;
@@ -612,6 +612,23 @@ function MessageGroupInner({
           <span className="msg-user-character" aria-hidden="true">
             🧑
           </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (group.role === "system") {
+    const m = group.items[0];
+    return (
+      <div className="msg system">
+        <div className="msg-advisory">
+          {(m.severity || m.guidance) && (
+            <div className="msg-advisory-head">
+              {m.severity && <span className={`msg-advisory-sev ${m.severity}`}>{m.severity}</span>}
+              {m.guidance && <span className="msg-advisory-guidance">{m.guidance}</span>}
+            </div>
+          )}
+          {m.text && <div className="msg-advisory-text">{m.text}</div>}
         </div>
       </div>
     );

@@ -110,6 +110,9 @@ export interface ViewMessage {
   timestamp?: number;
   /** user/system plain text (may include image blocks for user) */
   text?: string;
+  /** advisor custom_message metadata (system role only) */
+  severity?: string;
+  guidance?: string;
   images?: { dataUrl: string; mimeType: string }[];
   /** assistant structured blocks */
   blocks?: ContentBlock[];

@@ -257,6 +257,25 @@ function addThinking(blocks: ContentBlock[], delta: string): ContentBlock[] {
 
 const newAssistant = (key?: string): ViewMessage => ({ key: key || `a-${uid()}`, role: "assistant", blocks: [], timestamp: Date.now() });
 
+/** Parse an omp advisor `custom_message` body ("<advisory severity=… guidance=…>…</advisory>"). */
+function parseAdvisory(content: string): { severity?: string; guidance?: string; text: string } | null {
+  if (!content) return null;
+  const m = content.match(/^\s*<advisory\b([^>]*)>([\s\S]*?)<\/advisory>\s*$/);
+  const decode = (s: string) =>
+    s
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  if (!m) return { text: decode(content.trim()) };
+  const attrs = m[1] || "";
+  const severity = attrs.match(/severity="([^"]+)"/)?.[1];
+  const guidance = attrs.match(/guidance="([^"]+)"/)?.[1];
+  const text = decode(m[2]).trim();
+  return text ? { severity, guidance, text } : null;
+}
+
 /** Convert a flat list of pi AgentMessages into renderable views + initial tool runs. */
 function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Record<string, ToolRun> } {
   const toolResultById: Record<string, { text: string; isError: boolean }> = {};
@@ -297,6 +316,11 @@ function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Recor
         stopReason: m.stopReason,
         errorMessage: m.errorMessage,
       });
+    } else if ((m.type === "custom_message" || m.role === "custom") && m.customType === "advisor") {
+      const adv = parseAdvisory(typeof m.content === "string" ? m.content : "");
+      if (adv) {
+        views.push({ key: `hs-${i}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: m.timestamp });
+      }
     }
   });
   return { views, toolRuns };
@@ -402,6 +426,13 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
         return { ...t, streaming: newAssistant() };
       }
       return t;
+    }
+    case "custom_message": {
+      if (event.customType !== "advisor") return t;
+      const adv = parseAdvisory(typeof event.content === "string" ? event.content : "");
+      if (!adv) return t;
+      const view: ViewMessage = { key: `sys-${uid()}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: event.timestamp };
+      return { ...t, messages: [...t.messages, view] };
     }
     case "message_end": {
       const m = event.message;

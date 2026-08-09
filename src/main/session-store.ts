@@ -237,6 +237,12 @@ export async function readThreadHistory(file: string): Promise<ThreadHistory> {
       case "message":
         if (e.message) messages.push(e.message);
         break;
+      case "custom_message":
+        // omp advisor notes ("<advisory …>…</advisory>") arrive as top-level
+        // custom_message entries; keep them so the UI can render them as
+        // system messages (same shape as `get_messages` returns live).
+        if (e.customType === "advisor") messages.push(e);
+        break;
       case "model_change":
         if (typeof e.model === "string" && e.model) model = splitModel(e.model);
         else if (e.provider && e.modelId) model = { provider: e.provider, id: e.modelId };
