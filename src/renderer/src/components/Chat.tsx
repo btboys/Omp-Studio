@@ -5,17 +5,14 @@ import { formatClock, formatTokens } from "../lib/format";
 import { collectFileArtifacts } from "../lib/artifacts";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
+import { replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
 import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, Close, Undo } from "./icons";
 import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
-/** One extracted markdown checkbox item. */
-export interface TodoItem {
-  done: boolean;
-  text: string;
-}
+export type { TodoItem } from "../lib/todos";
 
 /** The current todo list: its items plus the key of the message that owns it. */
 interface TodoInfo {
@@ -154,9 +151,11 @@ export function Chat() {
   // white-screen the app (React hook-order violation).
   const groups = useMemo(() => groupMessages(thread?.messages || []), [thread?.messages]);
 
-  // Current todos = checkbox list from the newest assistant message (committed
-  // or streaming) that contains one. That message's list is stripped from the
-  // stream and shown in the collapsible panel above the composer.
+  // Current todos = the newest assistant message (committed or streaming) that
+  // carries one. Two sources: GFM checkbox lines in the message text (Claude
+  // Code-style), or `todo` tool calls — which are stateful, so their ops are
+  // replayed in session order to derive the current list. The owning message's
+  // todo lines are stripped from the stream and shown in the collapsible panel.
   const todoInfo = useMemo<TodoInfo | null>(() => {
     const msgs = thread ? [...thread.messages, ...(streaming ? [streaming] : [])] : [];
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -165,6 +164,20 @@ export function Chat() {
       const text = (m.blocks || []).map((b) => (b.type === "text" ? b.text : "")).join("\n");
       const items = extractTodos(text);
       if (items) return { sourceKey: m.key, items };
+    }
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== "assistant") continue;
+      if (!(m.blocks || []).some((b) => b.type === "toolCall" && b.name === "todo")) continue;
+      const ops: TodoOp[] = [];
+      for (const sm of msgs) {
+        if (sm.role !== "assistant") continue;
+        for (const b of sm.blocks || []) {
+          if (b.type === "toolCall" && b.name === "todo") ops.push(b.arguments as TodoOp);
+        }
+      }
+      const items = replayTodoOps(ops);
+      if (items.length) return { sourceKey: m.key, items };
     }
     return null;
   }, [thread?.messages, streaming]);
