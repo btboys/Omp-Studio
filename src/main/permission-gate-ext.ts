@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 type RiskLevel = "allow" | "approval" | "always";
 type ShellDecision = {
@@ -8,6 +9,8 @@ type ShellDecision = {
   reasonZh?: string;
   exactKey?: string;
   prefixKey?: string;
+  /** True when the command creates/overwrites/copies/moves files or redirects output. */
+  mutatesFiles?: boolean;
 };
 
 type HardRiskRule = {
@@ -307,6 +310,7 @@ export function classifyShellCommand(command: string): ShellDecision {
       reasonZh: "该命令可能创建、覆盖、复制、移动文件，或将输出重定向到文件。",
       exactKey,
       prefixKey: suggestedPrefix(command, parsed),
+      mutatesFiles: true,
     };
   }
   return {
@@ -340,6 +344,64 @@ export function isOutsideProject(path: string, cwd: string): boolean {
   return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
 }
 
+/** Tokens that are pure shell operators / redirections, never file paths. */
+const PURE_OPERATOR = /^[<>0-9&|;]+$/;
+
+function collectPathTokens(segment: string): string[] {
+  const tokens: string[] = [];
+  const bare: string[] = [];
+  let last = 0;
+  const quoted = /"([^"]*)"|'([^']*)'/g;
+  let match: RegExpExecArray | null;
+  while ((match = quoted.exec(segment)) !== null) {
+    bare.push(segment.slice(last, match.index));
+    tokens.push(match[1] ?? match[2]);
+    last = match.index + match[0].length;
+  }
+  bare.push(segment.slice(last));
+  for (const part of bare) {
+    for (const token of part.split(/\s+/)) {
+      if (token) tokens.push(token);
+    }
+  }
+  return tokens.filter((token) => !token.startsWith("-") && !token.includes("=") && !token.includes("://") && !PURE_OPERATOR.test(token));
+}
+
+function expandHome(token: string): string {
+  if (token === "~") return homedir();
+  if (token.startsWith("~/") || token.startsWith("~\\")) return join(homedir(), token.slice(2));
+  if (token.startsWith("$HOME") || token.startsWith("${HOME}")) return join(homedir(), token.slice(token.startsWith("${") ? 7 : 5));
+  if (token.startsWith("%USERPROFILE%")) return join(homedir(), token.slice(13));
+  return token;
+}
+
+/** True when a mutating shell command touches any path outside `cwd`. The first
+ * token of each segment is the command name and is never a target path. */
+export function mutatesOutsideProject(segments: string[], cwd: string): boolean {
+  for (const segment of segments) {
+    const tokens = collectPathTokens(segment);
+    for (let i = 1; i < tokens.length; i++) {
+      if (isOutsideProject(expandHome(tokens[i]), cwd)) return true;
+    }
+  }
+  return false;
+}
+
+/** True when a mutating shell command has a path token with a variable we cannot
+ * expand (`$OUT` etc.; `~`, `$HOME`, `%USERPROFILE%` are expanded and excluded).
+ * The path may resolve outside the project, so auto mode must ask instead of
+ * silently resolving it inside the project — mirrors the hasSubstitution stance. */
+export function hasUnresolvedPathVariables(segments: string[]): boolean {
+  for (const segment of segments) {
+    const tokens = collectPathTokens(segment);
+    for (let i = 1; i < tokens.length; i++) {
+      const token = expandHome(tokens[i]);
+      if (token.includes("$") || /%[^%]+%/.test(token)) return true;
+    }
+  }
+  return false;
+}
+
 function redactInput(value: unknown): string {
   try {
     return JSON.stringify(
@@ -357,16 +419,18 @@ export default function permissionGate(pi: any) {
   const approvedExact = new Set<string>();
   const approvedPrefixes = new Set<string>();
   const approvedTools = new Set<string>();
-  let previousFullMode = false;
+  let previousMode = "";
 
-  const isFullMode = (): boolean => {
-    if (!modeFile) return false;
+  const readMode = (): string => {
+    if (!modeFile) return "";
     try {
-      return readFileSync(modeFile, "utf8").trim() === "full";
+      return readFileSync(modeFile, "utf8").trim();
     } catch {
-      return false;
+      return "";
     }
   };
+
+  /** 替我审批: routine operations auto-approve; dangerous ones still ask. */
 
   const language = (): "en" | "zh" => {
     if (!modeFile) return "en";
@@ -378,15 +442,15 @@ export default function permissionGate(pi: any) {
     }
   };
 
-  const gatingDisabled = () => {
-    const full = isFullMode();
-    if (full !== previousFullMode) {
+  const gatingDisabled = (): boolean => {
+    const mode = readMode() === "full" ? "full" : readMode() === "auto" ? "auto" : "sandbox";
+    if (mode !== previousMode) {
       approvedExact.clear();
       approvedPrefixes.clear();
       approvedTools.clear();
-      previousFullMode = full;
+      previousMode = mode;
     }
-    return full;
+    return mode === "full";
   };
 
   const blocked = (reason: string) => ({ block: true, reason });
@@ -451,7 +515,22 @@ export default function permissionGate(pi: any) {
     if (event.toolName === "bash") {
       const command = String(event.input?.command || "");
       const decision = classifyShellCommand(command);
-      if (decision.risk === "allow" || (decision.risk === "approval" && hasShellApproval(decision))) return undefined;
+      if (decision.risk === "allow") return undefined;
+      if (decision.risk === "approval") {
+        if (readMode() === "auto") {
+          // 替我审批: routine commands pass unprompted. File-mutating commands
+          // that touch paths outside the project — or whose paths use variables
+          // we cannot expand (may resolve outside) — still ask; dangerous
+          // ("always"-risk) ones always go through requestApproval below.
+          const segments = parseShellCommand(command).segments;
+          const gated =
+            decision.mutatesFiles &&
+            (mutatesOutsideProject(segments, String(ctx.cwd || process.cwd())) || hasUnresolvedPathVariables(segments));
+          if (!gated || hasShellApproval(decision)) return undefined;
+        } else if (hasShellApproval(decision)) {
+          return undefined;
+        }
+      }
       return requestApproval(ctx, "Shell", language() === "zh" ? decision.reasonZh || decision.reason : decision.reason, command, {
         exactKey: decision.exactKey,
         prefixKey: decision.prefixKey,
@@ -484,7 +563,7 @@ export default function permissionGate(pi: any) {
         { cacheable: false },
       );
     }
-    if (approvedTools.has(toolName)) return undefined;
+    if (readMode() === "auto" || approvedTools.has(toolName)) return undefined;
     const mutating = MUTATING_TOOL_NAME.test(toolName);
     return requestApproval(
       ctx,

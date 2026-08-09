@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
+// Hermetic: the harness may run inside Omp Studio, which leaks its live
+// thread's gate mode file into the environment. The gate reads it at install
+// time, so scrub it before importing the module.
+delete process.env.PI_STUDIO_GATE_MODE_FILE;
+
 const gateModule = await import(`${pathToFileURL(resolve("src/main/permission-gate-ext.ts")).href}?test=${Date.now()}`);
-const { classifyShellCommand, isOutsideProject, parseShellCommand, default: installGate } = gateModule;
+const { classifyShellCommand, hasUnresolvedPathVariables, isOutsideProject, mutatesOutsideProject, parseShellCommand, default: installGate } = gateModule;
 
 const allow = [
   "Get-ChildItem | Select-Object Name,Length",
@@ -61,6 +69,17 @@ assert.equal(classifyShellCommand(multiline).risk, "approval", "multiline comman
 assert.equal(isOutsideProject("src/main/index.ts", process.cwd()), false);
 assert.equal(isOutsideProject("../outside.txt", process.cwd()), true);
 
+assert.equal(mutatesOutsideProject(["cp package.json /tmp/x"], process.cwd()), true, "absolute outside path must be detected");
+assert.equal(mutatesOutsideProject(["cp package.json package.json.bak"], process.cwd()), false, "in-project copy is safe");
+assert.equal(mutatesOutsideProject(["Set-Content out.txt ok"], process.cwd()), false, "in-project write is safe");
+assert.equal(mutatesOutsideProject(["echo hi > out.log"], process.cwd()), false, "in-project redirect is safe");
+assert.equal(mutatesOutsideProject(["mkdir ~/outside-dir"], process.cwd()), true, "home-directory path must be detected");
+assert.equal(mutatesOutsideProject(["npm run build"], process.cwd()), false, "no path tokens means no gate");
+
+assert.equal(hasUnresolvedPathVariables(["cp a $OUT/b"], process.cwd()), true, "unresolvable variable must be flagged");
+assert.equal(hasUnresolvedPathVariables(["cp a $HOME/b"], process.cwd()), false, "$HOME is expanded, not unresolved");
+assert.equal(hasUnresolvedPathVariables(["npm run build"], process.cwd()), false, "no variables means no flag");
+
 function makeHarness(selectChoice) {
   let handler;
   let selectCalls = 0;
@@ -112,5 +131,53 @@ await subagent.call("run_subagent", { task: "inspect" });
 await subagent.call("run_subagent", { task: "inspect again" });
 await subagent.call("convene_council", { task: "review" });
 assert.equal(subagent.calls(), 3, "subagent full-permission escalation must never be cached");
+
+// ---- auto mode (替我审批): routine ops auto-approve, dangerous ones still ask ----
+const tmpDir = mkdtempSync(join(tmpdir(), "pi-gate-auto-"));
+const modeFile = join(tmpDir, "auto.mode");
+process.env.PI_STUDIO_GATE_MODE_FILE = modeFile;
+const writeMode = (mode) => writeFileSync(modeFile, mode, "utf8");
+
+writeMode("auto");
+const autoRoutine = makeHarness(() => "unused");
+await autoRoutine.call("bash", { command: "npm run build" });
+assert.equal(autoRoutine.calls(), 0, "auto mode must auto-approve routine (approval-risk) commands");
+
+const autoDangerous = makeHarness((_title, options) => options[0]);
+await autoDangerous.call("bash", { command: "rm -rf build" });
+await autoDangerous.call("bash", { command: "rm -rf build" });
+assert.equal(autoDangerous.calls(), 2, "auto mode must still prompt for destructive (always-risk) commands");
+
+const autoOutsideWrite = makeHarness((_title, options) => options[0]);
+await autoOutsideWrite.call("write", { path: "../outside.txt" });
+assert.equal(autoOutsideWrite.calls(), 1, "auto mode must still prompt for out-of-project writes");
+
+const autoSubagent = makeHarness((_title, options) => options[0]);
+await autoSubagent.call("task", { task: "inspect" });
+assert.equal(autoSubagent.calls(), 1, "auto mode must still prompt for subagent escalation");
+
+const autoOutsideCp = makeHarness((_title, options) => options[0]);
+await autoOutsideCp.call("bash", { command: "cp package.json /tmp/pi-gate-outside-copy.json" });
+assert.equal(autoOutsideCp.calls(), 1, "auto mode must prompt for file mutations outside the project");
+
+const autoInsideCp = makeHarness(() => "unused");
+await autoInsideCp.call("bash", { command: "cp package.json package.json.bak" });
+assert.equal(autoInsideCp.calls(), 0, "auto mode must auto-approve file mutations inside the project");
+
+const autoRedirectOutside = makeHarness((_title, options) => options[0]);
+await autoRedirectOutside.call("bash", { command: "echo hi > /tmp/pi-gate-outside-redirect.txt" });
+assert.equal(autoRedirectOutside.calls(), 1, "auto mode must prompt for redirection outside the project");
+
+const autoVarCp = makeHarness((_title, options) => options[0]);
+await autoVarCp.call("bash", { command: "cp package.json $OUT/pi-gate-copy.json" });
+assert.equal(autoVarCp.calls(), 1, "auto mode must prompt when a mutation path uses an unresolvable variable");
+
+writeMode("full");
+const fullBypass = makeHarness(() => "unused");
+await fullBypass.call("bash", { command: "rm -rf build" });
+assert.equal(fullBypass.calls(), 0, "full mode must bypass even destructive commands");
+
+delete process.env.PI_STUDIO_GATE_MODE_FILE;
+rmSync(tmpDir, { recursive: true, force: true });
 
 console.log("permission gate tests passed");

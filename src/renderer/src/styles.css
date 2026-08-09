@@ -1849,6 +1849,35 @@ body.sidebar-resizing * {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+.extui-card-autopilot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.extui-card-autopilot button {
+  flex: 0 0 auto;
+  border: 1px solid #c9d8a9;
+  background: #f4f8e8;
+  color: #5c7a1f;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.extui-card-autopilot button:hover {
+  border-color: #a9c26f;
+  background: #edf4d9;
+}
+.extui-card-autopilot span {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
+}
 .composer {
   max-width: 860px;
   margin: 0 auto;
@@ -5317,6 +5346,16 @@ mark.hl {
   border-color: #e7cfa6;
   color: #9a6a12;
 }
+.perm-btn.perm-auto {
+  background: #eef3e2;
+  border-color: #cdd9a8;
+  color: #5c7a1f;
+}
+.advisory-btn.advisory-on {
+  background: #eef3e2;
+  border-color: #cdd9a8;
+  color: #5c7a1f;
+}
 .perm-pop {
   min-width: 240px;
 }
@@ -5512,6 +5551,8 @@ mark.hl {
 }
 :root[data-theme="dark"] .msg-kind.steer,
 :root[data-theme="dark"] .perm-btn.perm-full,
+:root[data-theme="dark"] .perm-btn.perm-auto,
+:root[data-theme="dark"] .advisory-btn.advisory-on,
 :root[data-theme="dark"] .set-iconbtn.danger:hover,
 :root[data-theme="dark"] .plugins-off {
   color: #f0c37b;

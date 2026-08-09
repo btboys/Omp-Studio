@@ -9,6 +9,8 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
     ),
   );
   const respond = useStore((s) => s.respondExtUi);
+  const setPermission = useStore((s) => s.setPermission);
+  const permission = useStore((s) => s.threads[threadId]?.permission);
   const language = useStore((s) => s.config?.language || "en");
   const request = item?.request;
 
@@ -24,6 +26,17 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
   if (!request) return null;
   const cancel = () =>
     respond(threadId, request.id, request.method === "confirm" ? { confirmed: false } : { cancelled: true });
+  const autoApprove = () => {
+    // Approve the current request, then flip the thread to auto mode so routine
+    // operations proceed without prompts (dangerous ones still ask).
+    setPermission(threadId, "auto");
+    if (request.method === "confirm") {
+      respond(threadId, request.id, { confirmed: true });
+    } else {
+      const recommended = (request.options || []).find((option) => !/^(deny|拒绝)$/i.test(option)) || (request.options || [])[0];
+      respond(threadId, request.id, { value: recommended });
+    }
+  };
   const titleParts = String(request.title || "omp extension").split(/\r?\n/);
   const title = titleParts.shift() || "omp extension";
   const detail = [...titleParts, request.message || ""].filter(Boolean).join("\n");
@@ -72,6 +85,14 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
               </button>
             );
           })}
+        </div>
+      )}
+      {isSandbox && permission !== "auto" && (
+        <div className="extui-card-autopilot">
+          <button onClick={autoApprove}>{language === "zh" ? "替我审批" : "Approve on my behalf"}</button>
+          <span>
+            {language === "zh" ? "常规操作自动放行，危险操作仍会确认" : "Routine operations auto-approve; dangerous ones still ask"}
+          </span>
         </div>
       )}
     </div>

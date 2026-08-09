@@ -34,8 +34,8 @@ export interface ThreadSearchHit {
   matchCount: number;
 }
 
-/** Thread permission level. Sandbox gates risky shell, out-of-project writes, subagents, and unclassified extension tools; full is unrestricted. */
-export type PermissionLevel = "sandbox" | "full";
+/** Thread permission level. Sandbox gates risky shell, out-of-project writes, subagents, and unclassified extension tools; auto auto-approves the rest of the session (替我审批); full is unrestricted. */
+export type PermissionLevel = "sandbox" | "full" | "auto";
 
 /** An installed pi package (from settings.json `packages`). */
 export interface PluginPackage {
@@ -167,6 +167,8 @@ export interface ThreadState {
   error?: string;
   /** Permission level the thread's omp process runs under. */
   permission: PermissionLevel;
+  /** Whether the session-level advisor (advisory notes) is enabled for this thread. */
+  advisory: boolean;
   /** text injected by an extension via set_editor_text */
   pendingEditorText?: string;
   /** Follow-up queued via Enter while streaming; delivered when the agent settles. */

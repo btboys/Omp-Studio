@@ -350,6 +350,7 @@ function emptyThread(cwd: string): ThreadState {
     streaming: null,
     toolRuns: {},
     permission: "sandbox",
+    advisory: true,
   };
 }
 
@@ -369,6 +370,7 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
     messages: views,
     toolRuns,
     permission: res.permission || fallback.permission || "sandbox",
+    advisory: res.advisory ?? true,
     pendingEditorText,
   };
 }
@@ -726,6 +728,8 @@ interface PiStore {
 
   // thread permission / folder
   setPermission: (threadId: string, level: PermissionLevel) => Promise<void>;
+  /** Toggle the session-level advisor (advisory notes) for a thread. */
+  setAdvisor: (threadId: string, enabled: boolean) => Promise<void>;
   /** Delete the last exchange (final user prompt and its reply) from the session file, then reload the thread. */
   undoLastTurn: (threadId: string) => Promise<void>;
   reloadThread: (threadId: string) => Promise<void>;
@@ -962,6 +966,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           messages: views,
           toolRuns,
           permission: hist.permission || "sandbox",
+          advisory: hist.advisory ?? true,
         };
         set((s) => ({
           threads: { ...s.threads, [sessionFile]: thread },
@@ -1210,6 +1215,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           messages: views,
           toolRuns,
           permission: hist.permission || permission || "sandbox",
+          advisory: hist.advisory ?? true,
         };
         set((s) => ({
           threads: { ...s.threads, [sessionFile]: thread },
@@ -1239,7 +1245,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     // background (adopting the warm spare). No blocking "starting pi" spinner.
     // The temp id is remapped to the real session file once connected.
     const tempId = `opening-${uid()}`;
-    const placeholder: ThreadState = { ...emptyThread(cwd), loading: false, connected: false, permission: permission || "sandbox" };
+    const placeholder: ThreadState = { ...emptyThread(cwd), loading: false, connected: false, permission: permission || "sandbox", advisory: true };
     set((s) => ({
       threads: { ...s.threads, [tempId]: placeholder },
       openThreadIds: s.openThreadIds.includes(tempId) ? s.openThreadIds : [...s.openThreadIds, tempId],
@@ -1688,6 +1694,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         messages: views,
         toolRuns,
         permission: res.permission || get().threads[id]?.permission || "sandbox",
+        advisory: res.advisory ?? get().threads[id]?.advisory ?? true,
       };
       set((s) => {
         const threads: Record<string, ThreadState> = { ...s.threads, [newId]: thread };
@@ -2107,9 +2114,29 @@ export const useStore = create<PiStore>()((set, get) => ({
       // The gate extension is always loaded; switching just flips its live mode
       // file, so the omp process and session keep running uninterrupted.
       await window.pi.thread.setPermission({ threadId, permission: level });
-      get().pushToast("info", level === "sandbox" ? "已切换到 sandbox（非只读命令及项目外写入需确认）。" : "已切换到完全权限。");
+      get().pushToast(
+        "info",
+        level === "sandbox"
+          ? "已切换到 sandbox（非只读命令及项目外写入需确认）。"
+          : level === "auto"
+            ? "已开启自动审批：常规操作自动放行，危险操作仍需确认。"
+            : "已切换到完全权限。",
+      );
     } catch (e: any) {
       get().pushToast("error", "切换权限失败：" + (e?.message || e));
+    }
+  },
+  setAdvisor: async (threadId, enabled) => {
+    const t = get().threads[threadId];
+    if (!t || t.advisory === enabled) return;
+    set((s) => (s.threads[threadId] ? { threads: { ...s.threads, [threadId]: { ...s.threads[threadId], advisory: enabled } } } : s));
+    try {
+      // Main flips the live session via omp's `/advisor` command and persists
+      // the preference per session file (re-applied on the next open).
+      await window.pi.thread.setAdvisor({ threadId, enabled });
+      get().pushToast("info", enabled ? "已开启会话 advisory（advisor 建议会注入对话）。" : "已关闭会话 advisory（不再收到 advisor 建议）。");
+    } catch (e: any) {
+      get().pushToast("error", "切换 advisory 失败：" + (e?.message || e));
     }
   },
   undoLastTurn: async (threadId) => {
@@ -2203,6 +2230,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         messages: views,
         toolRuns,
         permission: hist.permission || permission || "sandbox",
+        advisory: hist.advisory ?? true,
       };
       set((s) => {
         const threads: Record<string, ThreadState> = { ...s.threads, [nextId]: thread };

@@ -60,7 +60,7 @@ import {
 } from "./plugins";
 import { runTaskNow, startScheduler } from "./automation";
 
-type PermissionLevel = "sandbox" | "full";
+type PermissionLevel = "sandbox" | "full" | "auto";
 
 /**
  * Wires the renderer's window.pi.* calls to main-process services and to the
@@ -159,8 +159,8 @@ function createHandle(
     cwd,
     ompBinPath: getConfig().ompBinPath,
     sessionFile,
-    // The gate extension is always loaded; its sandbox/full behaviour is decided
-    // at runtime by the per-thread mode file, so permission can change live.
+    // The gate extension is always loaded; its sandbox/full/auto behaviour is
+    // decided at runtime by the per-thread mode file, so permission can change live.
     extensions: [ensureGateExtension(getConfigDir())],
     gateModeFile,
     onEvent: (e) => {
@@ -371,15 +371,16 @@ async function gatherThread(bridge: PiBridge, threadId: string, permission: Perm
     models: modelsRes?.models ?? [],
     commands: cmdsRes?.commands ?? [],
     permission,
+    advisory: getConfig().threadAdvisories[threadId] ?? true,
   };
 }
 
 /** Resolve the effective permission level for a thread open request. */
 function resolvePermission(sessionFile: string | undefined, requested: PermissionLevel | undefined): PermissionLevel {
-  if (requested === "sandbox" || requested === "full") return requested;
+  if (requested === "sandbox" || requested === "full" || requested === "auto") return requested;
   if (sessionFile) {
     const stored = getConfig().threadPermissions[sessionFile];
-    if (stored === "sandbox" || stored === "full") return stored;
+    if (stored === "sandbox" || stored === "full" || stored === "auto") return stored;
   }
   return "sandbox"; // default
 }
@@ -813,6 +814,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       models: [],
       commands: [],
       permission,
+      advisory: getConfig().threadAdvisories[sessionFile] ?? true,
     };
   });
 
@@ -879,6 +881,13 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       if (state.sessionFile) {
         const perms = getConfig().threadPermissions;
         if (perms[state.sessionFile] !== permission) updateConfig({ threadPermissions: { ...perms, [state.sessionFile]: permission } });
+        // omp does not persist advisor state in the session file, so re-apply
+        // the stored per-session preference on every open (fire-and-forget;
+        // the `/advisor` command is handled without invoking the agent).
+        const storedAdvisory = getConfig().threadAdvisories[state.sessionFile];
+        if (storedAdvisory !== undefined) {
+          handle.bridge.prompt(`/advisor ${storedAdvisory ? "on" : "off"}`).catch(() => {});
+        }
       }
       return gatherThread(handle.bridge, finalId, permission, handle);
     } catch (e) {
@@ -900,6 +909,18 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       h.permission = args.permission;
       writeGateMode(h.gateModeFile, args.permission);
     }
+    return { ok: true };
+  });
+
+  ipcMain.handle("thread:setAdvisor", async (_e, args: { threadId: string; enabled: boolean }) => {
+    const advisories = getConfig().threadAdvisories;
+    updateConfig({ threadAdvisories: { ...advisories, [args.threadId]: !!args.enabled } });
+    // Flip the live session's advisor via omp's built-in `/advisor` command
+    // (handled out-of-band, no agent invocation, nothing written to the
+    // transcript). Fire-and-forget: the stored preference is re-applied on
+    // the next thread:open if this process was mid-turn.
+    const h = bridges.get(args.threadId);
+    if (h) h.bridge.prompt(`/advisor ${args.enabled ? "on" : "off"}`).catch(() => {});
     return { ok: true };
   });
 

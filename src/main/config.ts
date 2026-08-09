@@ -49,7 +49,9 @@ export interface AppConfig {
   /** UI language. English is the default for new installations. */
   language: "en" | "zh";
   /** Per-thread permission level, keyed by session file path. Defaults to "sandbox" when absent. */
-  threadPermissions: Record<string, "sandbox" | "full">;
+  threadPermissions: Record<string, "sandbox" | "full" | "auto">;
+  /** Per-thread advisor (advisory note) enablement, keyed by session file path. Absent = enabled (omp default). */
+  threadAdvisories: Record<string, boolean>;
   /** cwd of the most recently opened thread; seeds the warm spare's project. */
   lastThreadCwd?: string;
   /** User-defined scheduled automation tasks. */
@@ -101,6 +103,7 @@ const DEFAULTS: AppConfig = {
   theme: "light",
   language: "en",
   threadPermissions: {},
+  threadAdvisories: {},
   automationTasks: [],
   desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY },
 };

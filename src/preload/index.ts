@@ -85,7 +85,7 @@ const api = {
     setLists: (disabledServers: string[], enabledServers: string[]) => ipcRenderer.invoke("mcp:setLists", { disabledServers, enabledServers }),
   },
   thread: {
-    open: (args: { cwd: string; sessionFile?: string; name?: string; permission?: "sandbox" | "full" }) => ipcRenderer.invoke("thread:open", args),
+    open: (args: { cwd: string; sessionFile?: string; name?: string; permission?: "sandbox" | "full" | "auto" }) => ipcRenderer.invoke("thread:open", args),
     loadHistory: (args: { cwd: string; sessionFile: string }) => ipcRenderer.invoke("thread:loadHistory", args),
     close: (threadId: string) => ipcRenderer.invoke("thread:close", threadId),
     prompt: (args: { threadId: string; text: string; images?: unknown[]; attachments?: { abs: string; name: string }[] }) =>
@@ -108,7 +108,8 @@ const api = {
     getCommands: (threadId: string) => ipcRenderer.invoke("thread:getCommands", threadId),
     extuiResponse: (args: { threadId: string; id: string; payload: Record<string, unknown> }) =>
       ipcRenderer.invoke("thread:extuiResponse", args),
-    setPermission: (args: { threadId: string; permission: "sandbox" | "full" }) => ipcRenderer.invoke("thread:setPermission", args),
+    setPermission: (args: { threadId: string; permission: "sandbox" | "full" | "auto" }) => ipcRenderer.invoke("thread:setPermission", args),
+    setAdvisor: (args: { threadId: string; enabled: boolean }) => ipcRenderer.invoke("thread:setAdvisor", args),
   },
   settings: {
     getModels: () => ipcRenderer.invoke("settings:getModels"),

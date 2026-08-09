@@ -4,7 +4,7 @@ import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
-import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand } from "./icons";
+import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand, Sparkle } from "./icons";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
@@ -43,6 +43,7 @@ export function Composer({ threadId }: { threadId: string }) {
   const pending = useStore((s) => s.threads[threadId]?.pendingFollowUp || null);
   const injected = useStore((s) => s.threads[threadId]?.pendingEditorText);
   const permission = useStore((s) => s.threads[threadId]?.permission);
+  const advisory = useStore((s) => s.threads[threadId]?.advisory ?? true);
   const language = useStore((s) => s.config?.language || "en");
   const commands = useStore((s) => s.threads[threadId]?.commands);
   const models = useStore((s) => s.threads[threadId]?.models);
@@ -59,6 +60,7 @@ export function Composer({ threadId }: { threadId: string }) {
   const setModel = useStore((s) => s.setModel);
   const setThinking = useStore((s) => s.setThinking);
   const setPermission = useStore((s) => s.setPermission);
+  const setAdvisor = useStore((s) => s.setAdvisor);
   const setPendingFollowUp = useStore((s) => s.setPendingFollowUp);
   const sendPendingSteering = useStore((s) => s.sendPendingSteering);
   const changeDraftThreadFolder = useStore((s) => s.changeDraftThreadFolder);
@@ -731,16 +733,16 @@ export function Composer({ threadId }: { threadId: string }) {
             </button>
             <div className="pill perm-pill composer-optional-action" ref={permRef}>
               <button
-                className={`pill-btn perm-btn ${permission === "full" ? "perm-full" : ""}`}
-                title="权限级别：sandbox 仅自动放行明确只读的 shell 命令，并限制项目外写入；完全权限为 omp 默认 unrestricted 模式"
+                className={`pill-btn perm-btn ${permission === "full" ? "perm-full" : permission === "auto" ? "perm-auto" : ""}`}
+                title="权限级别：sandbox 仅自动放行明确只读的 shell 命令，并限制项目外写入；自动审批放行常规操作、危险操作仍需确认；完全权限为 omp 默认 unrestricted 模式"
                 onClick={() => setPermOpen((v) => !v)}
               >
-                <Shield size={13} /> {permission === "full" ? "完全权限" : "sandbox"} ▾
+                <Shield size={13} /> {permission === "full" ? "完全权限" : permission === "auto" ? "自动审批" : "sandbox"} ▾
               </button>
               {permOpen && (
                 <div className="pill-pop perm-pop">
                   <button
-                    className={`opt ${permission !== "full" ? "active" : ""}`}
+                    className={`opt ${permission === "sandbox" ? "active" : ""}`}
                     onClick={() => {
                       setPermOpen(false);
                       setPermission(threadId, "sandbox");
@@ -748,6 +750,16 @@ export function Composer({ threadId }: { threadId: string }) {
                   >
                     <span className="o1">sandbox</span>
                     <span className="o2">敏感命令执行前需确认（默认）</span>
+                  </button>
+                  <button
+                    className={`opt ${permission === "auto" ? "active" : ""}`}
+                    onClick={() => {
+                      setPermOpen(false);
+                      setPermission(threadId, "auto");
+                    }}
+                  >
+                    <span className="o1">自动审批</span>
+                    <span className="o2">替我审批：常规操作自动放行，危险操作仍需确认</span>
                   </button>
                   <button
                     className={`opt ${permission === "full" ? "active" : ""}`}
@@ -761,6 +773,19 @@ export function Composer({ threadId }: { threadId: string }) {
                   </button>
                 </div>
               )}
+            </div>
+            <div className="pill composer-optional-action">
+              <button
+                className={`pill-btn advisory-btn ${advisory ? "advisory-on" : ""}`}
+                title={
+                  language === "zh"
+                    ? "会话级 advisory 开关：开启后 omp advisor 会把建议注入对话；关闭后不再注入"
+                    : "Session-level advisory toggle: when on, omp's advisor injects advisory notes into the conversation"
+                }
+                onClick={() => setAdvisor(threadId, !advisory)}
+              >
+                <Sparkle size={13} /> {language === "zh" ? (advisory ? "advisory 开" : "advisory 关") : advisory ? "advisory on" : "advisory off"}
+              </button>
             </div>
             <div className="pill composer-optional-action" ref={cmdRef}>
               <button className="pill-btn" title="Slash commands / skills" onClick={toggleCommands}>
