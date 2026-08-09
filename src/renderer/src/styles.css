@@ -5385,3 +5385,99 @@ mark.hl {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---- omp config.yml editor (settings > 通用) ---- */
+.set-omp-group .set-row {
+  grid-template-columns: 176px 1fr;
+}
+.set-omp-label {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  word-break: break-all;
+  line-height: 1.35;
+}
+.set-omp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.set-omp-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text-faint);
+  background: #fff;
+}
+:root[data-theme="dark"] .set-omp-search {
+  background: var(--surface-muted);
+}
+.set-omp-search input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.set-omp-group {
+  margin-top: 18px;
+}
+.set-omp-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.set-omp-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-faint);
+  background: var(--surface-muted);
+  border-radius: 9px;
+  padding: 1px 8px;
+}
+.set-omp-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.set-omp-ctrl .set-input,
+.set-omp-ctrl .set-select {
+  min-width: 0;
+  width: auto;
+  flex: 1;
+}
+.set-omp-ctrl .set-json-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.set-omp-ctrl .set-json {
+  min-height: 56px;
+}
+.set-omp-reset {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.65;
+}
+.set-omp-reset:hover {
+  opacity: 1;
+  background: var(--surface-muted);
+  color: var(--text);
+}

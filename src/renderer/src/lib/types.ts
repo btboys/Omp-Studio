@@ -397,3 +397,21 @@ export interface McpState {
   /** The three config sources, in display order, with their paths. */
   sources: { id: McpSource; path: string }[];
 }
+
+/** One omp config.yml key surfaced by the schema-driven settings editor. */
+export interface OmpConfigEntry {
+  key: string;
+  type: string;
+  /** Resolved value from `omp config list --json`; absent when unset. */
+  value?: unknown;
+  description: string;
+  /** Enum choices (type === "enum"). */
+  options?: string[];
+}
+
+export type OmpConfigSectionId = "appearance" | "context" | "files" | "interaction" | "model" | "memory" | "providers" | "advanced";
+
+export interface OmpConfigSection {
+  id: OmpConfigSectionId;
+  entries: OmpConfigEntry[];
+}

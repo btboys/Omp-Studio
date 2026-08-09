@@ -4,6 +4,7 @@ import type { ApiType, Diagnostics, ModelDef, ModelInfo, ModelsFile, ProviderDef
 import { cleanOutput, hasLibuvAssertion, lastLine, stripAnsi } from "../lib/update";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { Archive, Check, Close, Edit, Plus, Refresh, Folder } from "./icons";
+import { OmpConfigPanel } from "./OmpConfigPanel";
 import appIconUrl from "../../../../resources/icon.png";
 
 /* ------------------------------------------------------------------ *
@@ -539,7 +540,7 @@ function ProviderCard({
  * Main panel
  * ------------------------------------------------------------------ */
 
-type Tab = "models" | "thinking" | "archive" | "diag" | "update" | "about";
+type Tab = "models" | "thinking" | "general" | "archive" | "diag" | "update" | "about";
 
 interface NewProviderDraft {
   id: string;
@@ -643,7 +644,7 @@ export function Settings() {
   const [flash, setFlash] = useState<null | "models" | "thinking">(null);
   const [diag, setDiag] = useState<Diagnostics | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [paths, setPaths] = useState<{ agentDir: string; models: string; settings: string; auth: string } | null>(null);
+  const [paths, setPaths] = useState<{ agentDir: string; models: string; settings: string; config: string; auth: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [newProvider, setNewProvider] = useState<NewProviderDraft>(emptyNewProvider);
 
@@ -1094,6 +1095,7 @@ export function Settings() {
             {([
               ["models", "模型与提供商"],
               ["thinking", "思考默认值"],
+              ["general", language === "zh" ? "通用配置" : "General"],
               ["archive", "已归档项目"],
               ["diag", "诊断与配置"],
               ["update", language === "zh" ? "应用更新" : "App updates"],
@@ -1134,7 +1136,11 @@ export function Settings() {
                 ? "模型与提供商"
                 : tab === "thinking"
                   ? "思考默认值"
-                    : tab === "archive"
+                    : tab === "general"
+                      ? language === "zh"
+                        ? "通用配置（omp config.yml）"
+                        : "General (omp config.yml)"
+                      : tab === "archive"
                       ? "已归档项目"
                       : tab === "update"
                       ? language === "zh"
@@ -1422,6 +1428,8 @@ export function Settings() {
               </div>
             )}
 
+            {tab === "general" && <OmpConfigPanel />}
+
             {tab === "archive" && (
               <div className="set-card">
                 <div className="set-card-title">已归档项目</div>
@@ -1550,6 +1558,8 @@ export function Settings() {
                     <div className="set-diag-v">{paths?.settings || "—"}</div>
                     <div className="set-diag-k">models.yml</div>
                     <div className="set-diag-v">{paths?.models || "—"}</div>
+                    <div className="set-diag-k">config.yml</div>
+                    <div className="set-diag-v">{paths?.config || "—"}</div>
                     <div className="set-diag-k">auth.json</div>
                     <div className="set-diag-v">{paths?.auth || "—"}</div>
                   </div>
@@ -1562,6 +1572,9 @@ export function Settings() {
                     </button>
                     <button className="set-btn ghost" onClick={() => paths && openFile(paths.models)}>
                       打开 models.yml
+                    </button>
+                    <button className="set-btn ghost" onClick={() => paths && openFile(paths.config)}>
+                      打开 config.yml
                     </button>
                     {paths && (
                       <button className="set-btn ghost" onClick={() => window.pi.settings.showItem(paths.models)} title="在资源管理器中显示">

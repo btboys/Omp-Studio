@@ -121,6 +121,9 @@ const api = {
     setModelRole: (role: string, provider: string, model: string | null, level?: string | null) =>
       ipcRenderer.invoke("settings:setModelRole", role, provider, model, level),
     getDiagnostics: () => ipcRenderer.invoke("settings:getDiagnostics"),
+    getOmpConfig: () => ipcRenderer.invoke("settings:getOmpConfig"),
+    setOmpConfigKey: (key: string, value: unknown, type: string) => ipcRenderer.invoke("settings:setOmpConfigKey", key, value, type),
+    resetOmpConfigKey: (key: string) => ipcRenderer.invoke("settings:resetOmpConfigKey", key),
     getPaths: () => ipcRenderer.invoke("settings:getPaths"),
     openPath: (abs: string) => ipcRenderer.invoke("settings:openPath", abs),
     showItem: (abs: string) => ipcRenderer.invoke("settings:showItem", abs),

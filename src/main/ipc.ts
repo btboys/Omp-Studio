@@ -26,6 +26,7 @@ import {
 import { createHtmlPreviewUrl } from "./html-preview-protocol";
 import {
   getAuthPath,
+  getConfigYmlPath,
   getDiagnostics,
   getModelsPath,
   getSettingsPath,
@@ -38,6 +39,7 @@ import {
   writeThinking,
 } from "./models-service";
 import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
+import { getOmpConfig, resetOmpConfigKey, setOmpConfigKey } from "./omp-config";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
 import { readPreview } from "./preview-service";
@@ -322,6 +324,20 @@ export function dropWarmBridge(): void {
     warmHandle.bridge.stop();
     warmHandle = null;
   }
+}
+
+/**
+ * Config.yml is read at omp process boot, so a burst of config edits must
+ * recreate the standby once (trailing), not once per key (~5s spawn each).
+ */
+let warmRecreateTimer: NodeJS.Timeout | null = null;
+function scheduleWarmRecreate(): void {
+  if (warmRecreateTimer) clearTimeout(warmRecreateTimer);
+  warmRecreateTimer = setTimeout(() => {
+    warmRecreateTimer = null;
+    dropWarmBridge();
+    ensureWarmBridge();
+  }, 2000);
 }
 
 async function gatherThread(bridge: PiBridge, threadId: string, permission: PermissionLevel, handle?: BridgeHandle) {
@@ -667,7 +683,21 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     models: getModelsPath(),
     settings: getSettingsPath(),
     auth: getAuthPath(),
+    config: getConfigYmlPath(),
   }));
+
+  // ---- omp config.yml (schema-driven editor) ------------------------------
+  ipcMain.handle("settings:getOmpConfig", () => getOmpConfig());
+  ipcMain.handle("settings:setOmpConfigKey", async (_e, key: string, value: unknown, type: string) => {
+    await setOmpConfigKey(key, value, type);
+    scheduleWarmRecreate();
+    return { ok: true };
+  });
+  ipcMain.handle("settings:resetOmpConfigKey", async (_e, key: string) => {
+    await resetOmpConfigKey(key);
+    scheduleWarmRecreate();
+    return { ok: true };
+  });
 
   // ---- threads (pi bridges) ----------------------------------------------
   /**
