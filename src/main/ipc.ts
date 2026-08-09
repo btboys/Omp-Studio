@@ -13,6 +13,7 @@ import {
   gitCheckout,
   gitCommit,
   gitDiscard,
+  gitFileDiff,
   gitGenerateMessage,
   gitLog,
   gitPull,
@@ -591,6 +592,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       return false;
     }
   });
+  ipcMain.handle("app:getFileDiff", (_e, cwd: string, filePath: string) => gitFileDiff(cwd, filePath));
   ipcMain.handle("app:readPreview", (_e, absPath: string, projectRoot?: string) => {
     const payload = readPreview(absPath);
     return payload.kind === "html"

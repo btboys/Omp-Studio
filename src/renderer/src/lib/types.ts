@@ -191,6 +191,14 @@ export interface PreviewPayload {
   previewUrl?: string;
 }
 
+export interface FileDiffResult {
+  ok: boolean;
+  diff: string;
+  /** true when the file is untracked, or the repo has no commits yet */
+  newFile: boolean;
+  error?: string;
+}
+
 export interface ExtUiRequest {
   id: string;
   method: "select" | "confirm" | "input" | "editor" | "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text" | string;

@@ -34,6 +34,7 @@ const api = {
     searchProjectFiles: (cwd: string, query: string, limit?: number) =>
       ipcRenderer.invoke("app:searchProjectFiles", cwd, query, limit),
     fileExists: (absPath: string) => ipcRenderer.invoke("app:fileExists", absPath),
+    getFileDiff: (cwd: string, filePath: string) => ipcRenderer.invoke("app:getFileDiff", cwd, filePath),
     readPreview: (absPath: string, projectRoot?: string) => ipcRenderer.invoke("app:readPreview", absPath, projectRoot),
     showFileContextMenu: (absPath: string) => ipcRenderer.invoke("app:showFileContextMenu", absPath),
     updatePi: () => ipcRenderer.invoke("app:updatePi"),

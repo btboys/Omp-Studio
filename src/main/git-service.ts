@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as http from "node:http";
 import * as tls from "node:tls";
 import { join } from "node:path";
@@ -198,6 +198,78 @@ export const gitCommit = (cwd: string, message: string) => op(cwd, ["commit", "-
 export const gitCheckout = (cwd: string, branch: string) => op(cwd, ["checkout", branch]);
 export const gitPull = (cwd: string) => op(cwd, ["pull"], 120000);
 export const gitPush = (cwd: string) => op(cwd, ["push"], 120000);
+
+export type FileDiffResult = {
+  ok: boolean;
+  diff: string;
+  /** true when the file is untracked, or the repo has no commits yet */
+  newFile: boolean;
+  error?: string;
+};
+
+const DIFF_MAX_CHARS = 1_000_000;
+const NEW_FILE_MAX_LINES = 2000;
+
+function truncateDiff(diff: string): string {
+  if (diff.length > DIFF_MAX_CHARS) return diff.slice(0, DIFF_MAX_CHARS) + "\n…(diff 已截断)\n";
+  return diff;
+}
+
+/**
+ * Build a `git diff`-shaped output for a file git refuses to diff: untracked
+ * files and files in a repo with no commits yet report no HEAD version, so the
+ * whole file reads as additions. Returns "" for binary/unreadable files (the
+ * caller still knows it is a new file via the newFile flag).
+ */
+function synthesizeNewFileDiff(filePath: string): string {
+  let text: string;
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch {
+    return "";
+  }
+  if (text.slice(0, 8192).includes("\0")) return "";
+  const all = text.split(/\r?\n/);
+  const truncated = all.length > NEW_FILE_MAX_LINES;
+  const lines = truncated ? all.slice(0, NEW_FILE_MAX_LINES) : all;
+  if (lines[lines.length - 1] === "") lines.pop();
+  const rel = filePath.replace(/\\/g, "/");
+  const header = `diff --git a/${rel} b/${rel}\nnew file mode 100644\nindex 0000000..0000000\n--- /dev/null\n+++ b/${rel}\n@@ -0,0 +1,${lines.length} @@\n`;
+  const omitted = truncated ? `\n…(剩余 ${all.length - NEW_FILE_MAX_LINES} 行已省略)\n` : "";
+  return header + lines.map((line) => `+${line}`).join("\n") + omitted;
+}
+
+/**
+ * Unified diff of one file against HEAD — i.e. what the agent changed since
+ * the last commit. Untracked files and commit-less repos get a synthesized
+ * new-file diff instead of git's silent empty output. Always resolves (no
+ * throw); callers render ok:false as an empty/error state.
+ */
+export async function gitFileDiff(cwd: string, filePath: string): Promise<FileDiffResult> {
+  if (!cwd || typeof cwd !== "string" || !filePath || typeof filePath !== "string") {
+    return { ok: false, diff: "", newFile: false, error: "invalid arguments" };
+  }
+  const top = await run(cwd, ["rev-parse", "--show-toplevel"], 3000);
+  if (top.code !== 0) {
+    return { ok: false, diff: "", newFile: false, error: top.stderr.trim() || "not a git repository" };
+  }
+  const head = await run(cwd, ["rev-parse", "--verify", "HEAD"], 3000);
+  if (head.code !== 0) {
+    // Git repo without commits yet: the whole tree counts as new.
+    return { ok: true, diff: synthesizeNewFileDiff(filePath), newFile: true };
+  }
+  const r = await run(cwd, ["diff", "--no-color", "--no-ext-diff", "HEAD", "--", filePath], 8000);
+  if (r.code !== 0) {
+    return { ok: false, diff: "", newFile: false, error: r.stderr.trim() || `git diff failed (${r.code})` };
+  }
+  if (r.stdout.trim()) return { ok: true, diff: truncateDiff(r.stdout), newFile: false };
+  // No output vs HEAD: unchanged, or untracked (git diff omits untracked files).
+  const untracked = await run(cwd, ["ls-files", "--others", "--exclude-standard", "--", filePath], 5000);
+  if (untracked.code === 0 && untracked.stdout.trim()) {
+    return { ok: true, diff: synthesizeNewFileDiff(filePath), newFile: true };
+  }
+  return { ok: true, diff: "", newFile: false };
+}
 
 const DIFF_LIMIT = 4000;
 

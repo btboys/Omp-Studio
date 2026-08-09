@@ -25,6 +25,9 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import { useStore } from "../store";
+import { parseDiff } from "../lib/diff";
+import type { DiffLine } from "../lib/diff";
+import type { FileDiffResult } from "../lib/types";
 import { Markdown } from "../lib/markdown";
 import { formatBytes } from "../lib/format";
 import { Close, Contract, Copy, Expand, Refresh } from "./icons";
@@ -87,7 +90,13 @@ export function Preview() {
   const close = useStore((s) => s.closePreview);
   const language = useStore((s) => s.config?.language || "en");
   const [previewWidth, setPreviewWidth] = useState(initialPreviewWidth);
+  const [view, setView] = useState<"file" | "diff">("file");
+  const [diffNonce, setDiffNonce] = useState(0);
   const resizeRef = useRef<{ startX: number; startWidth: number; width: number; element: HTMLDivElement } | null>(null);
+
+  useEffect(() => {
+    setView("file");
+  }, [path]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -168,6 +177,11 @@ export function Preview() {
 
   if (!open) return null;
   const name = path?.split(/[\\/]/).pop() || "Preview";
+  const diffable = !!payload && (payload.kind === "text" || payload.kind === "markdown");
+  const refreshPreview = () => {
+    if (view === "diff") setDiffNonce((nonce) => nonce + 1);
+    if (path) openPreview(path, root || undefined);
+  };
 
   return (
     <aside
@@ -194,6 +208,26 @@ export function Preview() {
         <span className="preview-title" title={path || ""}>{name}</span>
         {payload && <span className="muted preview-size">{formatBytes(payload.size)}</span>}
         {payload && <span className="preview-kind">{previewKindLabel(payload)}</span>}
+        {diffable && (
+          <span className="pv-view-toggle" role="tablist" aria-label={language === "zh" ? "预览视图" : "Preview view"}>
+            <button
+              role="tab"
+              aria-selected={view === "file"}
+              className={view === "file" ? "active" : ""}
+              onClick={() => setView("file")}
+            >
+              {language === "zh" ? "文件" : "File"}
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === "diff"}
+              className={view === "diff" ? "active" : ""}
+              onClick={() => setView("diff")}
+            >
+              Diff
+            </button>
+          </span>
+        )}
         {!expanded ? (
           <button
             className="iconbtn preview-expand-btn"
@@ -220,7 +254,7 @@ export function Preview() {
           className="iconbtn"
           title={language === "zh" ? "刷新预览" : "Refresh preview"}
           disabled={!path || loading}
-          onClick={() => path && openPreview(path, root || undefined)}
+          onClick={refreshPreview}
         >
           <Refresh size={14} />
         </button>
@@ -229,7 +263,13 @@ export function Preview() {
         </button>
       </div>
       <div className={`preview-body ${payload?.kind === "html" ? "html-preview-active" : ""}`}>
-        {loading ? <div className="pv-loading"><span className="spinner" /></div> : <PreviewBody payload={payload} language={language} />}
+        {loading ? (
+          <div className="pv-loading"><span className="spinner" /></div>
+        ) : view === "diff" && diffable && path ? (
+          <DiffPreview key={`${path}:${diffNonce}`} path={path} root={root} language={language} />
+        ) : (
+          <PreviewBody payload={payload} language={language} />
+        )}
       </div>
     </aside>
   );
@@ -524,6 +564,89 @@ function PptxPreview({ base64, language }: { base64: string; language: string })
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Diff view for the currently previewed file: `git diff HEAD` for the path,
+ * showing what the agent changed since the last commit. Fetched lazily from
+ * the main process; the file preview itself is untouched.
+ */
+function DiffPreview({ path, root, language }: { path: string; root: string | null; language: string }) {
+  const [result, setResult] = useState<FileDiffResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const dir = path.replace(/[\\/][^\\/]*$/, "");
+    window.pi.app
+      .getFileDiff(root || dir, path)
+      .then((res) => {
+        if (!cancelled) setResult(res);
+      })
+      .catch((e: any) => {
+        if (!cancelled) setErr(e?.message || "getFileDiff failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, root]);
+
+  if (err) return <div className="pv-unsupported">{err}</div>;
+  if (!result) return <div className="pv-loading"><span className="spinner" /></div>;
+  if (!result.ok) {
+    return <div className="pv-unsupported">{(language === "zh" ? "无法获取 diff：" : "Could not load diff: ") + result.error}</div>;
+  }
+  if (!result.diff) {
+    return (
+      <div className="pv-unsupported">
+        {result.newFile
+          ? language === "zh"
+            ? "新增文件（二进制，无法显示内容 diff）。"
+            : "New file (binary; content diff unavailable)."
+          : language === "zh"
+            ? "无未提交变更（与最近提交一致）。"
+            : "No uncommitted changes (matches the last commit)."}
+      </div>
+    );
+  }
+  return <DiffView diff={result.diff} newFile={result.newFile} language={language} />;
+}
+
+function DiffView({ diff, newFile, language }: { diff: string; newFile: boolean; language: string }) {
+  const parsed = useMemo(() => parseDiff(diff), [diff]);
+  const t = (zh: string, en: string) => (language === "zh" ? zh : en);
+  return (
+    <div className="pv-diff">
+      <div className="pv-diff-stats">
+        <span>{parsed.files} {parsed.files === 1 ? t("个文件", "file") : t("个文件", "files")}</span>
+        <span className="pv-diff-add">+{parsed.additions}</span>
+        <span className="pv-diff-del">−{parsed.deletions}</span>
+        {newFile && <span className="pv-diff-newfile">{t("新文件", "new file")}</span>}
+      </div>
+      <div className="pv-diff-lines">
+        {parsed.lines.map((line, index) => (
+          <DiffRow key={index} line={line} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiffRow({ line }: { line: DiffLine }) {
+  if (line.kind === "file" || line.kind === "hunk" || line.kind === "meta") {
+    return (
+      <div className={`pv-diff-line ${line.kind}`}>
+        <span className="pv-diff-full">{line.text || " "}</span>
+      </div>
+    );
+  }
+  return (
+    <div className={`pv-diff-line ${line.kind}`}>
+      <span className="pv-diff-num">{line.oldNo ?? ""}</span>
+      <span className="pv-diff-num">{line.newNo ?? ""}</span>
+      <span className="pv-diff-mark">{line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}</span>
+      <span className="pv-diff-text">{line.text || " "}</span>
     </div>
   );
 }
