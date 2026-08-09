@@ -145,8 +145,11 @@ const api = {
     error: (cb: (p: { threadId: string; message: string }) => void) => on("pi:error", cb),
     automation: (cb: (p: { type: "start" | "done"; taskId: string; name: string; ok?: boolean; error?: string }) => void) =>
       on("pi:automation", cb),
-    appUpdate: (cb: (p: { stage: string; message: string; pct?: number; version?: string }) => void) => on("pi:appUpdate", cb),
+    appUpdate: (cb: (p: { stage: string; message: string; pct?: number; version?: string; releaseUrl?: string | null }) => void) =>
+      on("pi:appUpdate", cb),
     coreUpdate: (cb: (p: { stage: string; message: string; pct?: number }) => void) => on("pi:coreUpdate", cb),
+    updateStatus: (cb: (p: { app: { hasUpdate: boolean; latest: string | null; current: string; releaseUrl: string | null; supported: boolean; installable: boolean; downloaded: boolean; note?: string | null; error?: string }; core: { hasUpdate: boolean; latest: string | null; current: string | null; note?: string | null; error?: string } }) => void) =>
+      on("pi:updateStatus", cb),
     notifyActivate: (cb: (p: { threadId: string; cwd?: string }) => void) => on("pi:notify-activate", cb),
   },
 };

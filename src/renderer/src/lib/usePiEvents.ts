@@ -35,6 +35,9 @@ export function usePiEvents() {
       const cwd = p.cwd || st.threads[p.threadId]?.cwd;
       if (cwd) void st.goToThread(cwd, p.threadId);
     });
+    const u7 = window.pi.on.updateStatus((p) => {
+      useStore.getState().setUpdateStatus(p);
+    });
     return () => {
       u1();
       u2();
@@ -42,6 +45,7 @@ export function usePiEvents() {
       u4();
       u5();
       u6();
+      u7();
     };
   }, [handleEvent, handleExtUi, handleExit, handleError]);
 }

@@ -20,6 +20,7 @@ export function TitleBar() {
   const togglePreview = useStore((s) => s.togglePreview);
   const togglePreviewExpanded = useStore((s) => s.togglePreviewExpanded);
   const openSettings = useStore((s) => s.openSettings);
+  const updateStatus = useStore((s) => s.updateStatus);
   const previewExpanded = useStore((s) => s.previewExpanded);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
 
@@ -114,6 +115,15 @@ export function TitleBar() {
         : "Omp Studio";
   const statusTitle = active?.error || runtime?.error || status;
 
+  // Update availability badge (next to 帮助): shows when Omp Studio or the
+  // managed omp core has a newer release; clicking jumps to Settings > updates.
+  const appUpdatable = !!updateStatus.app?.hasUpdate;
+  const coreUpdatable = !!updateStatus.core?.hasUpdate;
+  const updateCount = (appUpdatable ? 1 : 0) + (coreUpdatable ? 1 : 0);
+  const updateParts: string[] = [];
+  if (appUpdatable) updateParts.push(`Omp Studio v${updateStatus.app?.latest || "?"}`);
+  if (coreUpdatable) updateParts.push(`omp 核心 v${updateStatus.core?.latest || "?"}`);
+
   return (
     <div className="titlebar">
       <button
@@ -150,11 +160,22 @@ export function TitleBar() {
           </div>
         ))}
       </div>
+      {updateCount > 0 && (
+        <button
+          className="tb-update-badge"
+          onClick={() => st().openSettings("update")}
+          title={`有可用更新：${updateParts.join("、")} · 点击查看`}
+          aria-label={`有可用更新：${updateParts.join("、")}`}
+        >
+          <span className="tb-update-dot" aria-hidden="true" />
+          <span className="tb-update-count">{updateCount}</span>
+        </button>
+      )}
       <div className="tb-spacer" />
       <div className="tb-status" title={statusTitle}>
         {status}
       </div>
-      <button className="tb-settings-btn" onClick={openSettings} title="Settings" aria-label="Settings">
+      <button className="tb-settings-btn" onClick={() => openSettings()} title="Settings" aria-label="Settings">
         <SettingsIcon size={15} />
       </button>
       <div className="tb-win">

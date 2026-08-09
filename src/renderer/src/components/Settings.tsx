@@ -711,6 +711,8 @@ export function Settings() {
       setUpdateStatus(s as any);
       setAppUpdateStatus(a as any);
       setAppUpdateReady(Boolean((a as any)?.downloaded));
+      // Keep the title-bar update badges in sync with what the user just saw.
+      useStore.getState().setUpdateStatus({ app: a as any, core: s as any });
     } catch {
       /* keep stale values; not worth a toast */
     }
@@ -817,7 +819,7 @@ export function Settings() {
 
   useEffect(() => {
     if (!open) return;
-    setTab("models");
+    setTab(useStore.getState().settingsInitialTab === "update" ? "update" : "models");
     setInvalidJson({});
     setAdding(false);
     setNewProvider(emptyNewProvider());
@@ -856,13 +858,19 @@ export function Settings() {
       // Version check is network-bound; don't let it hold up the panel.
       window.pi.app
         .checkCoreUpdate()
-        .then((s: any) => setUpdateStatus(s))
+        .then((s: any) => {
+          setUpdateStatus(s);
+          const st = useStore.getState();
+          st.setUpdateStatus({ ...st.updateStatus, core: s });
+        })
         .catch(() => undefined);
       window.pi.app
         .checkAppUpdate()
         .then((s: any) => {
           setAppUpdateStatus(s);
           setAppUpdateReady(Boolean(s?.downloaded));
+          const st = useStore.getState();
+          st.setUpdateStatus({ ...st.updateStatus, app: s });
         })
         .catch(() => undefined);
     })();

@@ -265,6 +265,27 @@ export interface Diagnostics {
   error: string | null;
 }
 
+/** Push payload of `pi:updateStatus`: app + omp-core update availability. */
+export interface AppUpdateStatus {
+  current: string;
+  latest: string | null;
+  hasUpdate: boolean;
+  releaseUrl: string | null;
+  supported: boolean;
+  installable: boolean;
+  downloaded: boolean;
+  note?: string | null;
+  error?: string;
+}
+
+export interface CoreUpdateStatus {
+  current: string | null;
+  latest: string | null;
+  hasUpdate: boolean;
+  note?: string | null;
+  error?: string;
+}
+
 export type ApiType = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
 
 /** A single model entry inside a provider's `models` array (models.json). */

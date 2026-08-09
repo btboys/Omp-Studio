@@ -130,6 +130,46 @@ button {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text);
 }
+.tb-update-badge {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+  padding: 2px 8px 2px 7px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(214, 116, 16, 0.12);
+  color: #b5651d;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tb-update-badge:hover {
+  background: rgba(214, 116, 16, 0.22);
+}
+.tb-update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d67410;
+  animation: tb-update-pulse 2s ease-out infinite;
+}
+.tb-update-count {
+  font-weight: 600;
+}
+@keyframes tb-update-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(214, 116, 16, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(214, 116, 16, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(214, 116, 16, 0);
+  }
+}
 .tb-spacer {
   flex: 1;
 }
@@ -5077,6 +5117,10 @@ mark.hl {
 :root[data-theme="dark"] .tb-sidebar-toggle:hover,
 :root[data-theme="dark"] .iconbtn:hover,
 :root[data-theme="dark"] .chat-head .iconbtn:hover,
+:root[data-theme="dark"] .tb-update-badge {
+  background: rgba(214, 116, 16, 0.22);
+  color: #f0a55e;
+}
 :root[data-theme="dark"] .sb-nav-item:hover,
 :root[data-theme="dark"] .sb-section-head button:hover,
 :root[data-theme="dark"] .project-head:hover,

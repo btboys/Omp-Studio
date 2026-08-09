@@ -4,10 +4,10 @@ import { app, BrowserWindow, Menu, shell } from "electron";
 import { startBackgroundAppUpdate } from "./app-updater";
 import { loadConfig, getConfig, updateConfig } from "./config";
 import { cleanupOldRuntimes } from "./core-updater";
+import { ensureManagedRuntimeUpToDate, ompBinaryFileName } from "./runtime-package";
 import { registerHtmlPreviewProtocol, registerHtmlPreviewScheme } from "./html-preview-protocol";
 import { registerIpc, stopAllBridges } from "./ipc";
 import { mergeShellEnv } from "./shell-env";
-import { ompBinaryFileName } from "./runtime-package";
 import { stopAutomations, stopScheduler } from "./automation";
 
 // GUI launches inherit launchd's sparse environment; pull in the user's
@@ -189,13 +189,20 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     loadConfig(app.getPath("userData"));
     registerHtmlPreviewProtocol();
     // Remove runtime trees superseded by an in-app core update (they may have
     // been locked by pi child processes during the previous run; nothing holds
     // them now). Best effort — leftovers simply wait for the next launch.
     cleanupOldRuntimes();
+    // A newer app build bundles a newer omp runtime; promote a stale managed
+    // copy before the window renders so the displayed version matches the
+    // binary actually used. Failure is non-fatal: keep the old runtime.
+    await ensureManagedRuntimeUpToDate().catch((error: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error("[runtime] managed runtime upgrade failed:", (error as Error)?.message || String(error));
+    });
     registerIpc(getWin);
     createWindow();
     startBackgroundAppUpdate(getWin);

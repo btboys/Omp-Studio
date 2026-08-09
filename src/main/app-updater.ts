@@ -1,5 +1,6 @@
 import { app } from "electron";
 import { autoUpdater, type ProgressInfo, type UpdateCheckResult, type UpdateInfo } from "electron-updater";
+import { checkForCoreUpdate } from "./core-updater";
 
 /** Keep in sync with package.json build.publish. */
 const REPOSITORY = "btboys/Omp-Studio";
@@ -459,33 +460,63 @@ export function deferAppUpdate(): AppUpdateResult {
 }
 
 /**
- * Startup auto-update flow: silently check for a new version a few seconds
- * after launch, then download it in the background and cache it. Progress
- * (including the final "ready") is pushed to the renderer via the given
- * window accessor, where the AppUpdateModal shows the install prompt.
+ * Startup update flow: silently check both update sources a few seconds after
+ * launch, then refresh them hourly. Works on every platform.
+ *
+ *  - `pi:updateStatus` is always pushed with the combined app + omp-core
+ *    status; the title bar renders update badges from it.
+ *  - Windows packaged: a new app version is downloaded in the background and
+ *    the renderer shows the install prompt when it lands ("ready" on
+ *    pi:appUpdate).
+ *  - macOS/Linux packaged (and dev builds): no in-app installer exists, so an
+ *    available app update surfaces a one-shot "available" prompt (per launch)
+ *    that links to the GitHub release page.
  * Never throws; a failed check/download must not disturb startup.
  */
 export function startBackgroundAppUpdate(getWin: () => Electron.BrowserWindow | null): void {
   configureUpdater();
-  if (!app.isPackaged || !isWindowsInstallerSupported()) return;
-  // Fallback: arm install-on-quit from launch. Any download that completes this
-  // session — the background flow below, a manual Settings download, or a
-  // previous session's cache validated by downloadUpdate() — then installs when
-  // the app quits cleanly, even if the user never answered the update prompt.
-  // install() is a no-op when nothing is downloaded, so arming it is safe.
-  autoUpdater.autoInstallOnAppQuit = true;
-  setTimeout(() => {
-    void (async () => {
-      try {
-        const status = await checkForAppUpdate();
-        if (!status.hasUpdate || !status.supported || !status.installable) return;
-        await downloadAppUpdate((p) => {
-          const w = getWin();
-          if (w && !w.isDestroyed()) w.webContents.send("pi:appUpdate", p);
+  const send = (channel: string, payload: unknown): void => {
+    const w = getWin();
+    if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
+  };
+
+  // Windows packaged: arm install-on-quit from launch. Any download that
+  // completes this session then installs when the app quits cleanly, even if
+  // the user never answered the update prompt. install() is a no-op when
+  // nothing is downloaded, so arming it is safe.
+  if (app.isPackaged && isWindowsInstallerSupported()) autoUpdater.autoInstallOnAppQuit = true;
+
+  // One-shot per launch: on platforms without an in-app installer, prompt for
+  // an available app update exactly once instead of nagging on every refresh.
+  let prompted = false;
+
+  const run = async (): Promise<void> => {
+    try {
+      const [appStatus, coreStatus] = await Promise.all([checkForAppUpdate(), checkForCoreUpdate()]);
+      send("pi:updateStatus", { app: appStatus, core: coreStatus });
+
+      if (!appStatus.hasUpdate) return;
+
+      if (appStatus.supported && appStatus.installable) {
+        // Windows packaged: download in the background; AppUpdateModal prompts on "ready".
+        await downloadAppUpdate((p) => send("pi:appUpdate", p));
+      } else if (!prompted) {
+        // macOS/Linux (and dev): no in-app installer — surface the release page.
+        prompted = true;
+        send("pi:appUpdate", {
+          stage: "available",
+          version: appStatus.latest || undefined,
+          message: appStatus.note || `Omp Studio v${appStatus.latest} is available`,
+          releaseUrl: appStatus.releaseUrl || undefined,
         });
-      } catch (error: any) {
-        console.warn("[app-updater] background update flow failed:", error?.message || String(error));
       }
-    })();
-  }, 4000);
+    } catch (error: any) {
+      console.warn("[app-updater] background update flow failed:", error?.message || String(error));
+    }
+  };
+
+  // Check shortly after launch (window exists by then), then keep the title-bar
+  // badges fresh hourly so a release mid-session still shows up.
+  setTimeout(() => void run(), 4000);
+  setInterval(() => void run(), 60 * 60 * 1000);
 }

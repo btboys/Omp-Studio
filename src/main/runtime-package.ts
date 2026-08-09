@@ -92,6 +92,17 @@ function isValidRuntimeVersion(version: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(version);
 }
 
+/** Compare dotted numeric versions; negative when a < b, 0 when equal. */
+function compareVersions(a: string, b: string): number {
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
 function runtimeRootForVersion(version: string): string {
   if (!isValidRuntimeVersion(version)) throw new Error(`invalid runtime version: ${version}`);
   return join(runtimeVersionsDir(), version);
@@ -274,6 +285,22 @@ export async function installRuntimePackage(manifest: RuntimeManifest, onProgres
   } finally {
     rmSafe(staging);
   }
+}
+
+/**
+ * Upgrade the managed runtime when the installed app bundles a newer omp than
+ * the active userData copy. App updates must not leave users stuck on the
+ * previous app's runtime; this runs at startup before the window opens so the
+ * version shown matches the binary in use. Never downgrades: a runtime updated
+ * in-app beyond the bundled version is kept. No-op without an embedded runtime
+ * (dev mode) or when the active copy is already current or newer.
+ */
+export async function ensureManagedRuntimeUpToDate(onProgress?: ProgressFn): Promise<string | null> {
+  const manifest = getRuntimePackageManifest();
+  if (!manifest) return null;
+  const activeVersion = getActiveRuntimeVersion();
+  if (activeVersion && compareVersions(manifest.runtimeVersion, activeVersion) <= 0) return null;
+  return installRuntimePackage(manifest, onProgress);
 }
 
 /** Ensure the runtime embedded in the installer is present on first launch. */

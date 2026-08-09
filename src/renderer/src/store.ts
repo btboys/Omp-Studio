@@ -2,9 +2,11 @@ import { create } from "zustand";
 import type {
   AppConfig,
   AppRuntime,
+  AppUpdateStatus,
   ArchivedThread,
   AutomationTask,
   ContentBlock,
+  CoreUpdateStatus,
   ExtUiRequest,
   FileNode,
   McpServerConfig,
@@ -674,8 +676,14 @@ interface PiStore {
 
   // settings overlay
   settingsOpen: boolean;
-  openSettings: () => void;
+  /** Tab to open Settings on next open (set by update badge; cleared on close). */
+  settingsInitialTab: string | null;
+  openSettings: (tab?: string) => void;
   closeSettings: () => void;
+
+  // update availability (pushed from main; feeds the title-bar badges)
+  updateStatus: { app: AppUpdateStatus | null; core: CoreUpdateStatus | null };
+  setUpdateStatus: (s: { app: AppUpdateStatus | null; core: CoreUpdateStatus | null }) => void;
 
   // search overlay
   searchOpen: boolean;
@@ -864,6 +872,8 @@ export const useStore = create<PiStore>()((set, get) => ({
   toasts: [],
   extuiQueue: [],
   settingsOpen: false,
+  settingsInitialTab: null,
+  updateStatus: { app: null, core: null },
 
   bootstrap: async () => {
     // These calls are deliberately independent. Project discovery can be slow
@@ -1935,8 +1945,10 @@ export const useStore = create<PiStore>()((set, get) => ({
     get().pushToast("error", message);
   },
 
-  openSettings: () => set({ settingsOpen: true }),
-  closeSettings: () => set({ settingsOpen: false }),
+  openSettings: (tab?: string) =>
+    set({ settingsOpen: true, settingsInitialTab: typeof tab === "string" ? tab : null }),
+  closeSettings: () => set({ settingsOpen: false, settingsInitialTab: null }),
+  setUpdateStatus: (s) => set({ updateStatus: s }),
 
   searchOpen: false,
   openSearch: () => set({ searchOpen: true }),
