@@ -5998,6 +5998,11 @@ mark.hl {
   font-size: 12px;
   word-break: break-all;
 }
+.wt-error {
+  margin: 4px 0 2px 106px;
+  color: #c0392b;
+  font-size: 12px;
+}
 .wt-actions {
   display: flex;
   justify-content: flex-end;

@@ -268,20 +268,27 @@ export const gitPull = (cwd: string) => op(cwd, ["pull"], 120000);
 export const gitPush = (cwd: string) => op(cwd, ["push"], 120000);
 
 /**
- * Create a linked worktree: `git worktree add -b <branch> <path>`. The branch
- * must not exist yet (git's own error surfaces through GitOpResult). The
- * resolved absolute path is returned so the renderer can open the new
- * checkout as a project.
+ * Create a linked worktree. Two modes:
+ * - newBranch (default): `git worktree add -b <branch> <path> [<start-point>]`
+ *   — creates a new branch from `from` (or HEAD when omitted).
+ * - existing branch: `git worktree add <path> <branch>` — checks out an
+ *   already-existing branch (fails if it is checked out elsewhere).
+ * Git's own errors surface through GitOpResult. The resolved absolute path is
+ * returned so the renderer can open the new checkout as a project.
  */
 export async function gitWorktreeAdd(
   cwd: string,
-  branch: string,
-  path: string,
+  args: { branch: string; path: string; newBranch?: boolean; from?: string },
 ): Promise<GitOpResult & { path?: string }> {
-  const b = (branch || "").trim();
-  const p = (path || "").trim();
+  const b = (args.branch || "").trim();
+  const p = (args.path || "").trim();
+  const from = (args.from || "").trim();
   if (!b || !p) return { ok: false, error: "branch and path are required" };
-  const r = await op(cwd, ["worktree", "add", "-b", b, p], 30000);
+  const cmd =
+    args.newBranch === false
+      ? ["worktree", "add", p, b]
+      : ["worktree", "add", "-b", b, p, ...(from ? [from] : [])];
+  const r = await op(cwd, cmd, 30000);
   if (!r.ok) return r;
   return { ...r, path: isAbsolute(p) ? p : join(cwd, p) };
 }

@@ -254,6 +254,18 @@ export function Sidebar() {
           </span>
           <div className="pactions">
             <span className="pcount">{p.threads.length}</span>
+            {gitInfos[p.cwd]?.commonDir && (
+              <button
+                className="pact"
+                title={language === "zh" ? "新建 worktree" : "New worktree"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  useStore.getState().openWorktreeFor(p.cwd, gitInfos[p.cwd]?.branch);
+                }}
+              >
+                <Branch size={13} />
+              </button>
+            )}
             <button
               className="pact"
               title="新建会话"

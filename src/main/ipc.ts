@@ -559,8 +559,8 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("git:checkout", (_e, args: { cwd: string; branch: string }) => gitCheckout(args.cwd, args.branch));
   ipcMain.handle("git:pull", (_e, cwd: string) => gitPull(cwd));
   ipcMain.handle("git:push", (_e, cwd: string) => gitPush(cwd));
-  ipcMain.handle("git:worktreeAdd", (_e, args: { cwd: string; branch: string; path: string }) =>
-    gitWorktreeAdd(args.cwd, args.branch, args.path),
+  ipcMain.handle("git:worktreeAdd", (_e, args: { cwd: string; branch: string; path: string; newBranch?: boolean; from?: string }) =>
+    gitWorktreeAdd(args.cwd, { branch: args.branch, path: args.path, newBranch: args.newBranch, from: args.from }),
   );
 
   ipcMain.handle("app:openProject", async (_e, absPath: string) => {
@@ -603,6 +603,8 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return { ok: true };
   });
 
+  ipcMain.handle("app:getHomeDir", () => homedir());
+
   ipcMain.handle("app:showOpenDialog", async (_e, kind: "folder" | "file" | "files") => {
     const w = getWin();
     const properties: any[] =
@@ -623,7 +625,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   );
   ipcMain.handle("app:fileExists", (_e, absPath: string) => {
     try {
-      return !!absPath && statSync(absPath).isFile();
+      // Any existing entry (file or directory) — worktree creation checks for
+      // a same-named dir, artifact previews check files.
+      return !!absPath && existsSync(absPath);
     } catch {
       return false;
     }

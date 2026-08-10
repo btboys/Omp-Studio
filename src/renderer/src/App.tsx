@@ -9,6 +9,7 @@ import { Toasts } from "./components/Toasts";
 import { ExtUiModal } from "./components/ExtUiModal";
 import { Settings } from "./components/Settings";
 import { SearchModal } from "./components/SearchModal";
+import { WorktreeModal } from "./components/WorktreeModal";
 import { PluginsPanel } from "./components/PluginsPanel";
 import { McpPanel } from "./components/McpPanel";
 import { AutomationPanel } from "./components/AutomationPanel";
@@ -167,6 +168,7 @@ export default function App() {
       <Toasts />
       <ExtUiModal />
       <SearchModal />
+      <WorktreeModal />
       <PluginsPanel />
       <McpPanel />
       <AutomationPanel />

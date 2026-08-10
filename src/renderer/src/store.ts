@@ -751,6 +751,14 @@ interface PiStore {
   /** Open a thread by session file, or focus it if already open. */
   goToThread: (cwd: string, file: string) => Promise<void>;
 
+  // worktree modal overlay (shared by Git panel and sidebar quick action)
+  worktreeOpen: boolean;
+  worktreeRoot: string | null;
+  /** Branch the dialog defaults "From branch" to (the checkout clicked from). */
+  worktreeBranch: string | null;
+  openWorktreeFor: (cwd: string, branch?: string | null) => void;
+  closeWorktree: () => void;
+
   // plugins overlay
   pluginsOpen: boolean;
   packages: PluginPackage[];
@@ -1990,10 +1998,15 @@ export const useStore = create<PiStore>()((set, get) => ({
   searchOpen: false,
   openSearch: () => set({ searchOpen: true }),
   closeSearch: () => set({ searchOpen: false }),
+  // ---- worktree modal overlay ----
+  worktreeOpen: false,
+  worktreeRoot: null,
+  worktreeBranch: null,
+  openWorktreeFor: (cwd, branch) => set({ worktreeRoot: cwd, worktreeBranch: branch || null, worktreeOpen: true }),
+  closeWorktree: () => set({ worktreeOpen: false, worktreeRoot: null, worktreeBranch: null }),
   goToThread: async (cwd, file) => {
     const s = get();
-    if (s.openThreadIds.includes(file)) {
-      set({
+    if (s.openThreadIds.includes(file)) {      set({
         activeThreadId: file,
         activeProjectCwd: cwd,
         expandedProjects: { ...s.expandedProjects, [cwd]: true },
