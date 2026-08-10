@@ -6,7 +6,21 @@ import type { GitCommitDetail, GitCommitFile, GitLogEntry, GitLogOpts, GitOpResu
 import { Branch, Check, ChevronRight, Close, Minus, Plus, Refresh, Sparkle, Undo } from "./icons";
 
 /** Changed-file tree of one commit: expandable directories, status-letter leaves. */
-function CommitFileTree({ files }: { files: GitCommitFile[] }) {
+function CommitFileTree({
+  files,
+  expandedPath,
+  diffText,
+  diffLoading,
+  onFileClick,
+}: {
+  files: GitCommitFile[];
+  expandedPath: string | null;
+  diffText: (path: string) => string | null | undefined;
+  diffLoading: (path: string) => boolean;
+  onFileClick: (path: string) => void;
+}) {
+  const language = useStore((s) => s.config?.language || "en");
+  const t = (zh: string, en: string) => (language === "zh" ? zh : en);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   type Node = { dirs: Map<string, Node>; files: GitCommitFile[] };
   const rootNode = useMemo<Node>(() => {
@@ -51,10 +65,28 @@ function CommitFileTree({ files }: { files: GitCommitFile[] }) {
       {[...node.files]
         .sort((a, b) => (a.path < b.path ? -1 : 1))
         .map((f) => (
-          <div className="gpd-file" key={f.path} style={{ paddingLeft: 10 + depth * 14 + 16 }} title={f.path}>
-            <span className={`gp-letter gp-letter-${f.status}`}>{f.status}</span>
-            <span className="gpd-file-name">{f.path.split("/").pop()}</span>
-            {f.oldPath && <span className="gpd-old">← {f.oldPath.split("/").pop()}</span>}
+          <div key={f.path}>
+            <div
+              className="gpd-file"
+              style={{ paddingLeft: 10 + depth * 14 + 16 }}
+              title={f.path}
+              onClick={() => onFileClick(f.path)}
+            >
+              <span className={`gp-letter gp-letter-${f.status}`}>{f.status}</span>
+              <span className="gpd-file-name">{f.path.split("/").pop()}</span>
+              {f.oldPath && <span className="gpd-old">← {f.oldPath.split("/").pop()}</span>}
+            </div>
+            {expandedPath === f.path && (
+              <div className="gpd-diff" style={{ marginLeft: 10 + depth * 14 + 16 }}>
+                {diffLoading(f.path) ? (
+                  <div className="ctx-empty">{t("加载中…", "Loading…")}</div>
+                ) : diffText(f.path) ? (
+                  <pre className="gpd-diff-body">{diffText(f.path)}</pre>
+                ) : (
+                  <div className="ctx-empty">{t("无变更内容", "No diff")}</div>
+                )}
+              </div>
+            )}
           </div>
         ))}
     </>
@@ -63,7 +95,26 @@ function CommitFileTree({ files }: { files: GitCommitFile[] }) {
 }
 
 /** Expanded commit detail: full hash/meta, message body, changed-file tree. */
-function CommitDetailView({ d, t }: { d: GitCommitDetail; t: (zh: string, en: string) => string }) {
+function CommitDetailView({ root, d }: { root: string; d: GitCommitDetail }) {
+  const language = useStore((s) => s.config?.language || "en");
+  const t = (zh: string, en: string) => (language === "zh" ? zh : en);
+  const [expandedPath, setExpandedPath] = useState<string | null>(null);
+  const [diffs, setDiffs] = useState<Record<string, string | null>>({});
+  const [diffLoading, setDiffLoading] = useState<Record<string, boolean>>({});
+
+  const openFile = async (path: string) => {
+    if (expandedPath === path) {
+      setExpandedPath(null);
+      return;
+    }
+    setExpandedPath(path);
+    if (diffs[path] !== undefined || diffLoading[path]) return;
+    setDiffLoading((l) => ({ ...l, [path]: true }));
+    const diff = await window.pi.git.commitFileDiff(root, d.hash, path);
+    setDiffs((c) => ({ ...c, [path]: diff }));
+    setDiffLoading((l) => ({ ...l, [path]: false }));
+  };
+
   return (
     <>
       <div className="gpd-head">
@@ -82,7 +133,13 @@ function CommitDetailView({ d, t }: { d: GitCommitDetail; t: (zh: string, en: st
         <span>{t("变更文件", "Changed files")}</span>
         <span className="pcount">{d.files.length}</span>
       </div>
-      <CommitFileTree files={d.files} />
+      <CommitFileTree
+        files={d.files}
+        expandedPath={expandedPath}
+        diffText={(p) => diffs[p]}
+        diffLoading={(p) => !!diffLoading[p]}
+        onFileClick={(p) => void openFile(p)}
+      />
     </>
   );
 }
@@ -587,7 +644,7 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
                       {detailLoading === c.hash ? (
                         <div className="ctx-empty">{t("加载中…", "Loading…")}</div>
                       ) : detailCache[c.hash] ? (
-                        <CommitDetailView d={detailCache[c.hash]!} t={t} />
+                        <CommitDetailView root={root} d={detailCache[c.hash]!} />
                       ) : (
                         <div className="ctx-empty">{t("无法加载提交详情", "Failed to load commit details")}</div>
                       )}

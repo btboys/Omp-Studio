@@ -67,6 +67,7 @@ const api = {
     log: (cwd: string, opts?: { limit?: number; since?: string; query?: string; skip?: number }) =>
       ipcRenderer.invoke("git:log", cwd, opts),
     commitDetail: (cwd: string, hash: string) => ipcRenderer.invoke("git:commitDetail", cwd, hash),
+    commitFileDiff: (cwd: string, hash: string, path: string) => ipcRenderer.invoke("git:commitFileDiff", cwd, hash, path),
     stage: (args: { cwd: string; paths: string[] }) => ipcRenderer.invoke("git:stage", args),
     unstage: (args: { cwd: string; paths: string[] }) => ipcRenderer.invoke("git:unstage", args),
     stageAll: (cwd: string) => ipcRenderer.invoke("git:stageAll", cwd),

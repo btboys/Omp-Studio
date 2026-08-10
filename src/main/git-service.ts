@@ -286,6 +286,16 @@ export async function gitWorktreeAdd(
   return { ...r, path: isAbsolute(p) ? p : join(cwd, p) };
 }
 
+/**
+ * Diff of one file as changed by a specific commit (`git show --format=`
+ * strips the commit header, leaving a pure patch). Empty string on error.
+ */
+export async function gitCommitFileDiff(cwd: string, hash: string, path: string): Promise<string> {
+  const r = await run(cwd, ["show", "--format=", "--no-color", hash, "--", path], 15000);
+  if (r.code !== 0) return "";
+  return truncateDiff(r.stdout);
+}
+
 export type FileDiffResult = {
   ok: boolean;
   diff: string;

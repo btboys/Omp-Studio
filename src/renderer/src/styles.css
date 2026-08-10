@@ -6314,6 +6314,7 @@ mark.hl {
   padding: 2px 4px;
   border-radius: 4px;
   font-size: 12px;
+  cursor: pointer;
 }
 .gpd-file:hover {
   background: var(--control);
@@ -6327,6 +6328,26 @@ mark.hl {
   flex-shrink: 0;
   color: var(--text-faint);
   font-size: 11px;
+}
+.gpd-diff {
+  margin: 0 0 4px;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--border);
+}
+.gpd-diff-body {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .gp-foot {
   display: flex;
