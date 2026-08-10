@@ -24,6 +24,7 @@ import type {
   ViewMessage,
 } from "./lib/types";
 import { cleanOutput, extensionsAlreadyLatest, hasLibuvAssertion, lastLine, stripAnsi } from "./lib/update";
+import { applyAsyncJobs } from "./lib/subagents";
 
 /* ------------------------------------------------------------------ *
  * Pure helpers
@@ -424,6 +425,14 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
         const view: ViewMessage = { key: `u-${uid()}`, role: "user", text: serverText, images: serverImages, timestamp: m.timestamp };
         return { ...t, messages: [...t.messages, view] };
       }
+      if (m.role === "custom") {
+        // async-result: a background subagent spawned by a `task` batch finished.
+        if (m.customType === "async-result") {
+          const toolRuns = applyAsyncJobs(t.toolRuns, m?.details?.jobs);
+          return toolRuns ? { ...t, toolRuns } : t;
+        }
+        return t;
+      }
       if (m.role === "assistant") {
         return { ...t, streaming: newAssistant() };
       }
@@ -438,6 +447,10 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
     }
     case "message_end": {
       const m = event.message;
+      if (m?.role === "custom" && m.customType === "async-result") {
+        const toolRuns = applyAsyncJobs(t.toolRuns, m?.details?.jobs);
+        return toolRuns ? { ...t, toolRuns } : t;
+      }
       if (m?.role === "assistant" && t.streaming) {
         const final: ViewMessage = {
           ...t.streaming,
@@ -478,10 +491,15 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
           break;
         }
         case "toolcall_delta": {
-          const id = ame.toolCall?.id || ame.partial?.content?.[ame.contentIndex]?.id;
+          const ci = ame.contentIndex;
+          const id = ame.toolCall?.id || ame.partial?.content?.[ci]?.id;
           if (id) {
             const r = runs[id] || { id, name: "tool", args: {}, running: false, argsStr: "" };
-            runs = { ...runs, [id]: { ...r, argsStr: (r.argsStr || "") + (ame.delta || "") } };
+            // omp streams the cumulative JSON string in partialArgs; prefer it
+            // over concatenated fragments (fragment order/contiguity varies by
+            // provider), falling back to delta appending when absent.
+            const cumulative = typeof ame.partial?.content?.[ci]?.partialArgs === "string" ? ame.partial.content[ci].partialArgs : "";
+            runs = { ...runs, [id]: { ...r, argsStr: cumulative || (r.argsStr || "") + (ame.delta || "") } };
           }
           break;
         }
@@ -513,7 +531,7 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
         ...t,
         toolRuns: {
           ...t.toolRuns,
-          [id]: { ...prev, name: event.toolName || prev.name, args: event.args || prev.args, running: true, completed: false },
+          [id]: { ...prev, name: event.toolName || prev.name, args: event.args || prev.args, intent: event.intent, running: true, completed: false },
         },
       };
     }
@@ -521,7 +539,15 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
       const id = event.toolCallId;
       if (!id) return t;
       const prev = t.toolRuns[id] || { id, name: event.toolName || "tool", args: {}, running: true };
-      return { ...t, toolRuns: { ...t.toolRuns, [id]: { ...prev, partialText: textOfContent(event.partialResult?.content) } } };
+      const progress = Array.isArray(event.partialResult?.details?.progress)
+        ? event.partialResult.details.progress
+            .filter((p: any) => p && typeof p.id === "string" && typeof p.status === "string")
+            .map((p: any) => ({ id: p.id, status: p.status }))
+        : undefined;
+      return {
+        ...t,
+        toolRuns: { ...t.toolRuns, [id]: { ...prev, partialText: textOfContent(event.partialResult?.content), ...(progress ? { progress } : {}) } },
+      };
     }
     case "tool_execution_end": {
       const id = event.toolCallId;

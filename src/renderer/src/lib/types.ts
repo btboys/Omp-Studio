@@ -136,6 +136,12 @@ export interface ToolRun {
   resultText?: string;
   partialText?: string;
   argsStr?: string;
+  /** omp `task` tool: batch intent carried by tool_execution_start. */
+  intent?: string;
+  /** omp `task` tool: per-agent progress snapshots ({id, status}) streamed by
+   *  tool_execution_update; status flips to "completed" when the async-result
+   *  notice for that job arrives. */
+  progress?: { id: string; status: string }[];
 }
 
 /** A follow-up the user queued (Enter) while the agent is streaming. Held in

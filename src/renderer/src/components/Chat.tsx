@@ -6,6 +6,7 @@ import { collectFileArtifacts } from "../lib/artifacts";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
 import { replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
+import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/subagents";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
 import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, Close, Undo } from "./icons";
@@ -59,34 +60,12 @@ const SUBAGENT_TOOL = "task";
 
 type ToolCallBlock = Extract<ContentBlock, { type: "toolCall" }>;
 
-interface TaskItem {
-  name?: string;
-  agent?: string;
-}
-
-/** Narrow omp's `task` tool payload (tasks[] batch + intent) without casts. */
-function taskArgsOf(raw: unknown): { tasks: TaskItem[]; i: string } {
-  if (!raw || typeof raw !== "object") return { tasks: [], i: "" };
-  const tasks: TaskItem[] = [];
-  if ("tasks" in raw && Array.isArray(raw.tasks)) {
-    for (const t of raw.tasks) {
-      if (!t || typeof t !== "object") continue;
-      if (!("name" in t) && !("agent" in t)) continue;
-      tasks.push({
-        name: "name" in t && typeof t.name === "string" ? t.name : undefined,
-        agent: "agent" in t && typeof t.agent === "string" ? t.agent : undefined,
-      });
-    }
-  }
-  const i = "i" in raw && typeof raw.i === "string" ? raw.i : "";
-  return { tasks, i };
-}
-
-/** Parse the subagent rows of a `task` tool call, falling back to the batch intent. */
+/** Parse the subagent rows of a `task` tool call. Names come from the batch
+ *  `tasks[]` (block args → execution args), else the batch intent. */
 function subagentRowsOf(block: ToolCallBlock, run: ToolRun): SubagentRow[] {
-  const { tasks, i } = taskArgsOf(block.arguments);
-  if (tasks.length) return tasks.map((t) => ({ name: t.name || "", agent: t.agent, run }));
-  return [{ name: i, run }];
+  const batch = taskBatchOf(block.arguments, run);
+  if (batch.tasks.length) return batch.tasks.map((t) => ({ name: t.name || "", agent: t.agent, run }));
+  return [{ name: batch.i, run }];
 }
 
 export function Chat() {
@@ -780,8 +759,9 @@ function SubagentPanel({ threadId, rows }: { threadId: string; rows: SubagentRow
   const collapsed = useStore((s) => !!s.threads[threadId]?.subagentCollapsed);
   const setSubagentCollapsed = useStore((s) => s.setSubagentCollapsed);
   const language = useStore((s) => s.config?.language || "en");
-  const running = rows.filter((r) => r.run.running).length;
-  const done = rows.filter((r) => r.run.completed && !r.run.isError).length;
+  const states: SubagentRowState[] = rows.map((r) => subagentRowState(r.name, r.run));
+  const running = states.filter((s) => s === "running").length;
+  const done = states.filter((s) => s === "done").length;
   return (
     <section className={`stack-panel-wrap ${collapsed ? "collapsed" : ""}`}>
       <div className="stack-panel">
@@ -803,15 +783,18 @@ function SubagentPanel({ threadId, rows }: { threadId: string; rows: SubagentRow
         </button>
         {!collapsed && (
           <ul className="subagent-list">
-            {rows.map((r, i) => (
-              <li key={i} className={`subagent-item ${r.run.isError ? "error" : r.run.completed ? "done" : ""}`}>
-                <span className={`subagent-status ${r.run.running ? "running" : r.run.isError ? "error" : r.run.completed ? "done" : "pending"}`} aria-hidden="true">
-                  {r.run.running ? <span className="spinner" /> : r.run.isError ? <Close size={9} /> : r.run.completed ? <Check size={9} /> : null}
-                </span>
-                <span className="subagent-name">{r.name || "task"}</span>
-                {r.agent && <span className="subagent-agent">{r.agent}</span>}
-              </li>
-            ))}
+            {rows.map((r, i) => {
+              const state = states[i];
+              return (
+                <li key={i} className={`subagent-item ${state === "error" ? "error" : state === "done" ? "done" : ""}`}>
+                  <span className={`subagent-status ${state === "running" ? "running" : state === "error" ? "error" : state === "done" ? "done" : "pending"}`} aria-hidden="true">
+                    {state === "running" ? <span className="spinner" /> : state === "error" ? <Close size={9} /> : state === "done" ? <Check size={9} /> : null}
+                  </span>
+                  <span className="subagent-name">{r.name || "task"}</span>
+                  {r.agent && <span className="subagent-agent">{r.agent}</span>}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
