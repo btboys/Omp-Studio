@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from "react";
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
 import cpp from "highlight.js/lib/languages/cpp";
@@ -268,7 +268,7 @@ export function Preview() {
         ) : view === "diff" && diffable && path ? (
           <DiffPreview key={`${path}:${diffNonce}`} path={path} root={root} language={language} />
         ) : (
-          <PreviewBody payload={payload} language={language} />
+          <PreviewBody payload={payload} language={language} path={path || ""} />
         )}
       </div>
     </aside>
@@ -285,7 +285,7 @@ function previewKindLabel(payload: any): string {
   return (payload.lang || payload.ext?.slice(1) || "FILE").toUpperCase();
 }
 
-function PreviewBody({ payload, language }: { payload: any; language: string }) {
+function PreviewBody({ payload, language, path }: { payload: any; language: string; path: string }) {
   if (!payload) {
     return (
       <div className="pv-empty">
@@ -299,7 +299,7 @@ function PreviewBody({ payload, language }: { payload: any; language: string }) 
   }
   switch (payload.kind) {
     case "text":
-      return <CodePreview text={payload.text || ""} lang={payload.lang || "plaintext"} truncated={payload.truncated} language={language} />;
+      return <CodePreview text={payload.text || ""} lang={payload.lang || "plaintext"} truncated={payload.truncated} language={language} path={path} />;
     case "markdown":
       return <div className="pv-md"><Markdown text={payload.text || ""} /></div>;
     case "html":
@@ -321,18 +321,130 @@ function PreviewBody({ payload, language }: { payload: any; language: string }) 
   }
 }
 
+/**
+ * Floating "add to conversation" button shown when the user selects a code
+ * range inside a file/diff preview. Appends `path:startLine` + the selection
+ * as a fenced block to the active thread's composer, with the caret placed
+ * after the block so the user can immediately type a follow-up prompt.
+ */
+function SelectionQuoteButton({
+  containerRef,
+  path,
+  fenceLang,
+  linesOf,
+}: {
+  containerRef: RefObject<HTMLElement | null>;
+  path: string;
+  fenceLang?: string;
+  /** Map the selection's start/end nodes to the quoted range: 1-based start
+   *  line and the full-line text (excluding line-number gutter). */
+  linesOf: (startNode: Node, endNode: Node) => { line: number; text: string } | null;
+}) {
+  const language = useStore((s) => s.config?.language || "en");
+  const [quote, setQuote] = useState<{ left: number; top: number; line: number; text: string } | null>(null);
+  const buttonRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onMouseUp = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        setQuote(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const info = linesOf(range.startContainer, range.endContainer);
+      if (!info) {
+        setQuote(null);
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      if (!rect.width && !rect.height) {
+        setQuote(null);
+        return;
+      }
+      setQuote({ left: Math.min(rect.left, window.innerWidth - 130), top: rect.bottom + 6, line: info.line, text: info.text });
+    };
+    el.addEventListener("mouseup", onMouseUp);
+    return () => el.removeEventListener("mouseup", onMouseUp);
+  }, [containerRef, linesOf]);
+
+  useEffect(() => {
+    if (!quote) return;
+    const close = (event?: Event) => {
+      const target = event?.target;
+      if (target instanceof Node && buttonRef.current?.contains(target)) return;
+      setQuote(null);
+    };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    document.addEventListener("mousedown", close);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setQuote(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [quote]);
+
+  const add = () => {
+    if (!quote) return;
+    const store = useStore.getState();
+    const threadId = store.activeThreadId;
+    if (!threadId) {
+      store.pushToast("warning", language === "zh" ? "请先打开一个会话" : "Open a conversation first");
+      setQuote(null);
+      return;
+    }
+    const snippet = `\`${path}:${quote.line}\`\n\`\`\`${fenceLang || ""}\n${quote.text}\n\`\`\`\n`;
+    const previous = store.drafts[threadId] ?? "";
+    store.setComposerDraft(threadId, previous ? `${previous}\n${snippet}` : snippet);
+    store.pushToast("success", language === "zh" ? "已添加到对话" : "Added to conversation");
+    // Focus the composer with the caret after the inserted block.
+    const ta = document.querySelector<HTMLTextAreaElement>(".composer-input textarea");
+    ta?.focus();
+    requestAnimationFrame(() => {
+      const end = ta?.value.length ?? 0;
+      ta?.setSelectionRange(end, end);
+    });
+    setQuote(null);
+  };
+
+  if (!quote) return null;
+  return (
+    <div
+      ref={buttonRef}
+      className="pv-quote-btn"
+      style={{ left: quote.left, top: quote.top }}
+      role="button"
+      title={`${path}:${quote.line}`}
+      onClick={add}
+    >
+      {language === "zh" ? "添加到对话" : "Add to chat"}
+    </div>
+  );
+}
+
 function CodePreview({
   text,
   lang,
   truncated,
   language,
+  path,
 }: {
   text: string;
   lang: string;
   truncated?: boolean;
   language: string;
+  path: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const containerRef = useRef<HTMLPreElement>(null);
   const highlighted = useMemo(() => {
     try {
       return hljs.getLanguage(lang)
@@ -359,7 +471,7 @@ function CodePreview({
           {copied ? (language === "zh" ? "已复制" : "Copied") : language === "zh" ? "复制" : "Copy"}
         </button>
       </div>
-      <pre className="pv-code-content">
+      <pre className="pv-code-content" ref={containerRef}>
         <code>
           {lines.map((line, index) => (
             <span className="pv-code-line" key={index}>
@@ -369,6 +481,27 @@ function CodePreview({
           ))}
         </code>
       </pre>
+      <SelectionQuoteButton
+        containerRef={containerRef}
+        path={path}
+        fenceLang={lang}
+        linesOf={(startNode, endNode) => {
+          const lines = Array.from(containerRef.current?.querySelectorAll(".pv-code-line") || []);
+          const indexOf = (node: Node) => {
+            const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+            const lineEl = el?.closest(".pv-code-line");
+            return lineEl ? lines.indexOf(lineEl) : -1;
+          };
+          const start = indexOf(startNode);
+          const end = indexOf(endNode);
+          if (start < 0 || end < 0) return null;
+          const text = lines
+            .slice(start, end + 1)
+            .map((lineEl) => lineEl.querySelector(".pv-code-source")?.textContent ?? "")
+            .join("\n");
+          return { line: start + 1, text };
+        }}
+      />
       {truncated && <div className="pv-code-truncated">{language === "zh" ? "文件过大，已截断。" : "Large file; preview truncated."}</div>}
     </div>
   );
@@ -610,11 +743,12 @@ function DiffPreview({ path, root, language }: { path: string; root: string | nu
       </div>
     );
   }
-  return <DiffView diff={result.diff} newFile={result.newFile} language={language} />;
+  return <DiffView diff={result.diff} newFile={result.newFile} language={language} path={path} />;
 }
 
-function DiffView({ diff, newFile, language }: { diff: string; newFile: boolean; language: string }) {
+function DiffView({ diff, newFile, language, path }: { diff: string; newFile: boolean; language: string; path: string }) {
   const parsed = useMemo(() => parseDiff(diff), [diff]);
+  const containerRef = useRef<HTMLDivElement>(null);
   const t = (zh: string, en: string) => (language === "zh" ? zh : en);
   return (
     <div className="pv-diff">
@@ -624,11 +758,40 @@ function DiffView({ diff, newFile, language }: { diff: string; newFile: boolean;
         <span className="pv-diff-del">−{parsed.deletions}</span>
         {newFile && <span className="pv-diff-newfile">{t("新文件", "new file")}</span>}
       </div>
-      <div className="pv-diff-lines">
+      <div className="pv-diff-lines" ref={containerRef}>
         {parsed.lines.map((line, index) => (
           <DiffRow key={index} line={line} />
         ))}
       </div>
+      <SelectionQuoteButton
+        containerRef={containerRef}
+        path={path}
+        fenceLang="diff"
+        linesOf={(startNode, endNode) => {
+          const rows = Array.from(containerRef.current?.querySelectorAll(".pv-diff-line") || []);
+          const indexOf = (node: Node) => {
+            const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+            const row = el?.closest(".pv-diff-line");
+            return row ? rows.indexOf(row) : -1;
+          };
+          const start = indexOf(startNode);
+          const end = indexOf(endNode);
+          if (start < 0 || end < 0) return null;
+          const first = parsed.lines[start];
+          if (!first) return null;
+          let line = 0;
+          for (let i = start; i <= end && !line; i++) {
+            const l = parsed.lines[i];
+            line = l?.newNo ?? l?.oldNo ?? 0;
+          }
+          if (!line) return null;
+          const text = rows
+            .slice(start, end + 1)
+            .map((row) => row.querySelector(".pv-diff-text")?.textContent ?? row.querySelector(".pv-diff-full")?.textContent ?? "")
+            .join("\n");
+          return { line, text };
+        }}
+      />
     </div>
   );
 }
