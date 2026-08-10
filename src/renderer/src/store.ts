@@ -320,7 +320,7 @@ function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Recor
     } else if ((m.type === "custom_message" || m.role === "custom") && m.customType === "advisor") {
       const adv = parseAdvisory(typeof m.content === "string" ? m.content : "");
       if (adv) {
-        views.push({ key: `hs-${i}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: m.timestamp });
+        views.push({ key: `hs-${i}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: m.timestamp, kind: "advisor" });
       }
     }
   });
@@ -431,6 +431,16 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
           const toolRuns = applyAsyncJobs(t.toolRuns, m?.details?.jobs);
           return toolRuns ? { ...t, toolRuns } : t;
         }
+        // advisor notes arrive live as message_start/message_end with role "custom"
+        // (same shape `get_messages` returns); the top-level `custom_message`
+        // frame only exists in the session file, so the live path must handle it here.
+        if (m.customType === "advisor") {
+          const adv = parseAdvisory(typeof m.content === "string" ? m.content : "");
+          if (adv) {
+            const view: ViewMessage = { key: `sys-${uid()}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: m.timestamp, kind: "advisor" };
+            return { ...t, messages: [...t.messages, view] };
+          }
+        }
         return t;
       }
       if (m.role === "assistant") {
@@ -439,10 +449,10 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
       return t;
     }
     case "custom_message": {
-      if (event.customType !== "advisor") return t;
+      if (event.customType !== "advisor" && event.customType !== "recap") return t;
       const adv = parseAdvisory(typeof event.content === "string" ? event.content : "");
       if (!adv) return t;
-      const view: ViewMessage = { key: `sys-${uid()}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: event.timestamp };
+      const view: ViewMessage = { key: `sys-${uid()}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: event.timestamp, kind: event.customType };
       return { ...t, messages: [...t.messages, view] };
     }
     case "message_end": {
@@ -450,6 +460,19 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
       if (m?.role === "custom" && m.customType === "async-result") {
         const toolRuns = applyAsyncJobs(t.toolRuns, m?.details?.jobs);
         return toolRuns ? { ...t, toolRuns } : t;
+      }
+      // Advisor custom messages are complete at message_start; message_end only
+      // finalizes them when the start frame was missed (e.g. reconnect mid-stream).
+      if (m?.role === "custom" && m.customType === "advisor") {
+        const adv = parseAdvisory(typeof m.content === "string" ? m.content : "");
+        if (adv) {
+          const already = t.messages.some((v) => v.role === "system" && v.kind === "advisor" && v.text === adv.text);
+          if (!already) {
+            const view: ViewMessage = { key: `sys-${uid()}`, role: "system", text: adv.text, severity: adv.severity, guidance: adv.guidance, timestamp: m.timestamp, kind: "advisor" };
+            return { ...t, messages: [...t.messages, view] };
+          }
+        }
+        return t;
       }
       if (m?.role === "assistant" && t.streaming) {
         const final: ViewMessage = {

@@ -25,6 +25,7 @@ import {
   gitUnstageAll,
 } from "./git-service";
 import { createHtmlPreviewUrl } from "./html-preview-protocol";
+import { cancelRecap, scheduleRecap } from "./recap";
 import {
   getAuthPath,
   getConfigYmlPath,
@@ -170,8 +171,20 @@ function createHandle(
     gateModeFile,
     onEvent: (e) => {
       send("pi:event", { threadId: id, event: e });
-      const ev = e as { type?: string } | null;
+      const ev = e as { type?: string; message?: { role?: string } } | null;
+      // New agent activity invalidates any pending idle recap.
+      if (ev?.type === "agent_start" || (ev?.type === "message_start" && ev.message?.role === "user")) {
+        cancelRecap(id);
+      }
       if (ev?.type === "agent_settled") {
+        // omp's idle recap only runs in the interactive TUI; in rpc-ui mode the
+        // app generates it itself after the thread stays idle for idleSeconds.
+        scheduleRecap({
+          threadId: id,
+          sessionFile: id,
+          bridge: handle.bridge,
+          onRecap: (text) => send("pi:event", { threadId: id, event: { type: "custom_message", customType: "recap", content: text, display: true, timestamp: new Date().toISOString() } }),
+        });
         const zh = getConfig().language === "zh";
         const fire = (label: string) =>
           maybeDesktopNotify({
@@ -935,12 +948,14 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       h.bridge.stop();
       bridges.delete(threadId);
     }
+    cancelRecap(threadId);
     return true;
   });
 
   ipcMain.handle("thread:prompt", async (_e, args: { threadId: string; text: string; images?: unknown[]; attachments?: Attachment[] }) => {
     const h = bridges.get(args.threadId);
     if (!h) throw new Error("Thread not open: " + args.threadId);
+    cancelRecap(args.threadId);
     const { text, images } = processAttachments(args.attachments, args.text || "");
     const merged = [...(args.images || []), ...images];
     await h.bridge.prompt(text, merged.length ? merged : undefined);
@@ -950,6 +965,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("thread:steer", async (_e, args: { threadId: string; text: string; images?: unknown[]; attachments?: Attachment[] }) => {
     const h = bridges.get(args.threadId);
     if (!h) throw new Error("Thread not open: " + args.threadId);
+    cancelRecap(args.threadId);
     const { text, images } = processAttachments(args.attachments, args.text || "");
     const merged = [...(args.images || []), ...images];
     await h.bridge.steer(text, merged.length ? merged : undefined);
@@ -959,6 +975,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("thread:followUp", async (_e, args: { threadId: string; text: string; images?: unknown[]; attachments?: Attachment[] }) => {
     const h = bridges.get(args.threadId);
     if (!h) throw new Error("Thread not open: " + args.threadId);
+    cancelRecap(args.threadId);
     const { text, images } = processAttachments(args.attachments, args.text || "");
     const merged = [...(args.images || []), ...images];
     await h.bridge.followUp(text, merged.length ? merged : undefined);

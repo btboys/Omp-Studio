@@ -611,12 +611,14 @@ function MessageGroupInner({
 
   if (group.role === "system") {
     const m = group.items[0];
+    const isRecap = m.kind === "recap";
     return (
       <div className="msg system">
-        <div className="msg-advisory">
-          {(m.severity || m.guidance) && (
+        <div className={`msg-advisory${isRecap ? " msg-advisory-recap" : ""}`}>
+          {(m.severity || m.guidance || isRecap) && (
             <div className="msg-advisory-head">
               {m.severity && <span className={`msg-advisory-sev ${m.severity}`}>{m.severity}</span>}
+              {isRecap && !m.severity && <span className="msg-advisory-sev recap">{m.text ? "recap" : ""}</span>}
               {m.guidance && <span className="msg-advisory-guidance">{m.guidance}</span>}
             </div>
           )}

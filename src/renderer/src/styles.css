@@ -952,6 +952,13 @@ body.sidebar-resizing * {
   line-height: 1.55;
   color: var(--text-dim);
 }
+.msg-advisory-recap {
+  border-left-color: #5c7a1f;
+}
+.msg-advisory-sev.recap {
+  background: #eef3e2;
+  color: #5c7a1f;
+}
 .msg-advisory-head {
   display: flex;
   align-items: center;

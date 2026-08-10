@@ -113,6 +113,8 @@ export interface ViewMessage {
   /** advisor custom_message metadata (system role only) */
   severity?: string;
   guidance?: string;
+  /** system-message flavor: "advisor" (omp advisory) or "recap" (idle recap) */
+  kind?: string;
   images?: { dataUrl: string; mimeType: string }[];
   /** assistant structured blocks */
   blocks?: ContentBlock[];
