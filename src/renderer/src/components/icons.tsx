@@ -260,6 +260,12 @@ export const Gauge = (p: P) => (
     <path d="M3.34 19a10 10 0 1 1 17.32 0" />
   </svg>
 );
+export const Trash = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" />
+  </svg>
+);
+
 export const MagicWand = (p: P) => (
   <svg {...base(p)}>
     <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />

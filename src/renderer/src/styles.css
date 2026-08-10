@@ -6938,3 +6938,236 @@ mark.hl {
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* ------------------------------------------------------------------ *
+ * Memory manager panel (Settings → 记忆)
+ * ------------------------------------------------------------------ */
+.mem-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mem-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mem-toolbar .mem-bank {
+  min-width: 0;
+  width: auto;
+  max-width: 260px;
+  flex-shrink: 1;
+}
+.mem-toolbar .mem-type {
+  width: auto;
+}
+.mem-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 160px;
+}
+.mem-search > svg {
+  position: absolute;
+  left: 8px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+.mem-search .set-input {
+  padding-left: 26px;
+}
+.mem-warn {
+  color: #b23a2c;
+}
+:root[data-theme="dark"] .mem-warn {
+  color: #f0a49a;
+}
+.mem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+.mem-empty {
+  padding: 18px 0;
+  text-align: center;
+}
+.mem-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.015);
+}
+.mem-item:hover {
+  border-color: var(--border-strong);
+}
+.mem-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mem-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.mem-badge.working {
+  background: rgba(64, 158, 255, 0.14);
+  color: #2b6cb0;
+}
+.mem-badge.episodes {
+  background: rgba(154, 121, 201, 0.16);
+  color: #7a5fb8;
+}
+:root[data-theme="dark"] .mem-badge.working {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+:root[data-theme="dark"] .mem-badge.episodes {
+  background: rgba(196, 170, 243, 0.16);
+  color: #c4aaf3;
+}
+.mem-item-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mem-item-imp {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+.mem-imp-track {
+  display: inline-block;
+  width: 56px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.09);
+  overflow: hidden;
+}
+:root[data-theme="dark"] .mem-imp-track {
+  background: rgba(255, 255, 255, 0.12);
+}
+.mem-imp-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.mem-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.mem-item:hover .mem-item-actions {
+  opacity: 1;
+}
+.mem-item-actions .set-iconbtn {
+  width: 26px;
+  height: 26px;
+}
+.mem-item-content {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  max-height: 132px;
+  overflow: hidden;
+}
+.mem-item-content.open {
+  max-height: none;
+}
+.mem-item-expand {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.mem-item-expand:hover {
+  text-decoration: underline;
+}
+.mem-form {
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mem-form-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mem-area {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  background: #fff;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+.mem-area:focus {
+  border-color: var(--accent);
+}
+:root[data-theme="dark"] .mem-area {
+  background: var(--surface);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.mem-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.mem-form-label {
+  width: 56px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.mem-form-row input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+}
+.mem-form-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  width: 34px;
+  text-align: right;
+}
+.mem-form-row .mem-type {
+  flex: 1;
+}
+.mem-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.mem-form-actions .set-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

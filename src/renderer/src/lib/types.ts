@@ -499,3 +499,28 @@ export interface EnhancePromptResult {
   /** Short summary of the project context the model used. */
   contextUsed: string;
 }
+
+/** One Mnemopi memory bank (per-project SQLite under ~/.omp/agent/memories/mnemopi/banks). */
+export interface MemoryBank {
+  /** Directory name, also the stable bank id. */
+  id: string;
+  /** Display name: directory name with the trailing random suffix stripped. */
+  name: string;
+  /** Count of facts; -1 when the sqlite3 CLI is unavailable. */
+  working: number;
+  /** Count of episodes; -1 when the sqlite3 CLI is unavailable. */
+  episodes: number;
+}
+
+/** One memory row surfaced by the memory manager. */
+export interface MemoryRow {
+  table: "working" | "episodes";
+  /** Fact id (working) or rowid (episodes), always as a string. */
+  id: string;
+  content: string;
+  importance: number;
+  timestamp: string;
+  /** memory_type: fact / episode / instruction / preference / … */
+  memoryType: string;
+  source: string | null;
+}

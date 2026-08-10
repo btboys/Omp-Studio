@@ -47,6 +47,15 @@ import {
 import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind, shareSession } from "./pi-bridge";
 import { enhancePrompt } from "./prompt-enhance";
 import { getOmpConfig, resetOmpConfigKey, setOmpConfigKey } from "./omp-config";
+import {
+  addMemory,
+  deleteMemory,
+  getBanksDir,
+  getMemory,
+  listMemories,
+  listMemoryBanks,
+  updateMemory,
+} from "./memory-service";
 import { getActiveAuthSession, listAuthProviders, logoutAuthProvider, startAuthLogin, stopAllAuthSessions } from "./auth-service";
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
@@ -416,6 +425,7 @@ export function stopAllBridges(): void {
 }
 
 export function registerIpc(getWin: () => BrowserWindow | null): void {
+  const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const send = (channel: string, payload: unknown) => {
     const w = getWin();
     if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
@@ -817,6 +827,60 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     await resetOmpConfigKey(key);
     scheduleWarmRecreate();
     return { ok: true };
+  });
+
+  // ---- memory manager (Mnemopi banks) -----------------------------------
+  ipcMain.handle("memory:listBanks", async () => {
+    try {
+      const res = await listMemoryBanks();
+      return { ok: true, ...res };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) };
+    }
+  });
+  ipcMain.handle("memory:list", async (_e, bankId: string, opts: { table?: "working" | "episodes"; q?: string; limit?: number }) => {
+    try {
+      const rows = await listMemories(bankId, { table: opts?.table ?? "working", q: opts?.q, limit: opts?.limit });
+      return { ok: true, rows };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) };
+    }
+  });
+  ipcMain.handle("memory:get", async (_e, bankId: string, table: "working" | "episodes", id: string) => {
+    try {
+      const row = await getMemory(bankId, table, id);
+      return { ok: true, row };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) };
+    }
+  });
+  ipcMain.handle("memory:add", async (_e, bankId: string, input: { content: string; importance: number; type: string }) => {
+    try {
+      const id = await addMemory(bankId, input);
+      return { ok: true, id };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) };
+    }
+  });
+  ipcMain.handle("memory:update", async (_e, bankId: string, input: { table: "working" | "episodes"; id: string; content?: string; importance?: number }) => {
+    try {
+      await updateMemory(bankId, input);
+      return { ok: true };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) };
+    }
+  });
+  ipcMain.handle("memory:delete", async (_e, bankId: string, table: "working" | "episodes", id: string) => {
+    try {
+      await deleteMemory(bankId, table, id);
+      return { ok: true };
+    } catch (e: unknown) {
+      return { ok: false, error: errText(e) };
+    }
+  });
+  ipcMain.handle("memory:openDir", async () => {
+    const err = await shell.openPath(getBanksDir());
+    return err ? { ok: false, error: err } : { ok: true };
   });
 
   // ---- threads (pi bridges) ----------------------------------------------

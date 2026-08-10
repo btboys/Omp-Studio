@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { readLightweightRoleModel } from "./models-service";
 import { runOmpCli } from "./plugins";
 import { getAgentDir } from "./session-store";
+import { resolveSqlite3 } from "./sqlite3-cli";
 
 const execFileAsync = promisify(execFile);
 
@@ -392,29 +393,6 @@ const PROVIDER_CHAT: Record<string, { url: string; envKeys: string[]; omitTemper
   openrouter: { url: "https://openrouter.ai/api/v1/chat/completions", envKeys: ["OPENROUTER_API_KEY"] },
   moonshot: { url: "https://api.moonshot.ai/v1/chat/completions", envKeys: ["MOONSHOT_API_KEY", "KIMI_API_KEY"] },
 };
-
-/** Cached sqlite3 CLI probe: undefined=unprobed, null=missing. */
-let sqlite3Bin: string | null | undefined;
-
-async function resolveSqlite3(): Promise<string | null> {
-  if (sqlite3Bin !== undefined) return sqlite3Bin;
-  const candidates = process.platform === "win32" ? ["sqlite3.exe", "sqlite3"] : ["sqlite3"];
-  for (const bin of candidates) {
-    try {
-      await execFileAsync(bin, ["-version"], { timeout: 2000, windowsHide: true });
-      sqlite3Bin = bin;
-      return bin;
-    } catch {
-      // try next
-    }
-  }
-  sqlite3Bin = null;
-  console.log(
-    "[git] sqlite3 CLI not found on PATH; cannot read ~/.omp/agent/agent.db for OAuth keys. " +
-      "Direct AI commit messages will use env API keys only (DEEPSEEK_API_KEY / OPENROUTER_API_KEY / KIMI_*).",
-  );
-  return null;
-}
 
 function proxyUrl(): string | null {
   return (

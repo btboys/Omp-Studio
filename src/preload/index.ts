@@ -144,6 +144,18 @@ const api = {
     showItem: (abs: string) => ipcRenderer.invoke("settings:showItem", abs),
     openAgentDir: () => ipcRenderer.invoke("settings:openAgentDir"),
   },
+  memory: {
+    listBanks: () => ipcRenderer.invoke("memory:listBanks"),
+    list: (bankId: string, opts?: { table?: "working" | "episodes"; q?: string; limit?: number }) =>
+      ipcRenderer.invoke("memory:list", bankId, opts),
+    get: (bankId: string, table: "working" | "episodes", id: string) => ipcRenderer.invoke("memory:get", bankId, table, id),
+    add: (bankId: string, input: { content: string; importance: number; type: string }) =>
+      ipcRenderer.invoke("memory:add", bankId, input),
+    update: (bankId: string, input: { table: "working" | "episodes"; id: string; content?: string; importance?: number }) =>
+      ipcRenderer.invoke("memory:update", bankId, input),
+    delete: (bankId: string, table: "working" | "episodes", id: string) => ipcRenderer.invoke("memory:delete", bankId, table, id),
+    openDir: () => ipcRenderer.invoke("memory:openDir"),
+  },
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),
     maximize: () => ipcRenderer.invoke("window:maximize"),

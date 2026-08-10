@@ -6,6 +6,7 @@ import { reasoningLevelLabel } from "../lib/reasoning";
 import { Archive, Check, Close, Edit, Plus, Refresh, Folder } from "./icons";
 import { OmpConfigPanel } from "./OmpConfigPanel";
 import { ProviderAuthPanel } from "./ProviderAuthPanel";
+import { MemoryPanel } from "./MemoryPanel";
 import appIconUrl from "../../../../resources/icon.png";
 
 /* ------------------------------------------------------------------ *
@@ -541,7 +542,7 @@ function ProviderCard({
  * Main panel
  * ------------------------------------------------------------------ */
 
-type Tab = "models" | "thinking" | "general" | "archive" | "diag" | "update" | "about";
+type Tab = "models" | "thinking" | "general" | "memory" | "archive" | "diag" | "update" | "about";
 
 interface NewProviderDraft {
   id: string;
@@ -1144,6 +1145,7 @@ export function Settings() {
               ["models", "模型与提供商"],
               ["thinking", "思考默认值"],
               ["general", language === "zh" ? "通用配置" : "General"],
+              ["memory", language === "zh" ? "记忆" : "Memory"],
               ["archive", "已归档项目"],
               ["diag", "诊断与配置"],
               ["update", language === "zh" ? "应用更新" : "App updates"],
@@ -1188,6 +1190,10 @@ export function Settings() {
                       ? language === "zh"
                         ? "通用配置（omp config.yml）"
                         : "General (omp config.yml)"
+                      : tab === "memory"
+                      ? language === "zh"
+                        ? "记忆管理"
+                        : "Memory"
                       : tab === "archive"
                       ? "已归档项目"
                       : tab === "update"
@@ -1479,6 +1485,8 @@ export function Settings() {
             )}
 
             {tab === "general" && <OmpConfigPanel />}
+
+            {tab === "memory" && <MemoryPanel />}
 
             {tab === "archive" && (
               <div className="set-card">
