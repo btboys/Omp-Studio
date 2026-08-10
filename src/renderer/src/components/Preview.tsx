@@ -84,6 +84,7 @@ export function Preview() {
   const root = useStore((s) => s.previewRoot);
   const payload = useStore((s) => s.previewPayload);
   const loading = useStore((s) => s.previewLoading);
+  const commitHash = useStore((s) => s.previewCommitHash);
   const expanded = useStore((s) => s.previewExpanded);
   const openPreview = useStore((s) => s.openPreview);
   const toggleExpanded = useStore((s) => s.togglePreviewExpanded);
@@ -179,8 +180,8 @@ export function Preview() {
   const name = path?.split(/[\\/]/).pop() || "Preview";
   const diffable = !!payload && (payload.kind === "text" || payload.kind === "markdown");
   const refreshPreview = () => {
-    if (view === "diff") setDiffNonce((nonce) => nonce + 1);
-    if (path) openPreview(path, root || undefined);
+    if (view === "diff" || commitHash) setDiffNonce((nonce) => nonce + 1);
+    if (path) openPreview(path, root || undefined, commitHash || undefined);
   };
 
   return (
@@ -205,10 +206,13 @@ export function Preview() {
         />
       )}
       <div className="preview-head">
-        <span className="preview-title" title={path || ""}>{name}</span>
+        <span className="preview-title" title={path || ""}>
+          {name}
+          {commitHash && <span className="pv-commit-chip">@{commitHash.slice(0, 7)}</span>}
+        </span>
         {payload && <span className="muted preview-size">{formatBytes(payload.size)}</span>}
         {payload && <span className="preview-kind">{previewKindLabel(payload)}</span>}
-        {diffable && (
+        {!commitHash && diffable && (
           <span className="pv-view-toggle" role="tablist" aria-label={language === "zh" ? "预览视图" : "Preview view"}>
             <button
               role="tab"
@@ -265,6 +269,8 @@ export function Preview() {
       <div className={`preview-body ${payload?.kind === "html" ? "html-preview-active" : ""}`}>
         {loading ? (
           <div className="pv-loading"><span className="spinner" /></div>
+        ) : commitHash ? (
+          <DiffPreview key={`${path}:${diffNonce}`} path={path || ""} root={root} language={language} commitHash={commitHash} />
         ) : view === "diff" && diffable && path ? (
           <DiffPreview key={`${path}:${diffNonce}`} path={path} root={root} language={language} />
         ) : (
@@ -702,15 +708,31 @@ function PptxPreview({ base64, language }: { base64: string; language: string })
 }
 
 /**
- * Diff view for the currently previewed file: `git diff HEAD` for the path,
- * showing what the agent changed since the last commit. Fetched lazily from
- * the main process; the file preview itself is untouched.
+ * Diff view for the currently previewed file. Normal mode: `git diff HEAD`
+ * for the path (what the agent changed since the last commit). Commit mode
+ * (`commitHash` set): the file's diff inside that commit (`git show`).
+ * Fetched lazily from the main process; the file preview itself is untouched.
  */
-function DiffPreview({ path, root, language }: { path: string; root: string | null; language: string }) {
+function DiffPreview({ path, root, language, commitHash }: { path: string; root: string | null; language: string; commitHash?: string | null }) {
   const [result, setResult] = useState<FileDiffResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    if (commitHash && root) {
+      // previewPath is absolute under the repo root; git wants the rel path.
+      const rel = path.startsWith(root) ? path.slice(root.length).replace(/^[\\/]/, "") : path;
+      window.pi.git
+        .commitFileDiff(root, commitHash, rel)
+        .then((diff) => {
+          if (!cancelled) setResult({ ok: true, diff, newFile: /^new file mode/m.test(diff) });
+        })
+        .catch((e: any) => {
+          if (!cancelled) setErr(e?.message || "commitFileDiff failed");
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     const dir = path.replace(/[\\/][^\\/]*$/, "");
     window.pi.app
       .getFileDiff(root || dir, path)
@@ -723,7 +745,7 @@ function DiffPreview({ path, root, language }: { path: string; root: string | nu
     return () => {
       cancelled = true;
     };
-  }, [path, root]);
+  }, [path, root, commitHash]);
 
   if (err) return <div className="pv-unsupported">{err}</div>;
   if (!result) return <div className="pv-loading"><span className="spinner" /></div>;
@@ -731,7 +753,9 @@ function DiffPreview({ path, root, language }: { path: string; root: string | nu
     return <div className="pv-unsupported">{(language === "zh" ? "无法获取 diff：" : "Could not load diff: ") + result.error}</div>;
   }
   if (!result.diff) {
-    return (
+    return commitHash ? (
+      <div className="pv-unsupported">{language === "zh" ? "无变更内容。" : "No diff."}</div>
+    ) : (
       <div className="pv-unsupported">
         {result.newFile
           ? language === "zh"

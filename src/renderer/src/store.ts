@@ -649,6 +649,8 @@ interface PiStore {
   previewPath: string | null;
   previewRoot: string | null;
   previewPayload: PreviewPayload | null;
+  /** when set, the preview shows the file's diff in this commit instead of its working-tree content */
+  previewCommitHash: string | null;
   previewLoading: boolean;
 
   // overlay
@@ -719,7 +721,7 @@ interface PiStore {
   togglePreviewExpanded: () => void;
   loadFileTree: (cwd: string, rel?: string) => Promise<void>;
   toggleFolder: (cwd: string, rel: string) => void;
-  openPreview: (abs: string, projectRoot?: string) => Promise<void>;
+  openPreview: (abs: string, projectRoot?: string, commitHash?: string) => Promise<void>;
   closePreview: () => void;
 
   pushToast: (kind: Toast["kind"], text: string) => void;
@@ -910,6 +912,7 @@ export const useStore = create<PiStore>()((set, get) => ({
   previewPath: null,
   previewRoot: null,
   previewPayload: null,
+  previewCommitHash: null,
   previewLoading: false,
   toasts: [],
   extuiQueue: [],
@@ -1854,9 +1857,19 @@ export const useStore = create<PiStore>()((set, get) => ({
     get().loadFileTree(cwd, rel);
   },
 
-  openPreview: async (abs, projectRoot) => {
+  openPreview: async (abs, projectRoot, commitHash) => {
     const root = projectRoot || get().previewRoot || undefined;
-    set({ previewOpen: true, previewPath: abs, previewRoot: root || null, previewLoading: true, previewPayload: null });
+    set({
+      previewOpen: true,
+      previewPath: abs,
+      previewRoot: root || null,
+      previewCommitHash: commitHash || null,
+      // Commit mode shows a diff only — no working-tree payload fetch (the
+      // file's on-disk content is not what that commit contains).
+      previewLoading: !commitHash,
+      previewPayload: null,
+    });
+    if (commitHash) return;
     try {
       const payload = await window.pi.app.readPreview(abs, root);
       set({ previewPayload: payload, previewLoading: false });
@@ -1872,6 +1885,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       previewPath: null,
       previewRoot: null,
       previewPayload: null,
+      previewCommitHash: null,
     }),
 
   pushToast: (kind, text) => {

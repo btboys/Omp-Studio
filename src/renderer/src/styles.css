@@ -3025,6 +3025,16 @@ body.preview-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pv-commit-chip {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
 .preview-size {
   flex: 0 0 auto;
   font-size: 11px;
@@ -5924,34 +5934,75 @@ mark.hl {
   color: var(--accent);
   background: var(--control);
 }
-.gp-wt-form {
+/* ---------- new worktree modal ---------- */
+.wt-modal {
+  width: min(460px, 92vw);
+}
+.wt-row {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 6px 4px 4px;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
 }
-.gp-wt-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
+.wt-label,
+.wt-check {
+  flex: 0 0 auto;
+  width: 96px;
+  font-size: 13px;
+  color: var(--text-dim);
 }
-.gp-wt-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.gp-wt-actions {
+.wt-check {
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
 }
-.gp-wt-create {
+.wt-check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.wt-input,
+.wt-select {
   flex: 1;
-  justify-content: center;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.wt-input:focus,
+.wt-select:focus {
+  border-color: var(--accent);
+}
+.wt-input:disabled,
+.wt-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.wt-loc {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wt-folder {
+  flex: 0 0 auto;
+}
+.wt-hint {
+  margin: 4px 0 2px 106px;
+  color: var(--text-faint);
+  font-size: 12px;
+  word-break: break-all;
+}
+.wt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
 }
 .gp-message-wrap {
   position: relative;
@@ -6328,26 +6379,6 @@ mark.hl {
   flex-shrink: 0;
   color: var(--text-faint);
   font-size: 11px;
-}
-.gpd-diff {
-  margin: 0 0 4px;
-  padding: 4px 0 4px 8px;
-  border-left: 2px solid var(--border);
-}
-.gpd-diff-body {
-  margin: 0;
-  max-height: 220px;
-  overflow: auto;
-  padding: 6px 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 .gp-foot {
   display: flex;
