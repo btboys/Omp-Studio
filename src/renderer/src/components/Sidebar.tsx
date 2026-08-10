@@ -6,6 +6,7 @@ import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
 import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
 import { GitPanel } from "./GitPanel";
+import { ThreadListModal } from "./ThreadListModal";
 
 const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
 const SIDEBAR_WIDTH_KEY = "pi-studio.sidebar-width";
@@ -107,6 +108,8 @@ export function Sidebar() {
   const [usageData, setUsageData] = useState<any>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [projectMenu, setProjectMenu] = useState<{ cwd: string; name: string; x: number; y: number } | null>(null);
+  /** Project whose full session list is open in the paginated/searchable modal. */
+  const [threadListCwd, setThreadListCwd] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const usageRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
@@ -205,6 +208,7 @@ export function Sidebar() {
   const archiveThread = useStore((s) => s.archiveThread);
   const setSidebarTab = useStore((s) => s.setSidebarTab);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const threadListProject = threadListCwd ? projects.find((p) => p.cwd === threadListCwd) || null : null;
 
   if (!sidebarOpen) return null;
 
@@ -275,7 +279,7 @@ export function Sidebar() {
         {open && (
           <div className="thread-list">
             {p.threads.length === 0 && <div className="ft-empty">暂无会话</div>}
-            {p.threads.map((t) => {
+            {p.threads.slice(0, 10).map((t) => {
               const running = runningSet.has(t.file);
               const openThread = () => onThreadClick(p.cwd, t.file);
               return (
@@ -318,6 +322,15 @@ export function Sidebar() {
                 </div>
               );
             })}
+            {p.threads.length > 10 && (
+              <button
+                className="thread-more"
+                onClick={() => setThreadListCwd(p.cwd)}
+                title={language === "zh" ? "检索并分页查看全部会话" : "Search and browse all sessions"}
+              >
+                {language === "zh" ? `更多 ${p.threads.length - 10} 个会话` : `More ${p.threads.length - 10} sessions`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -489,6 +502,7 @@ export function Sidebar() {
           </button>
         </div>
       )}
+      {threadListProject && <ThreadListModal project={threadListProject} onClose={() => setThreadListCwd(null)} />}
     </aside>
   );
 }

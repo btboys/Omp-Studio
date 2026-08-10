@@ -437,6 +437,25 @@ body.sidebar-resizing * {
   flex-direction: column;
   gap: 1px;
 }
+.thread-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0 2px;
+  padding: 5px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.thread-more:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+  border-color: var(--text-faint);
+}
 .thread {
   position: relative;
   padding: 6px 9px;
@@ -4920,10 +4939,103 @@ textarea.modal-input {
 .search-item-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   margin-top: 5px;
   font-size: 11px;
   color: var(--text-faint);
+}
+/* ---- paginated session-list modal (sidebar "更多") ---- */
+.tl-modal {
+  width: min(520px, 92vw);
+}
+.tl-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.tl-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  min-height: 120px;
+}
+.tl-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 9px 13px;
+  margin-bottom: 3px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.tl-row:hover {
+  background: var(--accent-soft);
+  border-color: rgba(46, 125, 82, 0.28);
+}
+.tl-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-mark {
+  background: rgba(46, 125, 82, 0.18);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.tl-preview {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+.tl-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.tl-pager span {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.tl-pager button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s;
+}
+.tl-pager button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.tl-pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .search-item-proj {
   display: inline-flex;
