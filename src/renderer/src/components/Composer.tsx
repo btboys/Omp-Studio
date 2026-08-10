@@ -460,10 +460,14 @@ export function Composer({ threadId }: { threadId: string }) {
     if (!mention) return;
     const before = text.slice(0, mention.start);
     const after = text.slice(caret);
-    const inserted = `@${file.rel} `;
+    const inserted = `@${file.rel}${file.isDir ? "/" : ""} `;
     const next = before + inserted + after;
     setText(next);
-    setFiles((prev) => (prev.some((item) => item.abs === file.abs) ? prev : [...prev, { abs: file.abs, name: file.name }]));
+    if (!file.isDir) {
+      // Folders are resolved natively by the runtime (`@folder/` lists the dir);
+      // only files get inlined as attachments.
+      setFiles((prev) => (prev.some((item) => item.abs === file.abs) ? prev : [...prev, { abs: file.abs, name: file.name }]));
+    }
     setAtDismissed(true);
     setAtItems([]);
     requestAnimationFrame(() => {
@@ -499,8 +503,10 @@ export function Composer({ threadId }: { threadId: string }) {
   return (
     <div className="composer-wrap" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
       <div className="composer">
-        {((isDraftTask && !isStreaming) || !!gitBranch) && (
-          <div className="composer-project-row" ref={projectRef}>
+        {/* Always render: the enhance (优化提示词) wand must stay reachable even
+            when the thread is not a draft and the folder has no git branch
+            (non-git repo / unborn branch / git error → gitBranch is null). */}
+        <div className="composer-project-row" ref={projectRef}>
             {isDraftTask && !isStreaming && (
               <button
                 className={`composer-project-pill ${projectOpen ? "open" : ""}`}
@@ -605,7 +611,6 @@ export function Composer({ threadId }: { threadId: string }) {
               )}
             </div>
           </div>
-        )}
         {slashMenuOpen && (
           <div className="slash-menu" role="listbox" aria-label="Slash commands">
             <div className="slash-menu-head">Commands, plugins &amp; skills</div>
@@ -640,7 +645,7 @@ export function Composer({ threadId }: { threadId: string }) {
             <div className="slash-menu-head">Project files</div>
             <div className="slash-menu-list">
               {atLoading && atItems.length === 0 && <div className="project-menu-empty">搜索中…</div>}
-              {!atLoading && atItems.length === 0 && <div className="project-menu-empty">没有匹配的文件</div>}
+              {!atLoading && atItems.length === 0 && <div className="project-menu-empty">没有匹配的文件或文件夹</div>}
               {atItems.map((file, index) => (
                 <button
                   key={file.abs}
@@ -652,9 +657,15 @@ export function Composer({ threadId }: { threadId: string }) {
                   onClick={() => chooseAtFile(file)}
                   title={file.abs}
                 >
-                  <span className="slash-command-name">{file.name}</span>
-                  <span className="slash-command-kind command">File</span>
-                  <span className="slash-command-description">{file.rel}</span>
+                  <span className="slash-command-name">
+                    {file.isDir && <Folder size={12} style={{ verticalAlign: "-1.5px", marginRight: 4 }} />}
+                    {file.name}
+                  </span>
+                  <span className={`slash-command-kind ${file.isDir ? "dir" : "command"}`}>{file.isDir ? "Dir" : "File"}</span>
+                  <span className="slash-command-description">
+                    {file.rel}
+                    {file.isDir ? "/" : ""}
+                  </span>
                 </button>
               ))}
             </div>

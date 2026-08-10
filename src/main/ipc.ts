@@ -119,6 +119,11 @@ function processAttachments(attachments: Attachment[] | undefined, text: string)
         }
         if (TEXT_ATTACH_EXTS.has(ext) || ext === "") {
           const st = statSync(a.abs);
+          if (st.isDirectory()) {
+            // Directories aren't inlined; the runtime resolves `@folder/` mentions.
+            extra += `\n\n<folder name="${a.name}" path="${a.abs}" />`;
+            continue;
+          }
           if (st.size <= 500_000) {
             const content = readFileSync(a.abs, "utf8");
             extra += `\n\n<file name="${a.name}">\n${content}\n</file>`;

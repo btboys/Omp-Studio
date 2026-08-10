@@ -1950,6 +1950,10 @@ body.sidebar-resizing * {
   letter-spacing: .04em;
   text-transform: uppercase;
 }
+.slash-command-kind.dir {
+  background: #e8f0f8;
+  color: #2f6ea8;
+}
 .slash-command-kind.extension {
   background: #f1eef8;
   color: #695493;

@@ -173,6 +173,11 @@ export function searchProjectFiles(cwd: string, query: string, limit = 30): File
       }
 
       if (isDir) {
+        // Folders are selectable too; the omp runtime resolves `@folder/`
+        // mentions natively (lists the directory).
+        if (!q || matchScore(relPath, q) > 0) {
+          candidates.push({ name: entry.name, rel: relPath, abs, isDir: true, ext: "", size });
+        }
         walk(abs, relPath);
         continue;
       }
