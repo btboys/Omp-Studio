@@ -48,6 +48,16 @@ export const ChevronRight = (p: P) => (
     <path d="m9 6 6 6-6 6" />
   </svg>
 );
+export const ChevronUp = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m6 15 6-6 6 6" />
+  </svg>
+);
+export const ChevronDown = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
 export const Edit = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 20h9" />

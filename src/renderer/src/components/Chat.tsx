@@ -9,7 +9,7 @@ import { replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
 import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/subagents";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
-import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, Close, Undo } from "./icons";
+import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, ChevronUp, ChevronDown, Close, Undo, Search } from "./icons";
 import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
@@ -90,6 +90,17 @@ export function Chat() {
   const ctxRef = useRef<HTMLDivElement>(null);
   useOutsideClose(ctxRef, ctxOpen, () => setCtxOpen(false));
 
+  // in-conversation search + quick jump between user prompts
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchIdx, setSearchIdx] = useState(0);
+  const [userIdx, setUserIdx] = useState(0);
+  const searchRef = useRef<HTMLDivElement>(null);
+  useOutsideClose(searchRef, searchOpen, () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  });
+
   const streaming = thread?.streaming;
   const count = (thread?.messages.length || 0) + (streaming ? 1 : 0);
 
@@ -129,6 +140,95 @@ export function Chat() {
   // Must stay above any early return: thread.loading used to skip this hook and
   // white-screen the app (React hook-order violation).
   const groups = useMemo(() => groupMessages(thread?.messages || []), [thread?.messages]);
+
+  // msgKey -> groupKey: assistant rounds share one DOM container per group, so
+  // scrolling targets the group element that owns a matched message.
+  const groupKeyByMsg = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const g of groups) for (const m of g.items) map.set(m.key, g.key);
+    return map;
+  }, [groups]);
+
+  // Every match of the query across user/system text and assistant text blocks
+  // (thinking + tool payloads are out of scope). One entry per occurrence so
+  // prev/next walks each hit, and the counter reflects total occurrences.
+  const searchHits = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [] as { groupKey: string; msgKey: string }[];
+    const hits: { groupKey: string; msgKey: string }[] = [];
+    for (const m of thread?.messages || []) {
+      const text =
+        m.role === "assistant"
+          ? (m.blocks || []).filter((b) => b.type === "text").map((b) => b.text).join("\n")
+          : m.text || "";
+      let i = text.toLowerCase().indexOf(q);
+      while (i !== -1) {
+        hits.push({ groupKey: groupKeyByMsg.get(m.key) || m.key, msgKey: m.key });
+        i = text.toLowerCase().indexOf(q, i + q.length);
+      }
+    }
+    return hits;
+  }, [searchQuery, thread?.messages, groupKeyByMsg]);
+
+  // User-prompt groups, for the quick jump controls: the popover's prev/next
+  // buttons and the left anchor rail. Text is a trimmed preview for tooltips.
+  const userRails = useMemo(
+    () =>
+      groups
+        .filter((g) => g.role === "user")
+        .map((g) => {
+          const full = (g.items[0]?.text || "").trim();
+          const text = full.replace(/\s+/g, " ").slice(0, 40);
+          return { key: g.key, text, fullText: full };
+        }),
+    [groups],
+  );
+
+  // Left anchor rail: keep the dot of the user prompt nearest the viewport
+  // highlighted while scrolling, and while the transcript grows during
+  // streaming (a message's position changes as content above it lands).
+  const [railActive, setRailActive] = useState<string | null>(null);
+  // Hover preview: which rail dot is hovered + the fixed position the preview
+  // card should anchor to (the dot's viewport rect, captured on mouseenter).
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ left: number; top: number } | null>(null);
+  const hoveredRail = hoverKey ? userRails.find((r) => r.key === hoverKey) ?? null : null;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !userRails.length) {
+      setRailActive(null);
+      return;
+    }
+    const updateActive = () => {
+      const mid = el.clientHeight * 0.4;
+      const elTop = el.getBoundingClientRect().top;
+      let best: string | null = null;
+      let bestDist = Infinity;
+      for (const r of userRails) {
+        const node = el.querySelector(`[data-msg-key="${CSS.escape(r.key)}"]`) as HTMLElement | null;
+        if (!node) continue;
+        const d = Math.abs(node.getBoundingClientRect().top - elTop - mid);
+        if (d < bestDist) {
+          bestDist = d;
+          best = r.key;
+        }
+      }
+      setRailActive(best);
+    };
+    updateActive();
+    // Scrolling moves the dots under a hovered preview, so dismiss it (the
+    // active-dot marker still tracks via the interval below).
+    const onScroll = () => {
+      updateActive();
+      setHoverKey(null);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const timer = window.setInterval(updateActive, 400);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.clearInterval(timer);
+    };
+  }, [userRails, thread?.messages.length, count]);
 
   // Current todos = the newest assistant message (committed or streaming) that
   // carries one. Two sources: GFM checkbox lines in the message text (Claude
@@ -257,6 +357,38 @@ export function Chat() {
   const ctxRemaining = Math.max(0, ctxTotal - ctxUsed);
   const ctxPct = ctxUsage ? ctxUsage.percent ?? (ctxTotal ? Math.round((ctxUsed / ctxTotal) * 100) : 0) : 0;
 
+  // Scroll a message group into view and flash it so the current hit is
+  // obvious among many matches.
+  const scrollToKey = (key: string) => {
+    setHoverKey(null);
+    const el = scrollRef.current?.querySelector(`[data-msg-key="${CSS.escape(key)}"]`) as HTMLElement | null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("msg-flash");
+    void el.offsetWidth; // restart the animation on repeat jumps
+    el.classList.add("msg-flash");
+    window.setTimeout(() => el.classList.remove("msg-flash"), 1600);
+  };
+
+  const goHit = (delta: number) => {
+    const n = searchHits.length;
+    if (!n) return;
+    const next = ((searchIdx + delta) % n + n) % n;
+    setSearchIdx(next);
+    scrollToKey(searchHits[next].groupKey);
+  };
+
+  const goUser = (delta: number) => {
+    const n = userRails.length;
+    if (!n) return;
+    const next = ((userIdx + delta) % n + n) % n;
+    setUserIdx(next);
+    scrollToKey(userRails[next].key);
+  };
+
+  const shownHit = searchHits.length ? Math.min(searchIdx, searchHits.length - 1) : 0;
+  const shownUser = userRails.length ? Math.min(userIdx, userRails.length - 1) : 0;
+
   return (
     <section className="main">
       <ThreadTabs />
@@ -315,6 +447,61 @@ export function Chat() {
           </span>
         )}
         <div className="spacer" />
+        <div className="chat-search-wrap" ref={searchRef}>
+          <button className={`iconbtn ${searchOpen ? "on" : ""}`} title="搜索对话内容" onClick={() => setSearchOpen((v) => !v)}>
+            <Search size={15} />
+          </button>
+          {searchOpen && (
+            <div className="chat-search-pop">
+              <div className="chat-search-input-row">
+                <Search size={13} />
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setSearchIdx(0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      goHit(e.shiftKey ? -1 : 1);
+                    }
+                    if (e.key === "Escape") {
+                      setSearchOpen(false);
+                      setSearchQuery("");
+                    }
+                  }}
+                  placeholder="搜索对话内容…"
+                />
+                {searchQuery.trim() && (
+                  <span className="chat-search-count">
+                    {searchHits.length ? `${shownHit + 1}/${searchHits.length}` : "无结果"}
+                  </span>
+                )}
+              </div>
+              <div className="chat-search-row">
+                <button type="button" title="上一个匹配 (Shift+Enter)" disabled={!searchHits.length} onClick={() => goHit(-1)}>
+                  <ChevronUp size={13} />
+                </button>
+                <button type="button" title="下一个匹配 (Enter)" disabled={!searchHits.length} onClick={() => goHit(1)}>
+                  <ChevronDown size={13} />
+                </button>
+                <span className="chat-search-sep" />
+                <button type="button" title="上一条用户消息" disabled={!userRails.length} onClick={() => goUser(-1)}>
+                  <ChevronUp size={13} />
+                </button>
+                <button type="button" title="下一条用户消息" disabled={!userRails.length} onClick={() => goUser(1)}>
+                  <ChevronDown size={13} />
+                </button>
+                <span className="chat-search-count">
+                  {userRails.length ? `${shownUser + 1}/${userRails.length}` : "0/0"} 用户
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="ctx-wrap" ref={ctxRef}>
           <button className={`iconbtn ${ctxOpen ? "on" : ""}`} title="当前会话上下文用量" onClick={toggleCtx}>
             <Gauge size={15} />
@@ -393,9 +580,30 @@ export function Chat() {
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
-        <div className="messages">
+        <div className="chat-column">
+          {userRails.length > 1 && (
+            <div className="msg-rail" role="navigation" aria-label="跳转到用户消息">
+              {userRails.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  className={`msg-rail-dot${railActive === r.key ? " on" : ""}`}
+                  title={r.text ? `跳到：${r.text}` : "用户消息"}
+                  aria-label={r.text || "用户消息"}
+                  onClick={() => scrollToKey(r.key)}
+                  onMouseEnter={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setHoverKey(r.key);
+                    setHoverPos({ left: rect.right + 10, top: rect.top + rect.height / 2 });
+                  }}
+                  onMouseLeave={() => setHoverKey(null)}
+                />
+              ))}
+            </div>
+          )}
+          <div className="messages">
           {headGroups.map((g) => (
-            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} onPreviewImage={setPreviewImage} />
+            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} searchQuery={searchQuery} onPreviewImage={setPreviewImage} />
           ))}
           {streaming && streamingExtends && lastGroup && (
             <MessageGroup
@@ -405,6 +613,7 @@ export function Chat() {
               toolRuns={thread.toolRuns}
               streaming
               stripKey={todoInfo?.sourceKey ?? null}
+              searchQuery={searchQuery}
               onPreviewImage={setPreviewImage}
             />
           )}
@@ -416,6 +625,7 @@ export function Chat() {
               toolRuns={thread.toolRuns}
               streaming
               stripKey={todoInfo?.sourceKey ?? null}
+              searchQuery={searchQuery}
               onPreviewImage={setPreviewImage}
             />
           )}
@@ -424,6 +634,7 @@ export function Chat() {
               <div className="msg-body">⚠ {thread.error}</div>
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -434,6 +645,12 @@ export function Chat() {
         <ExtUiPromptCard threadId={activeThreadId} />
       </div>
       <Composer threadId={activeThreadId} />
+      {hoveredRail && hoverPos && (
+        <div className="msg-rail-preview" style={{ left: hoverPos.left, top: hoverPos.top }}>
+          <div className="msg-rail-preview-label">用户提示词</div>
+          <div className="msg-rail-preview-text">{hoveredRail.fullText || "（无文本）"}</div>
+        </div>
+      )}
       {previewImage && (
         <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" onMouseDown={() => setPreviewImage(null)}>
           <button className="image-lightbox-close" title="关闭" onClick={() => setPreviewImage(null)}>×</button>
@@ -484,6 +701,7 @@ const MessageGroup = memo(MessageGroupInner, (prev, next) => {
     prev.threadId !== next.threadId ||
     !!prev.streaming !== !!next.streaming ||
     prev.stripKey !== next.stripKey ||
+    prev.searchQuery !== next.searchQuery ||
     prev.onPreviewImage !== next.onPreviewImage
   ) {
     return false;
@@ -502,6 +720,7 @@ function MessageGroupInner({
   toolRuns,
   streaming,
   stripKey,
+  searchQuery,
   onPreviewImage,
 }: {
   threadId: string;
@@ -510,12 +729,16 @@ function MessageGroupInner({
   streaming?: boolean;
   /** Key of the message whose todo lines are lifted into the todo panel. */
   stripKey?: string | null;
+  /** Active chat search query; drives <mark> highlighting when non-empty. */
+  searchQuery?: string;
   onPreviewImage: (src: string) => void;
 }) {
   const openPreview = useStore((s) => s.openPreview);
   const cwd = useStore((s) => s.threads[threadId]?.cwd || "");
   const language = useStore((s) => s.config?.language || "en");
   const showTokenUsage = useStore((s) => s.showTokenUsage);
+  const q = (searchQuery || "").trim().toLowerCase();
+  const highlightFor = (text: string) => (q && text.toLowerCase().includes(q) ? searchQuery : undefined);
   const artifacts = useMemo(
     () => (group.role === "assistant" ? collectFileArtifacts(group.items, toolRuns, cwd) : []),
     [cwd, group.items, group.role, toolRuns],
@@ -567,7 +790,7 @@ function MessageGroupInner({
     const m = group.items[0];
     const skillBlock = m.text ? parseSkillBlock(m.text) : null;
     return (
-      <div className="msg user">
+      <div className="msg user" data-msg-key={group.key}>
         <div className="msg-user-stack">
           <div className="msg-body">
             {m.sendKind && (
@@ -576,10 +799,18 @@ function MessageGroupInner({
             {skillBlock ? (
               <>
                 <SkillInvocation name={skillBlock.name} />
-                {skillBlock.userMessage && <div className="msg-user-text msg-user-skill-request">{skillBlock.userMessage}</div>}
+                {skillBlock.userMessage && (
+                  <div className="msg-user-text msg-user-skill-request">
+                    <HighlightText text={skillBlock.userMessage} query={searchQuery} />
+                  </div>
+                )}
               </>
             ) : (
-              m.text && <div className="msg-user-text">{m.text}</div>
+              m.text && (
+                <div className="msg-user-text">
+                  <HighlightText text={m.text} query={searchQuery} />
+                </div>
+              )
             )}
             {m.images && m.images.length > 0 && (
               <div className="msg-user-imgs">
@@ -614,7 +845,7 @@ function MessageGroupInner({
     const m = group.items[0];
     const isRecap = m.kind === "recap";
     return (
-      <div className="msg system">
+      <div className="msg system" data-msg-key={group.key}>
         <div className={`msg-advisory${isRecap ? " msg-advisory-recap" : ""}`}>
           {(m.severity || m.guidance || isRecap) && (
             <div className="msg-advisory-head">
@@ -645,7 +876,7 @@ function MessageGroupInner({
     openPreview(artifact.path, cwd);
   };
   return (
-    <div className="msg assistant">
+    <div className="msg assistant" data-msg-key={group.key}>
       <div className="msg-avatar" aria-label="Omp Studio Agent">
         <img className="msg-app-icon" src={appIconUrl} alt="" />
       </div>
@@ -653,9 +884,9 @@ function MessageGroupInner({
         {group.items.map((m) =>
           (m.blocks || []).map((b, i) =>
             b.type === "text" && m.key === stripKey ? (
-              <Markdown key={`${m.key}:${i}`} text={stripTodoLines(b.text)} />
+              <Markdown key={`${m.key}:${i}`} text={stripTodoLines(b.text)} highlight={highlightFor(b.text)} />
             ) : (
-              <BlockView key={`${m.key}:${i}`} block={b} toolRuns={toolRuns} />
+              <BlockView key={`${m.key}:${i}`} block={b} toolRuns={toolRuns} highlight={highlightFor(b.type === "text" ? b.text : "")} />
             )
           )
         )}
@@ -810,10 +1041,24 @@ function SubagentPanel({ threadId, rows }: { threadId: string; rows: SubagentRow
   );
 }
 
-function BlockView({ block, toolRuns }: { block: ContentBlock; toolRuns: Record<string, ToolRun> }) {
-  if (block.type === "text") return <Markdown text={block.text} />;
+function BlockView({ block, toolRuns, highlight }: { block: ContentBlock; toolRuns: Record<string, ToolRun>; highlight?: string }) {
+  if (block.type === "text") return <Markdown text={block.text} highlight={highlight} />;
   if (block.type === "thinking") return <Thinking text={block.thinking} />;
   return <ToolCard id={block.id} name={block.name} run={toolRuns[block.id]} />;
+}
+
+/** Plain-text match highlighting (user bubbles render as text, not markdown). */
+function HighlightText({ text, query }: { text: string; query?: string }) {
+  const q = (query || "").trim();
+  if (!q || !text) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>,
+      )}
+    </>
+  );
 }
 
 const SkillInvocation = memo(function SkillInvocation({ name }: { name: string }) {

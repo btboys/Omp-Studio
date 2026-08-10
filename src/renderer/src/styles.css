@@ -924,10 +924,18 @@ body.sidebar-resizing * {
   overflow-y: auto;
   padding: 22px 0 8px;
 }
-.messages {
-  max-width: 860px;
+/* Centered column: the anchor rail is sticky against the message list's left
+   edge (not the window edge), so it stays visible while scrolling. */
+.chat-column {
+  display: flex;
+  align-items: flex-start;
+  max-width: 885px; /* 860 message column + rail + gap */
   margin: 0 auto;
   padding: 0 28px;
+}
+.messages {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -6125,4 +6133,190 @@ mark.hl {
   opacity: 1;
   background: var(--surface-muted);
   color: var(--text);
+}
+
+/* ---------- chat in-conversation search + user-prompt jump ---------- */
+.chat-search-wrap {
+  position: relative;
+}
+.chat-search-pop {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  min-width: 272px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 10px;
+  z-index: 70;
+  animation: pill-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.chat-search-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: var(--text-faint);
+}
+.chat-search-input-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.chat-search-input-row input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.chat-search-count {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chat-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+.chat-search-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--text-dim);
+}
+.chat-search-row button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.chat-search-row button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.chat-search-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.chat-search-row .chat-search-count {
+  margin-left: auto;
+}
+
+/* search match highlight (user bubbles are plain text, assistant is markdown) */
+.md mark,
+.msg-user-text mark {
+  background: #ffe58a;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+:root[data-theme="dark"] .md mark,
+:root[data-theme="dark"] .msg-user-text mark {
+  background: #6b5d1a;
+}
+
+/* flash the message group the current hit / user prompt lives in */
+@keyframes msg-flash {
+  0%,
+  45% {
+    background-color: var(--accent-soft);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.msg-flash {
+  border-radius: 10px;
+  animation: msg-flash 1.6s ease-out;
+}
+
+/* ---------- anchor rail: quick jump between user prompts ---------- */
+/* Sticky against the message column (not the window edge): it stays pinned
+   at the vertical center of the scroll viewport while the transcript
+   scrolls underneath it. */
+.msg-rail {
+  position: sticky;
+  top: 50%;
+  transform: translateY(-50%);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 4px;
+  margin-right: 10px;
+  z-index: 5;
+}
+.msg-rail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.msg-rail-dot:hover {
+  transform: scale(1.55);
+  background: var(--accent);
+}
+.msg-rail-dot.on {
+  background: var(--accent);
+  transform: scale(1.35);
+}
+:root[data-theme="dark"] .msg-rail-dot {
+  background: #4a554c;
+}
+:root[data-theme="dark"] .msg-rail-dot.on,
+:root[data-theme="dark"] .msg-rail-dot:hover {
+  background: var(--accent);
+}
+
+/* ---------- rail dot hover preview ---------- */
+.msg-rail-preview {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 80;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  padding: 8px 11px;
+  animation: pill-in 0.14s ease-out;
+  pointer-events: none;
+}
+.msg-rail-preview-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.msg-rail-preview-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+  user-select: text;
+  -webkit-user-select: text;
 }
