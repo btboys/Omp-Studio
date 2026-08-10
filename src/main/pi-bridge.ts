@@ -262,6 +262,30 @@ export function getOmpVersion(bin: string): Promise<string | null> {
   });
 }
 
+/** Share a saved session via the omp share server (`omp share <file>`), returning the encrypted link. */
+export function shareSession(bin: string, sessionFile: string): Promise<string> {
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  execFile(
+    bin,
+    ["share", sessionFile],
+    { timeout: 60_000, windowsHide: true, maxBuffer: 1024 * 1024 },
+    (err, stdout) => {
+      if (err) {
+        const detail = (err as NodeJS.ErrnoException & { stderr?: string }).stderr?.trim();
+        reject(new Error(detail || err.message || "omp share 失败"));
+        return;
+      }
+      const m = /Share URL:\s*(\S+)/.exec(stdout || "");
+      if (!m) {
+        reject(new Error("omp share 未返回链接"));
+        return;
+      }
+      resolve(m[1]);
+    },
+  );
+  return promise;
+}
+
 /** The fixed set of thinking levels omp exposes (see its `--thinking` flag). */
 export const OMP_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"] as const;
 

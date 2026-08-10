@@ -44,7 +44,7 @@ import {
   writeModelsProviders,
   writeThinking,
 } from "./models-service";
-import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind } from "./pi-bridge";
+import { PiBridge, getOmpVersion, isAppManagedRuntime, resetPiRuntime, resolvePiRuntime, runtimeKind, shareSession } from "./pi-bridge";
 import { enhancePrompt } from "./prompt-enhance";
 import { getOmpConfig, resetOmpConfigKey, setOmpConfigKey } from "./omp-config";
 import { getActiveAuthSession, listAuthProviders, logoutAuthProvider, startAuthLogin, stopAllAuthSessions } from "./auth-service";
@@ -856,6 +856,15 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const { sessionFile } = args;
     if (!sessionFile || !existsSync(sessionFile)) throw new Error("会话文件不存在");
     return undoLastTurn(sessionFile);
+  });
+
+  /** Share a session file via the omp share server (`omp share`), returning the encrypted link. */
+  ipcMain.handle("thread:share", async (_e, args: { sessionFile: string }) => {
+    const { sessionFile } = args;
+    if (!sessionFile || !existsSync(sessionFile)) throw new Error("会话文件不存在");
+    const rt = await resolvePiRuntime(getConfig().ompBinPath);
+    const url = await shareSession(rt.bin, sessionFile);
+    return { ok: true, url };
   });
 
   ipcMain.handle("thread:open", async (_e, args: { cwd: string; sessionFile?: string; name?: string; permission?: PermissionLevel }) => {

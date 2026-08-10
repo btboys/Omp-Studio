@@ -801,6 +801,8 @@ interface PiStore {
   setAdvisor: (threadId: string, enabled: boolean) => Promise<void>;
   /** Delete the last exchange (final user prompt and its reply) from the session file, then reload the thread. */
   undoLastTurn: (threadId: string) => Promise<void>;
+  /** Share the session file via omp share and copy the encrypted link to the clipboard. */
+  shareThread: (threadId: string) => Promise<void>;
   reloadThread: (threadId: string) => Promise<void>;
   /** Move a not-yet-sent task to another working folder without losing the composer draft. */
   changeDraftThreadFolder: (threadId: string, cwd: string) => Promise<void>;
@@ -2277,6 +2279,33 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("info", "已撤销最近一次对话");
     } catch (e) {
       get().pushToast("error", "撤销失败：" + (e instanceof Error ? e.message : String(e)));
+    }
+  },
+  shareThread: async (threadId) => {
+    const t = get().threads[threadId];
+    if (!t) return;
+    if (t.isStreaming) {
+      get().pushToast("warning", "请等待当前回复结束后再分享。");
+      return;
+    }
+    if (!t.sessionFile) {
+      get().pushToast("warning", "会话尚未落盘，暂无可分享内容。");
+      return;
+    }
+    try {
+      const res = await window.pi.thread.share({ sessionFile: t.sessionFile });
+      if (!res.ok || !res.url) {
+        get().pushToast("error", res.message || "分享失败");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(res.url);
+      } catch {
+        // Clipboard may be unavailable (e.g. no focus); the toast still shows the link.
+      }
+      get().pushToast("success", `已生成分享链接并复制：${res.url}`);
+    } catch (e) {
+      get().pushToast("error", "分享失败：" + (e instanceof Error ? e.message : String(e)));
     }
   },
   reloadThread: async (threadId) => {

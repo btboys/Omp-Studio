@@ -109,6 +109,8 @@ const api = {
     newSession: (threadId: string) => ipcRenderer.invoke("thread:newSession", threadId),
     undoLastTurn: (args: { sessionFile: string }): Promise<{ ok: boolean; message?: string }> =>
       ipcRenderer.invoke("thread:undoLastTurn", args),
+    share: (args: { sessionFile: string }): Promise<{ ok: boolean; url?: string; message?: string }> =>
+      ipcRenderer.invoke("thread:share", args),
     setName: (args: { threadId: string; name: string }) => ipcRenderer.invoke("thread:setName", args),
     getStats: (threadId: string) => ipcRenderer.invoke("thread:getStats", threadId),
     getCommands: (threadId: string) => ipcRenderer.invoke("thread:getCommands", threadId),

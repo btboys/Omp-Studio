@@ -9,7 +9,7 @@ import { replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
 import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/subagents";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
-import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, ChevronUp, ChevronDown, Close, Undo, Search } from "./icons";
+import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, ChevronUp, ChevronDown, Close, Undo, Search, Share } from "./icons";
 import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
@@ -75,9 +75,11 @@ export function Chat() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const togglePreview = useStore((s) => s.togglePreview);
   const reloadThread = useStore((s) => s.reloadThread);
+  const shareThread = useStore((s) => s.shareThread);
   const renameThread = useStore((s) => s.renameThread);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -312,6 +314,9 @@ export function Chat() {
   // Undo needs a persisted session with at least one user prompt, and must wait
   // for any in-flight reply to settle before the file can be truncated.
   const canUndo = !thread.isStreaming && !!thread.sessionFile && thread.messages.some((m) => m.role === "user");
+
+  // Sharing needs a persisted, settled session so the uploaded snapshot is complete.
+  const canShare = !thread.isStreaming && !!thread.sessionFile;
 
   // The 撤回 action anchors on the newest user message — the one undo removes.
   const lastUserKey = useMemo(() => {
@@ -572,6 +577,17 @@ export function Chat() {
         </div>
         <button className="iconbtn" title="重新加载会话" onClick={() => reloadThread(activeThreadId)}>
           <Refresh size={15} />
+        </button>
+        <button
+          className="iconbtn"
+          title={sharing ? "正在生成分享链接…" : "分享会话（omp share 生成加密链接）"}
+          disabled={!canShare || sharing}
+          onClick={() => {
+            setSharing(true);
+            void shareThread(activeThreadId).finally(() => setSharing(false));
+          }}
+        >
+          {sharing ? <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <Share size={15} />}
         </button>
         <button className="iconbtn" title="切换预览" onClick={togglePreview}>
           <PanelRight size={16} />
