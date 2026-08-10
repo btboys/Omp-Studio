@@ -189,6 +189,60 @@ export async function gitLog(cwd: string, opts: GitLogOpts = {}): Promise<GitLog
   return out;
 }
 
+export interface GitCommitFile {
+  /** one of A M D R C */
+  status: string;
+  path: string;
+  /** rename/copy source path */
+  oldPath?: string;
+}
+
+export interface GitCommitDetail {
+  hash: string;
+  author: string;
+  date: string;
+  /** relative date for display */
+  rel: string;
+  /** full message (subject + body), trailing newline trimmed */
+  message: string;
+  files: GitCommitFile[];
+}
+
+/** Full message + changed files of one commit (`git show -s` + `diff-tree`). */
+export async function gitCommitDetail(cwd: string, hash: string): Promise<GitCommitDetail | null> {
+  if (!cwd || !hash) return null;
+  const head = await run(cwd, ["show", "-s", "--format=%H%x00%an%x00%aI%x00%ar%x00%B", hash]);
+  if (head.code !== 0) return null;
+  const parts = head.stdout.split("\0");
+  if (parts.length < 5) return null;
+  const files: GitCommitFile[] = [];
+  const f = await run(cwd, ["diff-tree", "--no-commit-id", "--name-status", "-r", "-M", "-z", hash]);
+  if (f.code === 0) {
+    const toks = f.stdout.split("\0");
+    for (let i = 0; i < toks.length; ) {
+      const st = toks[i++];
+      if (!st) continue;
+      const code = st[0];
+      if (code === "R" || code === "C") {
+        const oldPath = toks[i++];
+        const newPath = toks[i++];
+        if (oldPath && newPath) files.push({ status: code, path: newPath, oldPath });
+      } else {
+        const p = toks[i++];
+        if (p) files.push({ status: code, path: p });
+      }
+    }
+  }
+  return {
+    hash: parts[0],
+    author: parts[1],
+    date: parts[2],
+    rel: parts[3],
+    message: parts[4].replace(/\s+$/, ""),
+    files,
+  };
+}
+
 export const gitStage = (cwd: string, paths: string[]) => (paths.length ? op(cwd, ["add", "--", ...paths]) : Promise.resolve({ ok: true } as GitOpResult));
 export const gitUnstage = (cwd: string, paths: string[]) =>
   paths.length ? op(cwd, ["reset", "-q", "--", ...paths]) : Promise.resolve({ ok: true } as GitOpResult);

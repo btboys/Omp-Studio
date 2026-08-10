@@ -1,9 +1,91 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import { fileIcon } from "../lib/format";
-import type { GitLogEntry, GitLogOpts, GitOpResult, GitStatusResult } from "../lib/types";
+import type { GitCommitDetail, GitCommitFile, GitLogEntry, GitLogOpts, GitOpResult, GitStatusResult } from "../lib/types";
 import { Branch, Check, ChevronRight, Close, Minus, Plus, Refresh, Sparkle, Undo } from "./icons";
+
+/** Changed-file tree of one commit: expandable directories, status-letter leaves. */
+function CommitFileTree({ files }: { files: GitCommitFile[] }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  type Node = { dirs: Map<string, Node>; files: GitCommitFile[] };
+  const rootNode = useMemo<Node>(() => {
+    const root: Node = { dirs: new Map(), files: [] };
+    for (const f of files) {
+      const parts = f.path.split("/");
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const d = parts[i];
+        if (!node.dirs.has(d)) node.dirs.set(d, { dirs: new Map(), files: [] });
+        node = node.dirs.get(d)!;
+      }
+      node.files.push(f);
+    }
+    return root;
+  }, [files]);
+  const toggle = (key: string) =>
+    setCollapsed((c) => {
+      const next = new Set(c);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const render = (node: Node, prefix: string, depth: number): React.ReactNode => (
+    <>
+      {[...node.dirs.entries()]
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .map(([name, child]) => {
+          const key = `${prefix}${name}/`;
+          const open = !collapsed.has(key);
+          return (
+            <div key={key}>
+              <div className="gpd-dir" style={{ paddingLeft: 10 + depth * 14 }} onClick={() => toggle(key)}>
+                <ChevronRight size={10} className={open ? "gpd-caret-open" : ""} />
+                <span className="gpd-dir-name">{name}</span>
+                <span className="gpd-dir-count">{child.files.length + child.dirs.size}</span>
+              </div>
+              {open && render(child, key, depth + 1)}
+            </div>
+          );
+        })}
+      {[...node.files]
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((f) => (
+          <div className="gpd-file" key={f.path} style={{ paddingLeft: 10 + depth * 14 + 16 }} title={f.path}>
+            <span className={`gp-letter gp-letter-${f.status}`}>{f.status}</span>
+            <span className="gpd-file-name">{f.path.split("/").pop()}</span>
+            {f.oldPath && <span className="gpd-old">← {f.oldPath.split("/").pop()}</span>}
+          </div>
+        ))}
+    </>
+  );
+  return <div className="gpd-filetree">{render(rootNode, "", 0)}</div>;
+}
+
+/** Expanded commit detail: full hash/meta, message body, changed-file tree. */
+function CommitDetailView({ d, t }: { d: GitCommitDetail; t: (zh: string, en: string) => string }) {
+  return (
+    <>
+      <div className="gpd-head">
+        <span className="gpd-hash" title={d.hash}>
+          {d.hash}
+        </span>
+        <span className="gpd-meta">
+          {d.author} · {d.rel}
+        </span>
+        <span className="gpd-date" title={d.date}>
+          {d.date.slice(0, 10)}
+        </span>
+      </div>
+      {d.message && <pre className="gpd-msg">{d.message}</pre>}
+      <div className="gpd-files-head">
+        <span>{t("变更文件", "Changed files")}</span>
+        <span className="pcount">{d.files.length}</span>
+      </div>
+      <CommitFileTree files={d.files} />
+    </>
+  );
+}
 
 /** Sidebar Git tab: status (staged/changes/untracked), commit box, history, pull/push. */
 export function GitPanel({ cwd }: { cwd: string | null }) {
@@ -27,6 +109,9 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   const [historySkip, setHistorySkip] = useState(0);
   const [logBusy, setLogBusy] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [expandedHash, setExpandedHash] = useState<string | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, GitCommitDetail | null>>({});
+  const [detailLoading, setDetailLoading] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -98,6 +183,8 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
       setLog([]);
       setHistoryQuery("");
       setHistorySkip(0);
+      setExpandedHash(null);
+      setDetailCache({});
       setMessage("");
       return;
     }
@@ -106,6 +193,8 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
       setStatus(null);
       setHistoryQuery("");
       setHistorySkip(0);
+      setExpandedHash(null);
+      setDetailCache({});
       setMessage("");
     }
     void refresh(cwd);
@@ -229,6 +318,19 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
     } finally {
       setLogBusy(false);
     }
+  };
+
+  const openCommit = async (hash: string) => {
+    if (expandedHash === hash) {
+      setExpandedHash(null);
+      return;
+    }
+    setExpandedHash(hash);
+    if (detailCache[hash] !== undefined || !root || detailLoading) return;
+    setDetailLoading(hash);
+    const d = await window.pi.git.commitDetail(root, hash);
+    setDetailCache((c) => ({ ...c, [hash]: d }));
+    setDetailLoading((cur) => (cur === hash ? null : cur));
   };
 
   const fileRows = useMemo(() => {
@@ -467,15 +569,31 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
             <div className="gp-log">
               {log.length === 0 && <div className="ctx-empty">{t("暂无提交记录", "No commits yet")}</div>}
               {log.map((c) => (
-                <div className="gp-log-row" key={c.hash} title={`${c.hash}\n${c.subject}`}>
-                  <div className="gp-log-subject">
-                    <span className="gp-log-subject-text">{c.subject}</span>
-                    {c.refs && <span className="gp-log-refs">{c.refs}</span>}
+                <Fragment key={c.hash}>
+                  <div
+                    className={`gp-log-row ${expandedHash === c.hash ? "active" : ""}`}
+                    onClick={() => void openCommit(c.hash)}
+                  >
+                    <div className="gp-log-subject">
+                      <span className="gp-log-subject-text">{c.subject}</span>
+                      {c.refs && <span className="gp-log-refs">{c.refs}</span>}
+                    </div>
+                    <div className="gp-log-meta">
+                      {c.author} · {c.rel} · {c.short}
+                    </div>
                   </div>
-                  <div className="gp-log-meta">
-                    {c.author} · {c.rel} · {c.short}
-                  </div>
-                </div>
+                  {expandedHash === c.hash && (
+                    <div className="gpd">
+                      {detailLoading === c.hash ? (
+                        <div className="ctx-empty">{t("加载中…", "Loading…")}</div>
+                      ) : detailCache[c.hash] ? (
+                        <CommitDetailView d={detailCache[c.hash]!} t={t} />
+                      ) : (
+                        <div className="ctx-empty">{t("无法加载提交详情", "Failed to load commit details")}</div>
+                      )}
+                    </div>
+                  )}
+                </Fragment>
               ))}
             </div>
             {hasMore && (

@@ -12,6 +12,7 @@ import {
   gitBranches,
   gitCheckout,
   gitCommit,
+  gitCommitDetail,
   gitDiscard,
   gitFileDiff,
   gitGenerateMessage,
@@ -541,6 +542,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("git:status", (_e, cwd: string) => gitStatus(cwd));
   ipcMain.handle("git:branches", (_e, cwd: string) => gitBranches(cwd));
   ipcMain.handle("git:log", (_e, cwd: string, opts?: GitLogOpts) => gitLog(cwd, opts));
+  ipcMain.handle("git:commitDetail", (_e, cwd: string, hash: string) => gitCommitDetail(cwd, hash));
   ipcMain.handle("git:stage", (_e, args: { cwd: string; paths: string[] }) => gitStage(args.cwd, args.paths || []));
   ipcMain.handle("git:unstage", (_e, args: { cwd: string; paths: string[] }) => gitUnstage(args.cwd, args.paths || []));
   ipcMain.handle("git:stageAll", (_e, cwd: string) => gitStageAll(cwd));

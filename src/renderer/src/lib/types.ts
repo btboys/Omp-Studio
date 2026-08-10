@@ -395,6 +395,25 @@ export interface GitLogOpts {
   skip?: number;
 }
 
+export interface GitCommitFile {
+  /** one of A M D R C */
+  status: string;
+  path: string;
+  /** rename/copy source path */
+  oldPath?: string;
+}
+
+export interface GitCommitDetail {
+  hash: string;
+  author: string;
+  date: string;
+  /** relative date for display */
+  rel: string;
+  /** full message (subject + body) */
+  message: string;
+  files: GitCommitFile[];
+}
+
 export interface GitOpResult {
   ok: boolean;
   error?: string;
