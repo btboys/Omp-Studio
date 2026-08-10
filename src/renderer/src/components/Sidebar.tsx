@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Help, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
+import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
 import { GitPanel } from "./GitPanel";
 import { ThreadListModal } from "./ThreadListModal";
 
@@ -366,15 +366,49 @@ export function Sidebar() {
         title={language === "zh" ? "拖动调整侧边栏宽度；双击恢复默认" : "Drag to resize; double-click to reset"}
       />
       <div className="sb-head">
-        <button className="sb-head-btn" title="搜索会话与文件" onClick={() => useStore.getState().openSearch()}>
-          <Search size={16} />
-        </button>
-        <button className="sb-head-btn" title="折叠侧栏" aria-label="折叠侧栏" onClick={toggleSidebar}>
-          <SidebarIcon size={16} />
-        </button>
+        <div className="sb-head-actions">
+          <button className="sb-head-btn" title="搜索会话与文件" onClick={() => useStore.getState().openSearch()}>
+            <Search size={16} />
+          </button>
+          <button className="sb-head-btn" title="折叠侧栏" aria-label="折叠侧栏" onClick={toggleSidebar}>
+            <SidebarIcon size={16} />
+          </button>
+        </div>
+        <div className="sb-head-actions">
+          <button className="sb-head-btn" title="Settings" onClick={() => useStore.getState().openSettings()}>
+            <Settings size={15} />
+          </button>
+          <div className="usage-wrap" ref={usageRef}>
+            <button className={`sb-head-btn ${usageOpen ? "on" : ""}`} title="omp 合计 token 用量" onClick={toggleUsage}>
+              <Gauge size={15} />
+            </button>
+            {usageOpen && (
+              <div className="usage-pop">
+                <div className="usage-pop-head">
+                  <span>omp 合计用量</span>
+                  <button className="ctx-refresh" title="刷新" onClick={loadUsage}>
+                    <Refresh size={12} />
+                  </button>
+                </div>
+                {usageLoading ? (
+                  <div className="ctx-loading">
+                    <span className="spinner" />
+                  </div>
+                ) : usageData ? (
+                  <>
+                    <div className="usage-bignum">{formatTokens(usageData.tokens)}</div>
+                    <div className="usage-sub">tokens · {usageData.sessions} 个会话</div>
+                    {usageData.cost > 0 && <div className="usage-cost">合计 ${usageData.cost.toFixed(4)}</div>}
+                  </>
+                ) : (
+                  <div className="ctx-empty">暂无用量数据</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="sb-scroll">
-        <div className="sb-nav">
+      <div className="sb-nav">
           <button className="sb-nav-item" onClick={newTask}>
             <span className="ico">
               <Edit size={15} />
@@ -401,18 +435,7 @@ export function Sidebar() {
           </button>
         </div>
 
-        <div className="sb-tabs">
-          <button className={`sb-tab ${sidebarTab === "threads" ? "active" : ""}`} onClick={() => setSidebarTab("threads")}>
-            会话
-          </button>
-          <button className={`sb-tab ${sidebarTab === "files" ? "active" : ""}`} onClick={() => setSidebarTab("files")}>
-            文件
-          </button>
-          <button className={`sb-tab ${sidebarTab === "git" ? "active" : ""}`} onClick={() => setSidebarTab("git")}>
-            Git
-          </button>
-        </div>
-
+      <div className="sb-scroll">
         {sidebarTab === "threads" ? (
           <>
             <div className="sb-section-head">
@@ -421,77 +444,57 @@ export function Sidebar() {
                 <Plus size={14} />
               </button>
             </div>
-            {projects.length === 0 && <div className="ft-empty">尚无项目，点击 + 打开一个文件夹。</div>}
-            {flatProjects.map((p) => renderProject(p))}
-            {worktreeGroups.map((g) => {
-              const open = !collapsedGroups.has(g.commonDir);
-              const repoName = g.commonDir.replace(/[\\/]+$/, "").split(/[\\/]/).slice(-2, -1)[0] || g.commonDir;
-              return (
-                <div className="project worktree-group" key={g.commonDir}>
-                  <div
-                    className={`project-head group-head ${open ? "open" : ""}`}
-                    onClick={() => toggleGroup(g.commonDir)}
-                  >
-                    <span className="caret">
-                      <ChevronRight size={10} />
-                    </span>
-                    <Folder size={15} />
-                    <span className="pname" title={`${g.commonDir} · ${g.members.length} 个分支`}>
-                      {repoName}
-                    </span>
-                    <div className="pactions">
-                      <span className="pcount">{g.members.length}</span>
+            <div className="sb-project-list">
+              {projects.length === 0 && <div className="ft-empty">尚无项目，点击 + 打开一个文件夹。</div>}
+              {flatProjects.map((p) => renderProject(p))}
+              {worktreeGroups.map((g) => {
+                const open = !collapsedGroups.has(g.commonDir);
+                const repoName = g.commonDir.replace(/[\\/]+$/, "").split(/[\\/]/).slice(-2, -1)[0] || g.commonDir;
+                return (
+                  <div className="project worktree-group" key={g.commonDir}>
+                    <div
+                      className={`project-head group-head ${open ? "open" : ""}`}
+                      onClick={() => toggleGroup(g.commonDir)}
+                    >
+                      <span className="caret">
+                        <ChevronRight size={10} />
+                      </span>
+                      <Folder size={15} />
+                      <span className="pname" title={`${g.commonDir} · ${g.members.length} 个分支`}>
+                        {repoName}
+                      </span>
+                      <div className="pactions">
+                        <span className="pcount">{g.members.length}</span>
+                      </div>
                     </div>
+                    {open && (
+                      <div className="worktree-members">{g.members.map((m) => renderProject(m, true))}</div>
+                    )}
                   </div>
-                  {open && (
-                    <div className="worktree-members">{g.members.map((m) => renderProject(m, true))}</div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </>
         ) : sidebarTab === "git" ? (
-          <GitPanel cwd={activeProjectCwd} />
+          <div className="sb-pane">
+            <GitPanel cwd={activeProjectCwd} />
+          </div>
         ) : (
-          <FileTreeView cwd={activeProjectCwd} />
+          <div className="sb-pane">
+            <FileTreeView cwd={activeProjectCwd} />
+          </div>
         )}
       </div>
 
-      <div className="sb-foot">
-        <button className="iconbtn" title="Settings" onClick={() => useStore.getState().openSettings()}>
-          <Settings size={15} />
+      <div className="sb-tabs">
+        <button className={`sb-tab ${sidebarTab === "threads" ? "active" : ""}`} onClick={() => setSidebarTab("threads")}>
+          会话
         </button>
-        <span className="sb-foot-spacer" aria-hidden="true" />
-        <div className="usage-wrap" ref={usageRef}>
-          <button className={`iconbtn ${usageOpen ? "on" : ""}`} title="omp 合计 token 用量" onClick={toggleUsage}>
-            <Gauge size={15} />
-          </button>
-          {usageOpen && (
-            <div className="usage-pop">
-              <div className="usage-pop-head">
-                <span>omp 合计用量</span>
-                <button className="ctx-refresh" title="刷新" onClick={loadUsage}>
-                  <Refresh size={12} />
-                </button>
-              </div>
-              {usageLoading ? (
-                <div className="ctx-loading">
-                  <span className="spinner" />
-                </div>
-              ) : usageData ? (
-                <>
-                  <div className="usage-bignum">{formatTokens(usageData.tokens)}</div>
-                  <div className="usage-sub">tokens · {usageData.sessions} 个会话</div>
-                  {usageData.cost > 0 && <div className="usage-cost">合计 ${usageData.cost.toFixed(4)}</div>}
-                </>
-              ) : (
-                <div className="ctx-empty">暂无用量数据</div>
-              )}
-            </div>
-          )}
-        </div>
-        <button className="iconbtn" title="Help" onClick={() => useStore.getState().pushToast("info", "Omp Studio · inherits terminal omp")}>
-          <Help size={15} />
+        <button className={`sb-tab ${sidebarTab === "files" ? "active" : ""}`} onClick={() => setSidebarTab("files")}>
+          文件
+        </button>
+        <button className={`sb-tab ${sidebarTab === "git" ? "active" : ""}`} onClick={() => setSidebarTab("git")}>
+          Git
         </button>
       </div>
       {projectMenu && (

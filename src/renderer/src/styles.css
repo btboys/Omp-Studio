@@ -289,14 +289,29 @@ body.sidebar-resizing * {
 }
 .sb-scroll {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 10px 10px 4px;
+}
+.sb-project-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sb-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .sb-nav {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin-bottom: 12px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .sb-nav-item {
   display: flex;
@@ -322,20 +337,25 @@ body.sidebar-resizing * {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 9px;
-  color: var(--text-faint);
-  font-size: 11px;
+  padding: 6px 4px 7px 8px;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .sb-section-head button {
-  background: transparent;
-  border: none;
-  color: var(--text-faint);
-  font-size: 15px;
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  font-size: 14px;
   line-height: 1;
-  padding: 2px 5px;
+  padding: 2px 7px;
   border-radius: 6px;
+  box-shadow: var(--shadow-sm);
 }
 .sb-section-head button:hover {
   background: rgba(0, 0, 0, 0.06);
@@ -549,7 +569,9 @@ body.sidebar-resizing * {
 .sb-tabs {
   display: flex;
   gap: 2px;
-  padding: 4px 8px 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .sb-tab {
   flex: 1;
@@ -600,15 +622,6 @@ body.sidebar-resizing * {
   padding: 8px;
 }
 
-.sb-foot {
-  border-top: 1px solid var(--border);
-  padding: 8px 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--text-dim);
-}
 .sb-foot-spacer {
   flex: 1;
 }
@@ -2772,7 +2785,7 @@ body.sidebar-resizing * {
   min-width: 216px;
 }
 .usage-pop {
-  bottom: 42px;
+  top: 42px;
   left: 50%;
   right: auto;
   margin-left: -64px;
@@ -2930,10 +2943,6 @@ body.sidebar-resizing * {
   padding-top: 5px;
   border-top: 1px solid var(--border);
   font-family: var(--mono);
-}
-.iconbtn.on {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 .send-btn {
   width: 34px;
@@ -4771,6 +4780,10 @@ textarea.modal-input {
 .sb-head-btn:active {
   transform: scale(0.9);
 }
+.sb-head-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 
 /* titlebar sidebar toggle (always visible, even on the empty state) */
 .tb-sidebar-toggle {
@@ -5601,6 +5614,13 @@ mark.hl {
   color: var(--text-dim);
 }
 :root[data-theme="dark"] .sb-nav-item:hover,
+:root[data-theme="dark"] .sb-section-head {
+  border-bottom-color: var(--border);
+}
+:root[data-theme="dark"] .sb-section-head button {
+  background: var(--control);
+  border-color: var(--border-strong);
+}
 :root[data-theme="dark"] .sb-section-head button:hover,
 :root[data-theme="dark"] .project-head:hover,
 :root[data-theme="dark"] .project-head .pact:hover,
