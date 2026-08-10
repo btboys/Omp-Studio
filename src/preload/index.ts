@@ -75,6 +75,7 @@ const api = {
     checkout: (args: { cwd: string; branch: string }) => ipcRenderer.invoke("git:checkout", args),
     pull: (cwd: string) => ipcRenderer.invoke("git:pull", cwd),
     push: (cwd: string) => ipcRenderer.invoke("git:push", cwd),
+    worktreeAdd: (args: { cwd: string; branch: string; path: string }) => ipcRenderer.invoke("git:worktreeAdd", args),
   },
   mcp: {
     getServers: () => ipcRenderer.invoke("mcp:getServers"),

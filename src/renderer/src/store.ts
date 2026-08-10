@@ -663,6 +663,7 @@ interface PiStore {
   restoreOpenTabs: () => Promise<void>;
   refreshProjects: () => Promise<void>;
   openProjectFolder: () => Promise<void>;
+  openProjectPath: (path: string) => Promise<void>;
   unpinProject: (cwd: string) => Promise<void>;
   /** Remove a project from the sidebar: unpin if pinned, then archive it. */
   removeProject: (cwd: string) => Promise<void>;
@@ -1096,9 +1097,18 @@ export const useStore = create<PiStore>()((set, get) => ({
     try {
       const path = await window.pi.app.showOpenDialog("folder");
       if (!path) return;
-      await window.pi.app.openProject(path);
+      await get().openProjectPath(path);
+    } catch (e: any) {
+      get().pushToast("error", "Open folder failed: " + (e?.message || e));
+    }
+  },
+
+  /** Pin a directory as a project, refresh the sidebar, and switch to it. */
+  openProjectPath: async (p) => {
+    try {
+      await window.pi.app.openProject(p);
       await get().refreshProjects();
-      set({ activeProjectCwd: path, expandedProjects: { ...get().expandedProjects, [path]: true } });
+      set({ activeProjectCwd: p, expandedProjects: { ...get().expandedProjects, [p]: true } });
     } catch (e: any) {
       get().pushToast("error", "Open folder failed: " + (e?.message || e));
     }

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import * as http from "node:http";
 import * as tls from "node:tls";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { readLightweightRoleModel } from "./models-service";
 import { runOmpCli } from "./plugins";
@@ -198,6 +198,25 @@ export const gitCommit = (cwd: string, message: string) => op(cwd, ["commit", "-
 export const gitCheckout = (cwd: string, branch: string) => op(cwd, ["checkout", branch]);
 export const gitPull = (cwd: string) => op(cwd, ["pull"], 120000);
 export const gitPush = (cwd: string) => op(cwd, ["push"], 120000);
+
+/**
+ * Create a linked worktree: `git worktree add -b <branch> <path>`. The branch
+ * must not exist yet (git's own error surfaces through GitOpResult). The
+ * resolved absolute path is returned so the renderer can open the new
+ * checkout as a project.
+ */
+export async function gitWorktreeAdd(
+  cwd: string,
+  branch: string,
+  path: string,
+): Promise<GitOpResult & { path?: string }> {
+  const b = (branch || "").trim();
+  const p = (path || "").trim();
+  if (!b || !p) return { ok: false, error: "branch and path are required" };
+  const r = await op(cwd, ["worktree", "add", "-b", b, p], 30000);
+  if (!r.ok) return r;
+  return { ...r, path: isAbsolute(p) ? p : join(cwd, p) };
+}
 
 export type FileDiffResult = {
   ok: boolean;

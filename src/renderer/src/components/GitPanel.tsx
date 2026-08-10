@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import { fileIcon } from "../lib/format";
 import type { GitLogEntry, GitOpResult, GitStatusResult } from "../lib/types";
-import { Branch, Check, ChevronRight, Minus, Plus, Refresh, Sparkle, Undo } from "./icons";
+import { Branch, Check, ChevronRight, Close, Minus, Plus, Refresh, Sparkle, Undo } from "./icons";
 
 /** Sidebar Git tab: status (staged/changes/untracked), commit box, history, pull/push. */
 export function GitPanel({ cwd }: { cwd: string | null }) {
@@ -28,6 +28,11 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   const [generating, setGenerating] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [wtOpen, setWtOpen] = useState(false);
+  const [wtBranch, setWtBranch] = useState("");
+  const [wtPath, setWtPath] = useState("");
+  const [wtPathTouched, setWtPathTouched] = useState(false);
+  const [wtBusy, setWtBusy] = useState(false);
   const branchRef = useRef<HTMLDivElement>(null);
   useOutsideClose(branchRef, branchOpen, () => setBranchOpen(false));
 
@@ -124,6 +129,41 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
     void run(window.pi.git.checkout({ cwd: root, branch }), { keepMessage: true });
   };
 
+  // Default worktree location: a sibling of the repo root named after the branch.
+  const siblingPath = (branch: string) => {
+    if (!root || !branch.trim()) return "";
+    const sep = root.includes("\\") ? "\\" : "/";
+    return `${root.slice(0, root.lastIndexOf(sep))}${sep}${branch.trim()}`;
+  };
+
+  const openWorktreeForm = () => {
+    setWtBranch("");
+    setWtPath("");
+    setWtPathTouched(false);
+    setWtOpen(true);
+  };
+
+  const createWorktree = async () => {
+    if (!root || wtBusy || !wtBranch.trim() || !wtPath.trim()) return;
+    setWtBusy(true);
+    try {
+      const r = await window.pi.git.worktreeAdd({ cwd: root, branch: wtBranch.trim(), path: wtPath.trim() });
+      if (!r.ok) {
+        useStore.getState().pushToast("error", r.error || t("创建 worktree 失败", "Failed to create worktree"));
+        return;
+      }
+      useStore.getState().pushToast("success", t(`worktree 已创建：${r.path}`, `Worktree created: ${r.path}`));
+      setBranchOpen(false);
+      setWtOpen(false);
+      setWtBranch("");
+      setWtPath("");
+      setWtPathTouched(false);
+      if (r.path) await useStore.getState().openProjectPath(r.path);
+    } finally {
+      setWtBusy(false);
+    }
+  };
+
   const generateMessage = async () => {
     if (!root || generating) return;
     setGenerating(true);
@@ -215,6 +255,52 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
                   {b === status.branch && <Check size={12} />}
                 </button>
               ))}
+              <div className="gp-wt-sep" />
+              {wtOpen ? (
+                <div className="gp-wt-form">
+                  <input
+                    className="gp-wt-input"
+                    placeholder={t("新分支名", "New branch")}
+                    value={wtBranch}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setWtBranch(v);
+                      if (!wtPathTouched) setWtPath(siblingPath(v));
+                    }}
+                  />
+                  <input
+                    className="gp-wt-input"
+                    placeholder={t("worktree 路径", "Worktree path")}
+                    value={wtPath}
+                    onChange={(e) => {
+                      setWtPathTouched(true);
+                      setWtPath(e.target.value);
+                    }}
+                  />
+                  <div className="gp-wt-actions">
+                    <button
+                      className="btn primary gp-wt-create"
+                      disabled={wtBusy || !wtBranch.trim() || !wtPath.trim()}
+                      onClick={createWorktree}
+                    >
+                      {wtBusy ? t("创建中…", "Creating…") : t("创建 worktree", "Create worktree")}
+                    </button>
+                    <button
+                      className="iconbtn"
+                      title={t("取消", "Cancel")}
+                      disabled={wtBusy}
+                      onClick={() => setWtOpen(false)}
+                    >
+                      <Close size={12} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button className="gp-wt-toggle" onClick={openWorktreeForm}>
+                  <Plus size={12} />
+                  {t("新建 worktree", "New worktree")}
+                </button>
+              )}
             </div>
           )}
         </div>

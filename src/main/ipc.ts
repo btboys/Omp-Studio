@@ -23,6 +23,7 @@ import {
   gitStatus,
   gitUnstage,
   gitUnstageAll,
+  gitWorktreeAdd,
 } from "./git-service";
 import { createHtmlPreviewUrl } from "./html-preview-protocol";
 import { cancelRecap, scheduleRecap } from "./recap";
@@ -551,6 +552,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle("git:checkout", (_e, args: { cwd: string; branch: string }) => gitCheckout(args.cwd, args.branch));
   ipcMain.handle("git:pull", (_e, cwd: string) => gitPull(cwd));
   ipcMain.handle("git:push", (_e, cwd: string) => gitPush(cwd));
+  ipcMain.handle("git:worktreeAdd", (_e, args: { cwd: string; branch: string; path: string }) =>
+    gitWorktreeAdd(args.cwd, args.branch, args.path),
+  );
 
   ipcMain.handle("app:openProject", async (_e, absPath: string) => {
     if (!absPath || !existsSync(absPath) || !statSync(absPath).isDirectory()) {
