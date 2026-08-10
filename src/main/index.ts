@@ -190,7 +190,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    loadConfig(app.getPath("userData"));
+    loadConfig(app.getPath("userData"), app.getLocale());
     registerHtmlPreviewProtocol();
     // Remove runtime trees superseded by an in-app core update (they may have
     // been locked by pi child processes during the previous run; nothing holds

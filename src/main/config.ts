@@ -46,7 +46,7 @@ export interface AppConfig {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };
   /** "dark" | "light" | "system". */
   theme: "dark" | "light" | "system";
-  /** UI language. English is the default for new installations. */
+  /** UI language. Follows the OS locale until the user pins one in Settings. */
   language: "en" | "zh";
   /** Per-thread permission level, keyed by session file path. Defaults to "sandbox" when absent. */
   threadPermissions: Record<string, "sandbox" | "full" | "auto">;
@@ -108,6 +108,11 @@ const DEFAULTS: AppConfig = {
   desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY },
 };
 
+/** Map an OS locale (e.g. "zh-CN", "en-US") to the app language; non-Chinese locales fall back to English. */
+function localeToLanguage(locale?: string): "en" | "zh" {
+  return (locale || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
 let cached: AppConfig | null = null;
 let cachedDir = "";
 
@@ -115,7 +120,7 @@ function configPath(dir: string): string {
   return join(dir, "config.json");
 }
 
-export function loadConfig(userDataDir: string): AppConfig {
+export function loadConfig(userDataDir: string, systemLocale?: string): AppConfig {
   cachedDir = userDataDir;
   const file = configPath(userDataDir);
   if (existsSync(file)) {
@@ -135,12 +140,29 @@ export function loadConfig(userDataDir: string): AppConfig {
           ...(parsed.desktopNotify || {}),
         },
       };
+      // A stored `language` key means the user pinned it in Settings. Otherwise
+      // default to the OS locale (zh-* → 中文, anything else → English) and
+      // persist it so the sandbox gate, which reads config.json from disk,
+      // shows the same language.
+      if (parsed.language !== "en" && parsed.language !== "zh") {
+        cached.language = localeToLanguage(systemLocale);
+        if (!existsSync(cachedDir)) mkdirSync(cachedDir, { recursive: true });
+        writeFileSync(file, JSON.stringify(cached, null, 2), "utf8");
+      }
       return cached;
     } catch {
       // corrupt file -> fall back to defaults but keep a copy
     }
   }
   cached = { ...DEFAULTS, desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY } };
+  cached.language = localeToLanguage(systemLocale);
+  // Fresh install: persist the resolved language so the sandbox gate (which
+  // reads config.json from disk) agrees. Skip when the file exists but was
+  // corrupt — keep it untouched for manual recovery.
+  if (!existsSync(file)) {
+    if (!existsSync(cachedDir)) mkdirSync(cachedDir, { recursive: true });
+    writeFileSync(file, JSON.stringify(cached, null, 2), "utf8");
+  }
   return cached;
 }
 
