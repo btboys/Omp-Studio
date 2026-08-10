@@ -75,7 +75,6 @@ export function Chat() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const togglePreview = useStore((s) => s.togglePreview);
   const reloadThread = useStore((s) => s.reloadThread);
-  const undoLastTurn = useStore((s) => s.undoLastTurn);
   const renameThread = useStore((s) => s.renameThread);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -313,6 +312,14 @@ export function Chat() {
   // Undo needs a persisted session with at least one user prompt, and must wait
   // for any in-flight reply to settle before the file can be truncated.
   const canUndo = !thread.isStreaming && !!thread.sessionFile && thread.messages.some((m) => m.role === "user");
+
+  // The 撤回 action anchors on the newest user message — the one undo removes.
+  const lastUserKey = useMemo(() => {
+    for (let i = thread.messages.length - 1; i >= 0; i--) {
+      if (thread.messages[i].role === "user") return thread.messages[i].key;
+    }
+    return null;
+  }, [thread.messages]);
 
   const lastGroup = groups[groups.length - 1];
   const streamingExtends = !!streaming && !!lastGroup && lastGroup.role === "assistant";
@@ -563,14 +570,6 @@ export function Chat() {
             </div>
           )}
         </div>
-        <button
-          className="iconbtn"
-          title="撤销最近一次对话（删除最后一条提示词及其回复，重新加载会话）"
-          disabled={!canUndo}
-          onClick={() => void undoLastTurn(activeThreadId)}
-        >
-          <Undo size={15} />
-        </button>
         <button className="iconbtn" title="重新加载会话" onClick={() => reloadThread(activeThreadId)}>
           <Refresh size={15} />
         </button>
@@ -603,7 +602,7 @@ export function Chat() {
           )}
           <div className="messages">
           {headGroups.map((g) => (
-            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} searchQuery={searchQuery} onPreviewImage={setPreviewImage} />
+            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} searchQuery={searchQuery} onPreviewImage={setPreviewImage} isLastUser={g.key === lastUserKey} canUndo={canUndo} />
           ))}
           {streaming && streamingExtends && lastGroup && (
             <MessageGroup
@@ -615,6 +614,8 @@ export function Chat() {
               stripKey={todoInfo?.sourceKey ?? null}
               searchQuery={searchQuery}
               onPreviewImage={setPreviewImage}
+              isLastUser={false}
+              canUndo={canUndo}
             />
           )}
           {streaming && !streamingExtends && (
@@ -627,6 +628,8 @@ export function Chat() {
               stripKey={todoInfo?.sourceKey ?? null}
               searchQuery={searchQuery}
               onPreviewImage={setPreviewImage}
+              isLastUser={false}
+              canUndo={canUndo}
             />
           )}
           {thread.error && (
@@ -702,7 +705,9 @@ const MessageGroup = memo(MessageGroupInner, (prev, next) => {
     !!prev.streaming !== !!next.streaming ||
     prev.stripKey !== next.stripKey ||
     prev.searchQuery !== next.searchQuery ||
-    prev.onPreviewImage !== next.onPreviewImage
+    prev.onPreviewImage !== next.onPreviewImage ||
+    prev.canUndo !== next.canUndo ||
+    prev.isLastUser !== next.isLastUser
   ) {
     return false;
   }
@@ -722,6 +727,8 @@ function MessageGroupInner({
   stripKey,
   searchQuery,
   onPreviewImage,
+  isLastUser,
+  canUndo,
 }: {
   threadId: string;
   group: MsgGroup;
@@ -731,9 +738,14 @@ function MessageGroupInner({
   stripKey?: string | null;
   /** Active chat search query; drives <mark> highlighting when non-empty. */
   searchQuery?: string;
+  /** True when this group holds the newest user message — where 撤回 lives. */
+  isLastUser?: boolean;
+  /** Undo availability (session persisted, settled, has a user prompt). */
+  canUndo?: boolean;
   onPreviewImage: (src: string) => void;
 }) {
   const openPreview = useStore((s) => s.openPreview);
+  const undoLastTurn = useStore((s) => s.undoLastTurn);
   const cwd = useStore((s) => s.threads[threadId]?.cwd || "");
   const language = useStore((s) => s.config?.language || "en");
   const showTokenUsage = useStore((s) => s.showTokenUsage);
@@ -830,6 +842,15 @@ function MessageGroupInner({
             >
               <Copy size={11} /> 复制
             </button>
+            {isLastUser && (
+              <button
+                disabled={!canUndo}
+                title="撤回最近一次对话（删除最后一条提示词及其回复，重新加载会话）"
+                onClick={() => void undoLastTurn(threadId)}
+              >
+                <Undo size={11} /> 撤回
+              </button>
+            )}
           </div>
         </div>
         <div className="msg-avatar" aria-label="用户">
