@@ -179,6 +179,8 @@ export interface ThreadState {
   permission: PermissionLevel;
   /** Whether the session-level advisor (advisory notes) is enabled for this thread. */
   advisory: boolean;
+  /** Whether plan mode is on: the thread's model is routed to the configured plan role. */
+  planMode?: boolean;
   /** text injected by an extension via set_editor_text */
   pendingEditorText?: string;
   /** Follow-up queued via Enter while streaming; delivered when the agent settles. */
@@ -253,6 +255,7 @@ export interface AppConfig {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };
   theme: "dark" | "light" | "system";
   language: "en" | "zh";
+  threadPlanModes?: Record<string, boolean>;
   desktopNotify?: DesktopNotifyConfig;
 }
 

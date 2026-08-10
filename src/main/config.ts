@@ -52,6 +52,8 @@ export interface AppConfig {
   threadPermissions: Record<string, "sandbox" | "full" | "auto">;
   /** Per-thread advisor (advisory note) enablement, keyed by session file path. Absent = enabled (omp default). */
   threadAdvisories: Record<string, boolean>;
+  /** Per-thread plan-mode (plan-role model routing) toggle, keyed by session file path. */
+  threadPlanModes: Record<string, boolean>;
   /** cwd of the most recently opened thread; seeds the warm spare's project. */
   lastThreadCwd?: string;
   /** User-defined scheduled automation tasks. */
@@ -104,6 +106,7 @@ const DEFAULTS: AppConfig = {
   language: "en",
   threadPermissions: {},
   threadAdvisories: {},
+  threadPlanModes: {},
   automationTasks: [],
   desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY },
 };

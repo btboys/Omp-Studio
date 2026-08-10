@@ -4,10 +4,20 @@ import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
-import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand, Sparkle } from "./icons";
+import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand, Sparkle, Clipboard } from "./icons";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
+
+/**
+ * Session mode selector (Build / Plan / Vibe / Goal) — entry hidden for now.
+ * omp's pi-RPC protocol has no plan/vibe/goal mode activation yet
+ * (https://github.com/can1357/oh-my-pi/issues/8171), so only "Plan" (plan-role
+ * model routing) would do anything. The store wiring (setPlanMode,
+ * threadPlanModes persistence, restore-on-open) and the dropdown JSX below are
+ * kept intact; flip this to true once the runtime exposes set_mode.
+ */
+const MODE_SELECTOR_ENABLED = false;
 
 
 /** Detect an in-progress `@file` token just before the caret. */
@@ -61,6 +71,8 @@ export function Composer({ threadId }: { threadId: string }) {
   const setThinking = useStore((s) => s.setThinking);
   const setPermission = useStore((s) => s.setPermission);
   const setAdvisor = useStore((s) => s.setAdvisor);
+  const setPlanMode = useStore((s) => s.setPlanMode);
+  const planMode = useStore((s) => !!s.threads[threadId]?.planMode);
   const setPendingFollowUp = useStore((s) => s.setPendingFollowUp);
   const sendPendingSteering = useStore((s) => s.sendPendingSteering);
   const changeDraftThreadFolder = useStore((s) => s.changeDraftThreadFolder);
@@ -100,6 +112,7 @@ export function Composer({ threadId }: { threadId: string }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [permOpen, setPermOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState("");
   const [enhanceOpen, setEnhanceOpen] = useState(false);
@@ -114,6 +127,7 @@ export function Composer({ threadId }: { threadId: string }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(0);
   const permRef = useRef<HTMLDivElement>(null);
+  const modeRef = useRef<HTMLDivElement>(null);
   const cmdRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
   const projectRef = useRef<HTMLDivElement>(null);
@@ -121,6 +135,7 @@ export function Composer({ threadId }: { threadId: string }) {
 
   // close popups on outside click / Escape
   useOutsideClose(permRef, permOpen, () => setPermOpen(false));
+  useOutsideClose(modeRef, modeOpen, () => setModeOpen(false));
   useOutsideClose(cmdRef, cmdOpen, () => setCmdOpen(false));
   useOutsideClose(modelRef, modelOpen, () => setModelOpen(false));
   useOutsideClose(projectRef, projectOpen, () => setProjectOpen(false));
@@ -798,6 +813,83 @@ export function Composer({ threadId }: { threadId: string }) {
                 <Sparkle size={13} /> {language === "zh" ? (advisory ? "advisory 开" : "advisory 关") : advisory ? "advisory on" : "advisory off"}
               </button>
             </div>
+            {MODE_SELECTOR_ENABLED && (
+              <div className="pill composer-mode-pill composer-optional-action" ref={modeRef}>
+                <button
+                  className={`pill-btn mode-btn ${planMode ? "mode-on" : ""}`}
+                  title={
+                    language === "zh"
+                      ? "会话模式（互斥）：正常 / 规划 / vibe / goal"
+                      : "Session mode (mutually exclusive): build / plan / vibe / goal"
+                  }
+                  onClick={() => setModeOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={modeOpen}
+                >
+                  <Clipboard size={13} />
+                  {language === "zh" ? (planMode ? "规划" : "正常") : planMode ? "Plan" : "Build"}
+                  <span className="pill-caret">▾</span>
+                </button>
+                {modeOpen && (
+                  <div className="pill-pop mode-pop">
+                    <button
+                      className={`opt ${!planMode ? "active" : ""}`}
+                      onClick={() => {
+                        setModeOpen(false);
+                        if (planMode) void setPlanMode(threadId, false);
+                      }}
+                    >
+                      <span className="o1">{language === "zh" ? "正常模式" : "Build"}</span>
+                      <span className="o2">{language === "zh" ? "默认工作模式，不启用特殊模式" : "Default mode, no special workflow"}</span>
+                    </button>
+                    <button
+                      className={`opt ${planMode ? "active" : ""}`}
+                      onClick={() => {
+                        setModeOpen(false);
+                        if (!planMode) void setPlanMode(threadId, true);
+                      }}
+                    >
+                      <span className="o1">{language === "zh" ? "规划模式" : "Plan"}</span>
+                      <span className="o2">{language === "zh" ? "先计划后执行：切换到 plan 角色模型（设置 → 模型角色）" : "Plan-then-execute: switches to the plan-role model (Settings → model roles)"}</span>
+                    </button>
+                    <button
+                      className="opt"
+                      onClick={() => {
+                        setModeOpen(false);
+                        useStore
+                          .getState()
+                          .pushToast(
+                            "warning",
+                            language === "zh"
+                              ? "vibe 模式暂无法在应用中启用：omp 当前版本的 RPC 未开放模式激活（仅 TUI/ACP 可用）" + (planMode ? "；需先退出规划模式。" : "。")
+                              : "Vibe mode can't be enabled from the app yet: this omp version's RPC doesn't expose mode activation (TUI/ACP only)" + (planMode ? "; exit plan mode first." : "."),
+                          );
+                      }}
+                    >
+                      <span className="o1">Vibe</span>
+                      <span className="o2">{language === "zh" ? "导演调度 worker 会话（当前 RPC 未开放）" : "Director-style worker sessions (RPC not exposed yet)"}</span>
+                    </button>
+                    <button
+                      className="opt"
+                      onClick={() => {
+                        setModeOpen(false);
+                        useStore
+                          .getState()
+                          .pushToast(
+                            "warning",
+                            language === "zh"
+                              ? "goal 模式暂无法在应用中启用：omp 当前版本的 RPC 未开放模式激活（仅 TUI/ACP 可用）" + (planMode ? "；需先退出规划模式。" : "。")
+                              : "Goal mode can't be enabled from the app yet: this omp version's RPC doesn't expose mode activation (TUI/ACP only)" + (planMode ? "; exit plan mode first." : "."),
+                          );
+                      }}
+                    >
+                      <span className="o1">Goal</span>
+                      <span className="o2">{language === "zh" ? "持续自主推进目标（当前 RPC 未开放）" : "Autonomous goal pursuit (RPC not exposed yet)"}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="pill composer-optional-action" ref={cmdRef}>
               <button className="pill-btn" title="Slash commands / skills" onClick={toggleCommands}>
                 <At size={14} /> 命令

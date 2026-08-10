@@ -354,6 +354,7 @@ function emptyThread(cwd: string): ThreadState {
     toolRuns: {},
     permission: "sandbox",
     advisory: true,
+    planMode: false,
   };
 }
 
@@ -799,6 +800,11 @@ interface PiStore {
   setPermission: (threadId: string, level: PermissionLevel) => Promise<void>;
   /** Toggle the session-level advisor (advisory notes) for a thread. */
   setAdvisor: (threadId: string, enabled: boolean) => Promise<void>;
+  /**
+   * Toggle plan mode for a thread: on switches the thread to the configured
+   * plan-role model (modelRoles.plan), off restores the previous selection.
+   */
+  setPlanMode: (threadId: string, enabled: boolean) => Promise<void>;
   /** Delete the last exchange (final user prompt and its reply) from the session file, then reload the thread. */
   undoLastTurn: (threadId: string) => Promise<void>;
   /** Share the session file via omp share and copy the encrypted link to the clipboard. */
@@ -816,6 +822,15 @@ const treeKey = (cwd: string, rel?: string) => `${cwd}::${rel || ""}`;
 /** In-flight background connects keyed by thread id, so a click and a
  *  same-tick prompt share one process boot instead of spawning two. */
 const connectPromises = new Map<string, Promise<string | null>>();
+
+/**
+ * In-memory snapshot of the model/thinking a thread used before plan mode
+ * switched it to the plan role, so toggling plan off restores exactly that
+ * selection. Not persisted: after a restart the thread already holds the plan
+ * model (the session persisted the model change), so off falls back to the
+ * configured default role model.
+ */
+const planPrevSelections = new Map<string, { provider: string; id: string; thinking: string }>();
 
 /* ------------------------------------------------------------------ *
  * Event batching
@@ -1056,6 +1071,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           toolRuns,
           permission: hist.permission || "sandbox",
           advisory: hist.advisory ?? true,
+          planMode: !!get().config?.threadPlanModes?.[hist.sessionFile || sessionFile],
         };
         set((s) => ({
           threads: { ...s.threads, [sessionFile]: thread },
@@ -1314,6 +1330,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           toolRuns,
           permission: hist.permission || permission || "sandbox",
           advisory: hist.advisory ?? true,
+          planMode: !!get().config?.threadPlanModes?.[hist.sessionFile || sessionFile],
         };
         set((s) => ({
           threads: { ...s.threads, [sessionFile]: thread },
@@ -1389,6 +1406,7 @@ export const useStore = create<PiStore>()((set, get) => ({
             toolRuns,
             permission: res.permission || t.permission,
             pendingEditorText: prev?.pendingEditorText,
+            planMode: prev?.planMode ?? !!get().config?.threadPlanModes?.[res.sessionFile || t.sessionFile || id],
           };
           const threads: Record<string, ThreadState> = { ...s.threads, [id]: merged };
           let openThreadIds = s.openThreadIds;
@@ -2253,6 +2271,74 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("error", "切换 advisory 失败：" + (e?.message || e));
     }
   },
+  setPlanMode: async (threadId, enabled) => {
+    const t = get().threads[threadId];
+    if (!t || !!t.planMode === enabled) return;
+    const zh = get().config?.language === "zh";
+    const persist = async (on: boolean) => {
+      const key = t.sessionFile || (threadId.startsWith("opening-") ? "" : threadId);
+      if (!key) return;
+      try {
+        const modes = { ...(get().config?.threadPlanModes || {}) };
+        if (on) modes[key] = true;
+        else delete modes[key];
+        set({ config: await window.pi.app.setConfig({ threadPlanModes: modes }) });
+      } catch {
+        /* persistence is best-effort */
+      }
+    };
+    if (enabled) {
+      let roles: Record<string, { provider: string; model: string; level?: string }> | null = null;
+      try {
+        roles = await window.pi.settings.getModelRoles();
+      } catch {
+        /* fall through */
+      }
+      const plan = roles?.plan;
+      if (!plan?.provider || !plan.model) {
+        get().pushToast(
+          "warning",
+          zh ? "未配置规划角色模型（设置 → 模型角色 → plan），无法进入规划模式" : "No plan-role model configured (Settings → model roles → plan); plan mode unavailable",
+        );
+        return;
+      }
+      // Snapshot the current selection so plan mode can be undone exactly.
+      planPrevSelections.set(threadId, { provider: t.model?.provider ?? "", id: t.model?.id ?? "", thinking: t.thinking });
+      // Switch model first; only mark plan mode on when the runtime accepted it.
+      await get().setModel(threadId, plan.provider, plan.model);
+      const after = get().threads[threadId]?.model;
+      if (!after || after.provider !== plan.provider || after.id !== plan.model) {
+        planPrevSelections.delete(threadId);
+        return; // setModel already toasted the failure
+      }
+      if (plan.level) await get().setThinking(threadId, plan.level);
+      set((s) => (s.threads[threadId] ? { threads: { ...s.threads, [threadId]: { ...s.threads[threadId], planMode: true } } } : s));
+      await persist(true);
+      get().pushToast("info", zh ? "已进入规划模式：模型切换到 plan 角色。" : "Plan mode on: switched to the plan-role model.");
+    } else {
+      const prev = planPrevSelections.get(threadId);
+      planPrevSelections.delete(threadId);
+      if (prev?.provider && prev.id) {
+        await get().setModel(threadId, prev.provider, prev.id);
+        await get().setThinking(threadId, prev.thinking);
+      } else {
+        // No in-session snapshot (e.g. restored after restart): fall back to the
+        // configured default role model.
+        try {
+          const roles: Record<string, { provider: string; model: string }> | null = await window.pi.settings.getModelRoles();
+          const def = roles?.default;
+          if (def?.provider && def.model) {
+            await get().setModel(threadId, def.provider, def.model);
+          }
+        } catch {
+          /* best-effort restore */
+        }
+      }
+      set((s) => (s.threads[threadId] ? { threads: { ...s.threads, [threadId]: { ...s.threads[threadId], planMode: false } } } : s));
+      await persist(false);
+      get().pushToast("info", zh ? "已退出规划模式，恢复原模型。" : "Plan mode off: previous model restored.");
+    }
+  },
   undoLastTurn: async (threadId) => {
     const t = get().threads[threadId];
     if (!t) return;
@@ -2372,6 +2458,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         toolRuns,
         permission: hist.permission || permission || "sandbox",
         advisory: hist.advisory ?? true,
+        planMode: !!get().config?.threadPlanModes?.[nextId],
       };
       set((s) => {
         const threads: Record<string, ThreadState> = { ...s.threads, [nextId]: thread };

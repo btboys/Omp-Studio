@@ -5536,6 +5536,11 @@ mark.hl {
   border-color: #cdd9a8;
   color: #5c7a1f;
 }
+.mode-btn.mode-on {
+  background: #eef3e2;
+  border-color: #cdd9a8;
+  color: #5c7a1f;
+}
 .perm-pop {
   min-width: 240px;
 }
@@ -5740,6 +5745,7 @@ mark.hl {
 :root[data-theme="dark"] .perm-btn.perm-full,
 :root[data-theme="dark"] .perm-btn.perm-auto,
 :root[data-theme="dark"] .advisory-btn.advisory-on,
+:root[data-theme="dark"] .mode-btn.mode-on,
 :root[data-theme="dark"] .set-iconbtn.danger:hover,
 :root[data-theme="dark"] .plugins-off {
   color: #f0c37b;
