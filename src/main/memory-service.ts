@@ -90,9 +90,7 @@ interface RowShape {
 }
 
 const LEN = LIST_CONTENT_LEN;
-const WORKING_COLS = "w.id, substr(w.content, 1, " + LEN + ") AS content, w.importance, w.timestamp, w.memory_type AS memoryType, w.source";
-const EPISODE_COLS = "e.rowid AS id, substr(e.content, 1, " + LEN + ") AS content, e.importance, e.timestamp, e.memory_type AS memoryType, e.source";
-// Single-table variants (no aliases needed, avoids ambiguity in FTS joins).
+// Single-table variants (FTS search collects ids first, then fetches rows by id).
 const WORKING_PLAIN = "id, substr(content, 1, " + LEN + ") AS content, importance, timestamp, memory_type AS memoryType, source";
 const EPISODE_PLAIN = "rowid AS id, substr(content, 1, " + LEN + ") AS content, importance, timestamp, memory_type AS memoryType, source";
 
@@ -101,51 +99,83 @@ function ftsPhrase(q: string): string {
   return '"' + q.replace(/"/g, '""') + '"';
 }
 
+export interface MemoryListResult {
+  rows: MemoryRow[];
+  total: number;
+}
+
 export async function listMemories(
   bankId: string,
-  opts: { table: "working" | "episodes"; q?: string; limit?: number },
-): Promise<MemoryRow[]> {
+  opts: { table: "working" | "episodes"; q?: string; limit?: number; offset?: number },
+): Promise<MemoryListResult> {
   const dbPath = bankDbPath(bankId);
   const table = opts.table === "episodes" ? "episodes" : "working";
-  const lim = Math.max(1, Math.min(opts.limit ?? 300, 1000));
+  const lim = Math.max(1, Math.min(opts.limit ?? 50, 200));
+  const off = Math.max(0, opts.offset ?? 0);
   const q = (opts.q ?? "").trim();
-  let rows: RowShape[];
-  if (q) {
-    // FTS5's default tokenizer treats a CJK run as one token, so phrase
-    // search misses Chinese queries; merge FTS hits with a substring LIKE
-    // fallback (deduped, FTS first) to cover both.
-    const match = sq(ftsPhrase(q));
-    const like = sq("%" + q.replace(/[\\%_]/g, (c) => "\\" + c) + "%");
-    const esc = " ESCAPE '\\'";
-    const ftsRows = await query<RowShape>(
-      dbPath,
-      table === "episodes"
-        ? `SELECT ${EPISODE_COLS} FROM fts_episodes f JOIN episodic_memory e ON e.rowid = f.rowid WHERE fts_episodes MATCH ${match} ORDER BY e.timestamp DESC, e.rowid DESC LIMIT ${lim};`
-        : `SELECT ${WORKING_COLS} FROM fts_working f JOIN working_memory w ON w.id = f.id WHERE fts_working MATCH ${match} ORDER BY w.timestamp DESC, w.rowid DESC LIMIT ${lim};`,
-    );
-    const subRows = await query<RowShape>(
-      dbPath,
-      table === "episodes"
-        ? `SELECT ${EPISODE_PLAIN} FROM episodic_memory WHERE content LIKE ${like}${esc} ORDER BY timestamp DESC, rowid DESC LIMIT ${lim};`
-        : `SELECT ${WORKING_PLAIN} FROM working_memory WHERE content LIKE ${like}${esc} ORDER BY timestamp DESC, rowid DESC LIMIT ${lim};`,
-    );
-    rows = [];
-    const seen = new Set<string>();
-    for (const r of [...ftsRows, ...subRows]) {
-      if (seen.has(r.id)) continue;
-      seen.add(r.id);
-      rows.push(r);
-      if (rows.length >= lim) break;
-    }
-  } else {
-    rows = await query<RowShape>(
-      dbPath,
-      table === "episodes"
-        ? `SELECT ${EPISODE_PLAIN} FROM episodic_memory ORDER BY timestamp DESC, rowid DESC LIMIT ${lim};`
-        : `SELECT ${WORKING_PLAIN} FROM working_memory ORDER BY timestamp DESC, rowid DESC LIMIT ${lim};`,
-    );
+  if (q) return searchMemories(dbPath, table, q, lim, off);
+  const count = await query<{ n: number }>(dbPath, `SELECT count(*) AS n FROM ${table === "episodes" ? "episodic_memory" : "working_memory"};`);
+  const rows = await query<RowShape>(
+    dbPath,
+    table === "episodes"
+      ? `SELECT ${EPISODE_PLAIN} FROM episodic_memory ORDER BY timestamp DESC, rowid DESC LIMIT ${lim} OFFSET ${off};`
+      : `SELECT ${WORKING_PLAIN} FROM working_memory ORDER BY timestamp DESC, rowid DESC LIMIT ${lim} OFFSET ${off};`,
+  );
+  return { rows: rows.map((r) => ({ ...r, table })), total: count[0]?.n ?? 0 };
+}
+
+/**
+ * Search with pagination. FTS5's default tokenizer treats a CJK run as one
+ * token, so phrase search misses Chinese queries; merge FTS hits with a
+ * substring LIKE fallback (deduped, FTS first). Matching ids are collected
+ * first (cheap, no content), sliced, then row details are fetched for the
+ * visible page only.
+ */
+async function searchMemories(dbPath: string, table: "working" | "episodes", q: string, lim: number, off: number): Promise<MemoryListResult> {
+  const match = sq(ftsPhrase(q));
+  const like = sq("%" + q.replace(/[\\%_]/g, (c) => "\\" + c) + "%");
+  const esc = " ESCAPE '\\'";
+  const ftsIds = await query<{ id: string }>(
+    dbPath,
+    table === "episodes"
+      ? `SELECT e.rowid AS id FROM fts_episodes f JOIN episodic_memory e ON e.rowid = f.rowid WHERE fts_episodes MATCH ${match} ORDER BY e.timestamp DESC, e.rowid DESC;`
+      : `SELECT w.id AS id FROM fts_working f JOIN working_memory w ON w.id = f.id WHERE fts_working MATCH ${match} ORDER BY w.timestamp DESC, w.rowid DESC;`,
+  );
+  const likeIds = await query<{ id: string }>(
+    dbPath,
+    table === "episodes"
+      ? `SELECT rowid AS id FROM episodic_memory WHERE content LIKE ${like}${esc} ORDER BY timestamp DESC, rowid DESC;`
+      : `SELECT id FROM working_memory WHERE content LIKE ${like}${esc} ORDER BY timestamp DESC, rowid DESC;`,
+  );
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const r of [...ftsIds, ...likeIds]) {
+    // Episode ids are rowids → arrive as JSON numbers.
+    const id = String(r.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
   }
-  return rows.map((r) => ({ ...r, table }));
+  const pageIds = ids.slice(off, off + lim);
+  const rows = pageIds.length ? await rowsByIds(dbPath, table, pageIds) : [];
+  return { rows, total: ids.length };
+}
+
+async function rowsByIds(dbPath: string, table: "working" | "episodes", ids: string[]): Promise<MemoryRow[]> {
+  const inClause = ids.map(sq).join(", ");
+  const rows = await query<RowShape>(
+    dbPath,
+    table === "episodes"
+      ? `SELECT ${EPISODE_PLAIN} FROM episodic_memory WHERE rowid IN (${inClause});`
+      : `SELECT ${WORKING_PLAIN} FROM working_memory WHERE id IN (${inClause});`,
+  );
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered: MemoryRow[] = [];
+  for (const id of ids) {
+    const r = byId.get(id);
+    if (r) ordered.push({ ...r, table });
+  }
+  return ordered;
 }
 
 export async function getMemory(bankId: string, table: "working" | "episodes", id: string): Promise<MemoryRow> {

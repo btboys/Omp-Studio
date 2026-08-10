@@ -127,23 +127,51 @@ try {
 
   // ---- list + ordering (newest first) --------------------------------------
   const facts = await service.listMemories(bankId, { table: "working" });
-  assert.equal(facts.length, 2);
-  assert.equal(facts[0].id, "f2", "facts ordered newest first");
+  assert.equal(facts.total, 2);
+  assert.equal(facts.rows.length, 2);
+  assert.equal(facts.rows[0].id, "f2", "facts ordered newest first");
   const episodes = await service.listMemories(bankId, { table: "episodes" });
-  assert.equal(episodes.length, 1);
-  assert.equal(episodes[0].table, "episodes");
+  assert.equal(episodes.total, 1);
+  assert.equal(episodes.rows[0].table, "episodes");
 
   // ---- search: English via FTS, Chinese via LIKE fallback -------------------
-  assert.equal((await service.listMemories(bankId, { table: "working", q: "npm run" })).length, 1);
-  assert.equal((await service.listMemories(bankId, { table: "working", q: "夜间模式" })).length, 1, "CJK query hits via LIKE fallback");
-  assert.equal((await service.listMemories(bankId, { table: "episodes", q: "对话片段" })).length, 1);
+  assert.equal((await service.listMemories(bankId, { table: "working", q: "npm run" })).total, 1);
+  const zh = await service.listMemories(bankId, { table: "working", q: "夜间模式" });
+  assert.equal(zh.total, 1, "CJK query hits via LIKE fallback");
+  assert.equal((await service.listMemories(bankId, { table: "episodes", q: "对话片段" })).total, 1);
 
   // ---- add: FTS stays in sync via trigger -----------------------------------
   const added = await service.addMemory(bankId, { content: "独有标记XYZ 的记忆", importance: 0.9, type: "fact" });
   assert.ok(added, "add returns a new id");
-  assert.equal((await service.listMemories(bankId, { table: "working" })).length, 3);
-  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记XYZ" })).length, 1, "added memory is searchable");
+  assert.equal((await service.listMemories(bankId, { table: "working" })).total, 3);
+  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记XYZ" })).total, 1, "added memory is searchable");
   assert.equal((await service.listMemoryBanks()).banks.find((b) => b.id === bankId).working, 3, "bank count refreshes");
+
+  // ---- pagination (plain list) ----------------------------------------------
+  const page1 = await service.listMemories(bankId, { table: "working", limit: 2 });
+  const page2 = await service.listMemories(bankId, { table: "working", limit: 2, offset: 2 });
+  assert.equal(page1.total, 3, "plain list total is independent of page");
+  assert.equal(page1.rows.length, 2);
+  assert.equal(page2.rows.length, 1);
+  assert.equal(page2.rows[0].id, "f1", "offset pages past the newest rows");
+  assert.notEqual(page1.rows[0].id, page2.rows[0].id, "pages do not overlap");
+
+  // ---- pagination (search) --------------------------------------------------
+  for (let i = 1; i <= 3; i++) {
+    await service.addMemory(bankId, { content: `分页测试标签 ${i}`, importance: 0.5, type: "fact" });
+  }
+  const sp1 = await service.listMemories(bankId, { table: "working", q: "分页测试标签", limit: 2 });
+  const sp2 = await service.listMemories(bankId, { table: "working", q: "分页测试标签", limit: 2, offset: 2 });
+  assert.equal(sp1.total, 3, "search total counts all merged hits");
+  assert.equal(sp1.rows.length, 2);
+  assert.equal(sp2.rows.length, 1);
+  assert.ok(sp2.rows[0].content.includes("分页测试标签"), "search offset reaches the remaining hit");
+  const sp1Ids = new Set(sp1.rows.map((r) => r.id));
+  assert.ok(!sp1Ids.has(sp2.rows[0].id), "search pages do not overlap");
+  for (let i = 1; i <= 3; i++) {
+    await service.deleteMemory(bankId, "working", (await service.listMemories(bankId, { table: "working", q: `分页测试标签 ${i}` })).rows[0].id);
+  }
+  assert.equal((await service.listMemories(bankId, { table: "working" })).total, 3, "pagination fixtures cleaned up");
 
   // ---- get: full content for the edit path ----------------------------------
   const full = await service.getMemory(bankId, "working", added);
@@ -154,13 +182,13 @@ try {
   const updated = await service.getMemory(bankId, "working", added);
   assert.equal(updated.content, "独有标记ABC 的记忆");
   assert.equal(updated.importance, 0.4);
-  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记ABC" })).length, 1);
-  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记XYZ" })).length, 0, "old content no longer matches");
+  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记ABC" })).total, 1);
+  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记XYZ" })).total, 0, "old content no longer matches");
 
   // ---- delete: gone from list and search -------------------------------------
   await service.deleteMemory(bankId, "working", added);
-  assert.equal((await service.listMemories(bankId, { table: "working" })).length, 2);
-  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记ABC" })).length, 0);
+  assert.equal((await service.listMemories(bankId, { table: "working" })).total, 2);
+  assert.equal((await service.listMemories(bankId, { table: "working", q: "独有标记ABC" })).total, 0);
 
   // ---- guards ----------------------------------------------------------------
   await assert.rejects(() => service.listMemories("../etc", { table: "working" }), /invalid bank id/);

@@ -12,6 +12,8 @@ import { Check, Edit, Folder, Plus, Refresh, Search, Trash } from "./icons";
 
 const errOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+const PAGE_SIZE = 50;
+
 const TYPE_LABEL: Record<string, [string, string]> = {
   fact: ["事实", "Fact"],
   episode: ["片段", "Episode"],
@@ -71,6 +73,8 @@ export function MemoryPanel() {
   const [table, setTable] = useState<"working" | "episodes">("working");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<MemoryRow[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<MemoryRow | null>(null);
@@ -82,19 +86,27 @@ export function MemoryPanel() {
     if (!bankId || !sqliteOk) return;
     setBusy(true);
     try {
-      const res = (await window.pi.memory.list(bankId, { table, q: q.trim() || undefined })) as {
-        ok: boolean;
-        rows?: MemoryRow[];
-        error?: string;
-      };
-      if (res.ok) setRows(res.rows ?? []);
-      else pushToast("error", res.error || "加载失败");
+      const res = (await window.pi.memory.list(bankId, {
+        table,
+        q: q.trim() || undefined,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      })) as { ok: boolean; rows?: MemoryRow[]; total?: number; error?: string };
+      if (res.ok) {
+        setRows(res.rows ?? []);
+        setTotal(res.total ?? res.rows?.length ?? 0);
+        // A delete on the last page can leave the page index out of range.
+        const pages = Math.max(1, Math.ceil((res.total ?? 0) / PAGE_SIZE));
+        if (page >= pages && page > 0) setPage(pages - 1);
+      } else {
+        pushToast("error", res.error || "加载失败");
+      }
     } catch (e: unknown) {
       pushToast("error", errOf(e));
     } finally {
       setBusy(false);
     }
-  }, [bankId, table, q, sqliteOk, pushToast]);
+  }, [bankId, table, q, page, sqliteOk, pushToast]);
 
   const reload = useCallback(async () => {
     const b = (await window.pi.memory.listBanks()) as { ok: boolean; banks?: MemoryBank[] };
@@ -121,15 +133,25 @@ export function MemoryPanel() {
     })();
   }, [pushToast]);
 
-  // Debounced row load: instant on bank/table switch, 250ms on typing.
+  // Debounced row load: instant on bank/table/page switch, 250ms on typing.
+  // Only a bank/table/query change resets to page 0 (a page-only change must
+  // fall through to the load, otherwise forward pagination snaps back).
+  const filterKey = `${bankId}|${table}|${q}`;
+  const lastFilterRef = useRef(filterKey);
   useEffect(() => {
     if (!bankId || !sqliteOk) return;
     if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    const keyChanged = lastFilterRef.current !== filterKey;
+    lastFilterRef.current = filterKey;
+    if (keyChanged && page !== 0) {
+      setPage(0);
+      return;
+    }
     searchTimer.current = window.setTimeout(() => void loadRows(), q.trim() ? 250 : 0);
     return () => {
       if (searchTimer.current) window.clearTimeout(searchTimer.current);
     };
-  }, [bankId, table, q, sqliteOk, loadRows]);
+  }, [bankId, table, q, page, sqliteOk, loadRows]);
 
   const submitAdd = async () => {
     if (!bankId) return;
@@ -373,6 +395,25 @@ export function MemoryPanel() {
           )
         )}
       </div>
+
+      {total > PAGE_SIZE && (
+        <div className="mem-pager">
+          <button className="set-btn ghost" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            ‹ {zh ? "上一页" : "Prev"}
+          </button>
+          <span className="mem-pager-info">
+            {zh ? `第 ${page + 1} / ${Math.ceil(total / PAGE_SIZE)} 页` : `Page ${page + 1} / ${Math.ceil(total / PAGE_SIZE)}`}
+            <span className="mem-pager-total">（{zh ? `共 ${total} 条` : `${total} total`}）</span>
+          </span>
+          <button
+            className="set-btn ghost"
+            disabled={page >= Math.ceil(total / PAGE_SIZE) - 1}
+            onClick={() => setPage(page + 1)}
+          >
+            {zh ? "下一页" : "Next"} ›
+          </button>
+        </div>
+      )}
     </div>
   );
 }

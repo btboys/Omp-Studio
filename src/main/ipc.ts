@@ -838,10 +838,10 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       return { ok: false, error: errText(e) };
     }
   });
-  ipcMain.handle("memory:list", async (_e, bankId: string, opts: { table?: "working" | "episodes"; q?: string; limit?: number }) => {
+  ipcMain.handle("memory:list", async (_e, bankId: string, opts: { table?: "working" | "episodes"; q?: string; limit?: number; offset?: number }) => {
     try {
-      const rows = await listMemories(bankId, { table: opts?.table ?? "working", q: opts?.q, limit: opts?.limit });
-      return { ok: true, rows };
+      const res = await listMemories(bankId, { table: opts?.table ?? "working", q: opts?.q, limit: opts?.limit, offset: opts?.offset });
+      return { ok: true, rows: res.rows, total: res.total };
     } catch (e: unknown) {
       return { ok: false, error: errText(e) };
     }

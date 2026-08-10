@@ -146,7 +146,7 @@ const api = {
   },
   memory: {
     listBanks: () => ipcRenderer.invoke("memory:listBanks"),
-    list: (bankId: string, opts?: { table?: "working" | "episodes"; q?: string; limit?: number }) =>
+    list: (bankId: string, opts?: { table?: "working" | "episodes"; q?: string; limit?: number; offset?: number }) =>
       ipcRenderer.invoke("memory:list", bankId, opts),
     get: (bankId: string, table: "working" | "episodes", id: string) => ipcRenderer.invoke("memory:get", bankId, table, id),
     add: (bankId: string, input: { content: string; importance: number; type: string }) =>

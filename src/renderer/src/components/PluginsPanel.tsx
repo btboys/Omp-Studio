@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Close, Plus, At, Refresh, Search } from "./icons";
 
@@ -31,6 +31,10 @@ export function PluginsPanel() {
   const [updatingAll, setUpdatingAll] = useState(false);
   const [updatingOne, setUpdatingOne] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [skillPage, setSkillPage] = useState(0);
+  // Skills can be numerous (multiple roots); paginate at 20 per page.
+  const SKILL_PAGE = 20;
+  useEffect(() => setSkillPage(0), [query]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredPackages = useMemo(
@@ -48,6 +52,9 @@ export function PluginsPanel() {
       ),
     [skills, normalizedQuery],
   );
+  const skillTotalPages = Math.max(1, Math.ceil(filteredSkills.length / SKILL_PAGE));
+  const safeSkillPage = Math.min(skillPage, skillTotalPages - 1);
+  const pageSkills = filteredSkills.slice(safeSkillPage * SKILL_PAGE, (safeSkillPage + 1) * SKILL_PAGE);
 
   if (!open) return null;
 
@@ -194,7 +201,7 @@ export function PluginsPanel() {
             {loading && skills.length === 0 && <div className="set-empty-mini">加载中…</div>}
             {!loading && skills.length === 0 && <div className="set-empty-mini">未在 ~/.omp/agent/skills 等目录发现独立 skill。</div>}
             {skills.length > 0 && filteredSkills.length === 0 && <div className="set-empty-mini">没有匹配的 skill。</div>}
-            {filteredSkills.map((sk) => (
+            {pageSkills.map((sk) => (
               <div className="plugins-row" key={sk.path}>
                 <div className="plugins-row-main">
                   <span className="plugins-row-name" title={sk.path}>
@@ -210,6 +217,23 @@ export function PluginsPanel() {
                 </div>
               </div>
             ))}
+            {filteredSkills.length > SKILL_PAGE && (
+              <div className="plugins-pager">
+                <button className="set-btn" disabled={safeSkillPage === 0} onClick={() => setSkillPage(safeSkillPage - 1)}>
+                  ‹ 上一页
+                </button>
+                <span className="plugins-pager-info">
+                  第 {safeSkillPage + 1} / {skillTotalPages} 页（共 {filteredSkills.length}）
+                </span>
+                <button
+                  className="set-btn"
+                  disabled={safeSkillPage >= skillTotalPages - 1}
+                  onClick={() => setSkillPage(safeSkillPage + 1)}
+                >
+                  下一页 ›
+                </button>
+              </div>
+            )}
             <div className="muted plugins-note">停用 skill 会将其入口文件重命名为 *.disabled（可逆）；新增文件后可点击右上角刷新。</div>
           </section>
         </div>

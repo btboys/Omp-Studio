@@ -7171,3 +7171,38 @@ mark.hl {
   align-items: center;
   gap: 6px;
 }
+
+/* ------------------------------------------------------------------ *
+ * Pagination controls (memory manager + plugins skills)
+ * ------------------------------------------------------------------ */
+.mem-pager,
+.plugins-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.mem-pager .set-btn,
+.plugins-pager .set-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.mem-pager-info,
+.plugins-pager-info {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.mem-pager-total {
+  color: var(--text-faint);
+}
+:root[data-theme="dark"] .mem-pager,
+:root[data-theme="dark"] .plugins-pager {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
