@@ -1,46 +1,46 @@
 # Omp Studio
 
-Omp Studio is an independent Electron desktop client for [oh-my-pi](https://github.com/can1357/oh-my-pi) (omp, a fork of the [Pi coding agent](https://github.com/earendil-works/pi)). It brings omp projects, threads, model configuration, extensions, permission controls, automation, and file previews into one desktop workspace.
+Omp Studio 是 [oh-my-pi](https://github.com/can1357/oh-my-pi)（omp，[Pi 编程代理](https://github.com/earendil-works/pi) 的一个分支）的独立 Electron 桌面客户端。它把 omp 的项目、会话、模型配置、扩展、权限控制、自动化与文件预览整合到一个桌面工作区中。
 
-Current release: `0.5.8` (Windows x64 and macOS arm64 installers).
+当前版本：`0.5.9`（Windows x64 与 macOS arm64 安装包）。
 
-> Omp Studio is an independent community project. It is not affiliated with or endorsed by the Pi or oh-my-pi maintainers.
+> Omp Studio 是一个独立的社区项目，与 Pi 或 oh-my-pi 维护者无隶属关系，也未获得其背书。
 
-## Features
+## 功能特性
 
-- Manage local projects and threads from a desktop sidebar.
-- Chat with streaming responses and configurable model and thinking levels.
-- Read and preview Markdown, HTML, source code, images, and common office documents.
-- Configure providers and models through omp's shared `models.yml` configuration.
-- Use omp extensions and skills from the shared agent directory.
-- Run scheduled automations with an explicit sandbox or full-access permission level.
-- Keep a versioned omp runtime embedded in each installer and support app-managed runtime updates.
-- Use a permission gate for shell commands, project boundaries, and extension actions.
+- 在桌面侧边栏中管理本地项目与会话。
+- 流式对话，可配置模型与思考等级。
+- 阅读并预览 Markdown、HTML、源代码、图片以及常见办公文档。
+- 通过 omp 共享的 `models.yml` 配置提供方与模型。
+- 使用共享 agent 目录中的 omp 扩展与技能。
+- 定时执行自动化任务，可显式选择沙箱或完全访问权限。
+- 每个安装包内置固定版本的 omp 运行时，并支持应用内运行时更新。
+- 对 shell 命令、项目边界与扩展操作启用权限门控。
 
-## Screenshots
+## 截图
 
-![Home and projects](guide-assets/01-home-and-projects.png)
+![首页与项目](guide-assets/01-home-and-projects.png)
 
-## Download
+## 下载
 
-Download the latest `Omp-Studio-Setup-<version>.exe` for Windows x64 or `Omp-Studio-<version>-arm64.dmg` for Apple Silicon macOS from GitHub Releases. The installers are currently unsigned, so Windows SmartScreen or macOS Gatekeeper may show a warning.
+从 GitHub Releases 下载最新的 Windows x64 `Omp-Studio-Setup-<版本>.exe` 或 Apple Silicon macOS `Omp-Studio-<版本>-arm64.dmg`。安装包目前未签名，因此 Windows SmartScreen 或 macOS Gatekeeper 可能会弹出警告。
 
-On macOS, after dragging the app into `/Applications`, clear the quarantine flag before first launch:
+在 macOS 上，将应用拖入 `/Applications` 后，请先清除隔离标记再首次启动：
 
 ```bash
 sudo xattr -cr /Applications/Omp\ Studio.app
 ```
 
-Each installer contains a pinned native omp runtime binary. On first launch, Omp Studio verifies and copies that embedded runtime into the user data directory. Later app updates reuse the extracted runtime without any runtime download.
+每个安装包都内置了固定版本的 omp 原生运行时。首次启动时，Omp Studio 会校验并把内置运行时复制到用户数据目录。后续应用更新会复用已解压的运行时，无需再下载。
 
-## Development requirements
+## 开发环境要求
 
-- Windows x64 and macOS arm64 are the supported packaging targets.
-- Node.js `24.14.0` or newer within the Node 24 major version for development and packaging.
-- npm.
-- No global Pi install is required: `npm run bundle` downloads the pinned oh-my-pi (`omp`) runtime binary from GitHub Releases (`ompRuntimeVersion` in `package.json`). A system `omp` install is only needed to run the app in dev without bundling.
+- 打包目标平台为 Windows x64 与 macOS arm64。
+- 开发与打包需要 Node.js `24.14.0` 及以上（Node 24 大版本内）。
+- npm。
+- 无需全局安装 Pi：`npm run bundle` 会从 GitHub Releases 下载固定版本的 oh-my-pi（omp）运行时二进制（版本见 `package.json` 中的 `ompRuntimeVersion`）。只有在免打包直接跑开发模式时，才需要系统级安装 `omp`。
 
-## Development
+## 开发
 
 ```powershell
 npm install
@@ -49,44 +49,44 @@ npm run test:permission
 npm run dev
 ```
 
-Useful commands:
+常用命令：
 
 ```powershell
-npm run build             # Build the Electron application
-npm run bundle             # Build the runtime archive embedded by the installer
-npm run dist              # Bundle, build, and create the installer
-npm run pack              # Create an unpacked directory build
+npm run build             # 构建 Electron 应用
+npm run bundle            # 构建安装包内置的运行时归档
+npm run dist              # bundle + build + 生成安装包
+npm run pack              # 生成未打包的目录构建
 ```
 
-Build output is written to `release/`. `npm run dist` creates the Electron installer with the omp runtime binary embedded inside it; the generated binary in `release/` is retained for QA and does not need to be uploaded separately. The repository pins the omp runtime `17.2.12` in `package.json` (`ompRuntimeVersion`), and the packaging script verifies that version against the latest GitHub release before downloading. Set `OMP_RUNTIME_VERSION` to package a different pinned version.
+构建产物输出到 `release/`。`npm run dist` 会生成内置 omp 运行时二进制的 Electron 安装包；`release/` 中生成的二进制用于 QA，无需单独上传。仓库在 `package.json`（`ompRuntimeVersion`）中固定了 omp 运行时 `17.2.12`，打包脚本会在下载前校验该版本与 GitHub 最新发布是否一致。设置 `OMP_RUNTIME_VERSION` 可打包其他固定版本。
 
-## Configuration and data
+## 配置与数据
 
-Omp Studio shares the oh-my-pi agent configuration under `~/.omp/agent`, including model, provider, authentication, extension, and session settings. The desktop application's own settings are stored in Electron's user data directory.
+Omp Studio 共享 oh-my-pi 的 agent 配置目录 `~/.omp/agent`，包括模型、提供方、认证、扩展与会话设置。桌面应用自身的设置存储在 Electron 的用户数据目录中。
 
-API keys are user data. Do not commit `auth.json`, `models.json`, session files, screenshots containing keys, or local configuration directories to this repository.
+API 密钥属于用户数据。请勿向本仓库提交 `auth.json`、`models.json`、会话文件、包含密钥的截图或本地配置目录。
 
-## Permissions and security
+## 权限与安全
 
-omp can read and write project files and execute tools on the user's behalf. Omp Studio starts new threads in sandbox mode by default. Full access must be selected explicitly for a thread or automation task. These controls reduce accidental actions but do not replace operating-system isolation or user review.
+omp 可以读写项目文件并代表用户执行工具。Omp Studio 默认以沙箱模式启动新会话；完全访问权限必须为会话或自动化任务显式选择。这些控制可以降低误操作风险，但不能替代操作系统级隔离与人工审查。
 
-Do not paste API keys or other secrets into public issues, pull requests, screenshots, or example files. For a security issue, contact the project maintainer privately through GitHub before public disclosure.
+请勿在公开的 issue、PR、截图或示例文件中粘贴 API 密钥等敏感信息。如发现安全问题，请先通过 GitHub 私下联系维护者，再公开披露。
 
-## Contributing
+## 贡献
 
-Bug reports and pull requests are welcome. Before submitting a change:
+欢迎提交 bug 报告与 PR。提交变更前请确认：
 
-1. Keep changes focused and explain user-visible behavior.
-2. Run `npm run typecheck`.
-3. Run `npm run test:permission` when permission or tool execution code changes.
-4. Do not include local data, generated bundles, installers, credentials, or QA browser profiles.
+1. 变更聚焦、可解释对用户可见的行为。
+2. 运行 `npm run typecheck`。
+3. 涉及权限或工具执行代码时运行 `npm run test:permission`。
+4. 不包含本地数据、生成的包、安装包、凭据或 QA 浏览器配置。
 
-## Third-party software
+## 第三方软件
 
-Omp Studio uses Electron, React, Vite, oh-my-pi (omp), Node.js, and other open-source packages. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the component inventory and license references.
+Omp Studio 使用了 Electron、React、Vite、oh-my-pi（omp）、Node.js 等开源软件包。组件清单与许可证请参阅 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-## License
+## 许可证
 
-The Omp Studio source code is licensed under the [MIT License](LICENSE).
+Omp Studio 源代码以 [MIT 许可证](LICENSE) 授权。
 
-The Pi name, project name, logos, and other trademarks remain the property of their respective owners. The MIT license does not grant trademark rights.
+Pi 名称、项目名、Logo 及其他商标归其各自所有者所有。MIT 许可证不授予商标权。
