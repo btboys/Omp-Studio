@@ -384,6 +384,17 @@ export interface GitLogEntry {
   subject: string;
 }
 
+/** Options for the sidebar Git history fetch. */
+export interface GitLogOpts {
+  limit?: number;
+  /** git date expression, e.g. "3 days ago" — only commits since this time */
+  since?: string;
+  /** case-insensitive literal search over commit messages */
+  query?: string;
+  /** skip the N newest matching commits (pagination past the default window) */
+  skip?: number;
+}
+
 export interface GitOpResult {
   ok: boolean;
   error?: string;

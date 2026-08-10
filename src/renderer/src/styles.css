@@ -6119,6 +6119,33 @@ mark.hl {
 .gp-history {
   margin-top: 8px;
 }
+.gp-history-body {
+  padding-bottom: 8px;
+}
+.gp-log-window {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--control);
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 500;
+}
+.gp-history-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.gp-history-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .gp-log {
   padding-bottom: 8px;
 }
@@ -6159,6 +6186,26 @@ mark.hl {
   font-size: 11px;
   color: var(--text-faint);
   margin-top: 1px;
+}
+.gp-log-more {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 2px 0 0 12px;
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.gp-log-more:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--border-strong);
+}
+.gp-log-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .gp-foot {
   display: flex;

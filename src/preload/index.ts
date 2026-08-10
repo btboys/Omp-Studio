@@ -64,7 +64,8 @@ const api = {
   git: {
     status: (cwd: string) => ipcRenderer.invoke("git:status", cwd),
     branches: (cwd: string) => ipcRenderer.invoke("git:branches", cwd),
-    log: (cwd: string, limit?: number) => ipcRenderer.invoke("git:log", cwd, limit),
+    log: (cwd: string, opts?: { limit?: number; since?: string; query?: string; skip?: number }) =>
+      ipcRenderer.invoke("git:log", cwd, opts),
     stage: (args: { cwd: string; paths: string[] }) => ipcRenderer.invoke("git:stage", args),
     unstage: (args: { cwd: string; paths: string[] }) => ipcRenderer.invoke("git:unstage", args),
     stageAll: (cwd: string) => ipcRenderer.invoke("git:stageAll", cwd),

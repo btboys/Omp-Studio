@@ -24,6 +24,7 @@ import {
   gitUnstage,
   gitUnstageAll,
   gitWorktreeAdd,
+  type GitLogOpts,
 } from "./git-service";
 import { createHtmlPreviewUrl } from "./html-preview-protocol";
 import { cancelRecap, scheduleRecap } from "./recap";
@@ -539,7 +540,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   // shapes; mutations return { ok, error } with git's own message for toasts.
   ipcMain.handle("git:status", (_e, cwd: string) => gitStatus(cwd));
   ipcMain.handle("git:branches", (_e, cwd: string) => gitBranches(cwd));
-  ipcMain.handle("git:log", (_e, cwd: string, limit?: number) => gitLog(cwd, limit));
+  ipcMain.handle("git:log", (_e, cwd: string, opts?: GitLogOpts) => gitLog(cwd, opts));
   ipcMain.handle("git:stage", (_e, args: { cwd: string; paths: string[] }) => gitStage(args.cwd, args.paths || []));
   ipcMain.handle("git:unstage", (_e, args: { cwd: string; paths: string[] }) => gitUnstage(args.cwd, args.paths || []));
   ipcMain.handle("git:stageAll", (_e, cwd: string) => gitStageAll(cwd));

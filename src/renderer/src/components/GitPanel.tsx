@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import { fileIcon } from "../lib/format";
-import type { GitLogEntry, GitOpResult, GitStatusResult } from "../lib/types";
+import type { GitLogEntry, GitLogOpts, GitOpResult, GitStatusResult } from "../lib/types";
 import { Branch, Check, ChevronRight, Close, Minus, Plus, Refresh, Sparkle, Undo } from "./icons";
 
 /** Sidebar Git tab: status (staged/changes/untracked), commit box, history, pull/push. */
@@ -23,6 +23,10 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitStatusResult | null>(null);
   const [branches, setBranches] = useState<string[]>([]);
   const [log, setLog] = useState<GitLogEntry[]>([]);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historySkip, setHistorySkip] = useState(0);
+  const [logBusy, setLogBusy] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -44,18 +48,45 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   const refreshSeq = useRef(0);
   const prevCwdRef = useRef<string | null>(null);
 
+  // History modes: a search query searches all history; otherwise the default
+  // view is the last 3 days (older pages drop the window and paginate via skip).
+  const fetchLog = async (target: string, opts: GitLogOpts = {}): Promise<GitLogEntry[]> => {
+    const { query, skip, limit = 200 } = opts;
+    if (query) return window.pi.git.log(target, { limit, query, skip }).catch(() => []);
+    if (skip) return window.pi.git.log(target, { limit, skip }).catch(() => []);
+    return window.pi.git.log(target, { limit, since: "3 days ago" }).catch(() => []);
+  };
+
   const refresh = async (target: string) => {
     const seq = ++refreshSeq.current;
     const [st, br, lg] = await Promise.all([
       window.pi.git.status(target).catch(() => null),
       window.pi.git.branches(target).catch(() => []),
-      window.pi.git.log(target, 50).catch(() => []),
+      fetchLog(target, { query: historyQuery.trim() }),
     ]);
     if (seq !== refreshSeq.current) return; // superseded by a newer refresh
     setStatus(st);
     setBranches(br || []);
     setLog(lg || []);
+    setHistorySkip(0);
+    setHasMore((lg || []).length >= 200);
   };
+
+  // Debounced history search; clears back to the 3-day default view. Bumping
+  // refreshSeq keeps it from racing an in-flight refresh().
+  useEffect(() => {
+    const seq = ++refreshSeq.current;
+    const q = historyQuery.trim();
+    if (!cwd) return;
+    const timer = setTimeout(async () => {
+      const lg = await fetchLog(cwd, { query: q });
+      if (seq !== refreshSeq.current) return;
+      setLog(lg);
+      setHistorySkip(0);
+      setHasMore(lg.length >= 200);
+    }, q ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [cwd, historyQuery]);
 
   useEffect(() => {
     refreshSeq.current++; // invalidate any in-flight refresh from the previous repo
@@ -65,12 +96,16 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
       setStatus(null);
       setBranches([]);
       setLog([]);
+      setHistoryQuery("");
+      setHistorySkip(0);
       setMessage("");
       return;
     }
     if (cwdChanged) {
       // Never keep showing the previous tab's repo while the new one loads.
       setStatus(null);
+      setHistoryQuery("");
+      setHistorySkip(0);
       setMessage("");
     }
     void refresh(cwd);
@@ -177,6 +212,24 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   };
 
   const toggle = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+
+  const loadMore = async () => {
+    if (!root || logBusy) return;
+    setLogBusy(true);
+    try {
+      const q = historyQuery.trim();
+      const batch = await fetchLog(root, { query: q || undefined, skip: historySkip, limit: 50 });
+      if (batch.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      setLog((prev) => [...prev, ...batch]);
+      setHistorySkip((s) => s + batch.length);
+      setHasMore(batch.length >= 50);
+    } finally {
+      setLogBusy(false);
+    }
+  };
 
   const fileRows = useMemo(() => {
     if (!status?.repo || !root) return null;
@@ -397,23 +450,39 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
           <span className="caret">
             <ChevronRight size={10} />
           </span>
-          <span className="gp-section-label">{t("Git 历史", "History")}</span>
+          <span className="gp-section-label">
+            {t("Git 历史", "History")}
+            {!historyQuery.trim() && <span className="gp-log-window">{t("最近 3 天", "last 3 days")}</span>}
+          </span>
           <span className="pcount">{log.length}</span>
         </div>
         {!collapsed.history && (
-          <div className="gp-log">
-            {log.length === 0 && <div className="ctx-empty">{t("暂无提交记录", "No commits yet")}</div>}
-            {log.map((c) => (
-              <div className="gp-log-row" key={c.hash} title={`${c.hash}\n${c.subject}`}>
-                <div className="gp-log-subject">
-                  <span className="gp-log-subject-text">{c.subject}</span>
-                  {c.refs && <span className="gp-log-refs">{c.refs}</span>}
+          <div className="gp-history-body">
+            <input
+              className="gp-history-search"
+              placeholder={t("检索提交…", "Search commits…")}
+              value={historyQuery}
+              onChange={(e) => setHistoryQuery(e.target.value)}
+            />
+            <div className="gp-log">
+              {log.length === 0 && <div className="ctx-empty">{t("暂无提交记录", "No commits yet")}</div>}
+              {log.map((c) => (
+                <div className="gp-log-row" key={c.hash} title={`${c.hash}\n${c.subject}`}>
+                  <div className="gp-log-subject">
+                    <span className="gp-log-subject-text">{c.subject}</span>
+                    {c.refs && <span className="gp-log-refs">{c.refs}</span>}
+                  </div>
+                  <div className="gp-log-meta">
+                    {c.author} · {c.rel} · {c.short}
+                  </div>
                 </div>
-                <div className="gp-log-meta">
-                  {c.author} · {c.rel} · {c.short}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            {hasMore && (
+              <button className="gp-log-more" disabled={logBusy} onClick={loadMore}>
+                {logBusy ? t("加载中…", "Loading…") : t("加载更多", "Load more")}
+              </button>
+            )}
           </div>
         )}
       </div>

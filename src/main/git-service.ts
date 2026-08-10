@@ -149,15 +149,29 @@ export async function gitBranches(cwd: string): Promise<string[]> {
 const LOG_SEP = "\x1f";
 const LOG_END = "\x1e";
 
-export async function gitLog(cwd: string, limit = 50): Promise<GitLogEntry[]> {
-  const r = await run(cwd, [
+export interface GitLogOpts {
+  limit?: number;
+  /** git date expression, e.g. "3 days ago" — only commits since this time */
+  since?: string;
+  /** case-insensitive literal search over commit messages */
+  query?: string;
+  /** skip the N newest matching commits (pagination past the default window) */
+  skip?: number;
+}
+
+export async function gitLog(cwd: string, opts: GitLogOpts = {}): Promise<GitLogEntry[]> {
+  const args = [
     "log",
-    `-n`,
-    String(limit),
+    "-n",
+    String(opts.limit ?? 50),
     "--decorate=short",
     "--date=relative",
     `--format=%H${LOG_SEP}%h${LOG_SEP}%an${LOG_SEP}%ar${LOG_SEP}%D${LOG_SEP}%s${LOG_END}`,
-  ]);
+  ];
+  if (opts.since) args.push(`--since=${opts.since}`);
+  if (opts.query) args.push("--grep=" + opts.query, "-i", "-F");
+  if (opts.skip) args.push("--skip=" + String(opts.skip));
+  const r = await run(cwd, args);
   if (r.code !== 0) return []; // covers repos with no commits yet
   const out: GitLogEntry[] = [];
   for (const rec of r.stdout.split(LOG_END)) {
