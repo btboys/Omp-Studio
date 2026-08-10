@@ -5835,6 +5835,216 @@ mark.hl {
   background: rgba(0, 0, 0, 0.58);
 }
 
+/* ---- chat composer selection menus (project / slash / at) + context menus ---- */
+:root[data-theme="dark"] .composer-project-menu,
+:root[data-theme="dark"] .slash-menu,
+:root[data-theme="dark"] .project-context-menu {
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+:root[data-theme="dark"] .slash-menu-item:hover,
+:root[data-theme="dark"] .slash-menu-item.active,
+:root[data-theme="dark"] .project-menu-option:hover,
+:root[data-theme="dark"] .project-menu-option.active,
+:root[data-theme="dark"] .project-menu-new:hover,
+:root[data-theme="dark"] .project-context-menu button:hover {
+  background: var(--control);
+}
+:root[data-theme="dark"] .slash-command-kind {
+  background: var(--control);
+  color: var(--accent);
+}
+:root[data-theme="dark"] .slash-command-kind.dir {
+  background: rgba(47, 110, 168, 0.22);
+  color: #8fc1e8;
+}
+:root[data-theme="dark"] .slash-command-kind.extension {
+  background: rgba(105, 84, 147, 0.25);
+  color: #b9a5e6;
+}
+:root[data-theme="dark"] .slash-command-kind.prompt {
+  background: rgba(140, 105, 45, 0.25);
+  color: #d9b678;
+}
+:root[data-theme="dark"] .set-model-testbtn {
+  background: var(--surface-muted);
+  color: var(--text-dim);
+}
+
+/* ---- extui permission prompt card (授权提示面板) ---- */
+:root[data-theme="dark"] .extui-card {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+:root[data-theme="dark"] .extui-card-icon {
+  background: var(--control);
+  color: var(--accent);
+}
+:root[data-theme="dark"] .extui-card-kicker {
+  color: #d9b678;
+}
+:root[data-theme="dark"] .extui-card-options button {
+  background: var(--control);
+  color: var(--text);
+}
+:root[data-theme="dark"] .extui-card-options button.recommended {
+  border-color: rgba(153, 190, 160, 0.45);
+}
+:root[data-theme="dark"] .extui-card-options button.deny {
+  color: #f0aaa1;
+}
+:root[data-theme="dark"] .extui-card-options button.deny:hover {
+  border-color: #70413d;
+  background: #3a2424;
+}
+:root[data-theme="dark"] .extui-card-autopilot button {
+  border-color: #6b5330;
+  background: #443521;
+  color: #f0c37b;
+}
+:root[data-theme="dark"] .extui-card-autopilot button:hover {
+  border-color: #8a6b3d;
+  background: #54452c;
+}
+
+/* ---- advisory severity chips in chat ---- */
+:root[data-theme="dark"] .msg-advisory-sev.recap {
+  background: #2f3d26;
+  color: #b6d98a;
+}
+:root[data-theme="dark"] .msg-advisory-sev.blocker {
+  background: #3a2424;
+  color: #f0aaa1;
+}
+:root[data-theme="dark"] .msg-advisory-sev.concern {
+  background: #3d3220;
+  color: #e8c37b;
+}
+:root[data-theme="dark"] .msg-advisory-sev.info {
+  background: #223244;
+  color: #8fc1e8;
+}
+
+/* ---- highlight.js tokens: repo imports github.css (light) globally; the
+   .code-block background is neutralized by transparent !important, but the
+   light-theme token colors stay — remap to GitHub Dark so code blocks (e.g.
+   the expanded bash tool args/results) stay readable in night mode. ---- */
+:root[data-theme="dark"] .md .hljs {
+  color: #c9d1d9;
+  background: transparent;
+}
+:root[data-theme="dark"] .md .hljs-doctag,
+:root[data-theme="dark"] .md .hljs-keyword,
+:root[data-theme="dark"] .md .hljs-meta .hljs-keyword,
+:root[data-theme="dark"] .md .hljs-template-tag,
+:root[data-theme="dark"] .md .hljs-template-variable,
+:root[data-theme="dark"] .md .hljs-type,
+:root[data-theme="dark"] .md .hljs-variable.language_ {
+  color: #ff7b72;
+}
+:root[data-theme="dark"] .md .hljs-title,
+:root[data-theme="dark"] .md .hljs-title.class_,
+:root[data-theme="dark"] .md .hljs-title.class_.inherited__,
+:root[data-theme="dark"] .md .hljs-title.function_ {
+  color: #d2a8ff;
+}
+:root[data-theme="dark"] .md .hljs-attr,
+:root[data-theme="dark"] .md .hljs-attribute,
+:root[data-theme="dark"] .md .hljs-literal,
+:root[data-theme="dark"] .md .hljs-meta,
+:root[data-theme="dark"] .md .hljs-number,
+:root[data-theme="dark"] .md .hljs-operator,
+:root[data-theme="dark"] .md .hljs-variable,
+:root[data-theme="dark"] .md .hljs-selector-attr,
+:root[data-theme="dark"] .md .hljs-selector-class,
+:root[data-theme="dark"] .md .hljs-selector-id {
+  color: #79c0ff;
+}
+:root[data-theme="dark"] .md .hljs-regexp,
+:root[data-theme="dark"] .md .hljs-string,
+:root[data-theme="dark"] .md .hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+:root[data-theme="dark"] .md .hljs-built_in,
+:root[data-theme="dark"] .md .hljs-symbol {
+  color: #ffa657;
+}
+:root[data-theme="dark"] .md .hljs-comment,
+:root[data-theme="dark"] .md .hljs-code,
+:root[data-theme="dark"] .md .hljs-formula {
+  color: #8b949e;
+}
+:root[data-theme="dark"] .md .hljs-name,
+:root[data-theme="dark"] .md .hljs-quote,
+:root[data-theme="dark"] .md .hljs-selector-tag,
+:root[data-theme="dark"] .md .hljs-selector-pseudo {
+  color: #7ee787;
+}
+:root[data-theme="dark"] .md .hljs-subst {
+  color: #c9d1d9;
+}
+:root[data-theme="dark"] .md .hljs-section {
+  color: #1f6feb;
+  font-weight: bold;
+}
+:root[data-theme="dark"] .md .hljs-bullet {
+  color: #f2cc60;
+}
+:root[data-theme="dark"] .md .hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+:root[data-theme="dark"] .md .hljs-strong {
+  color: #c9d1d9;
+  font-weight: bold;
+}
+:root[data-theme="dark"] .md .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+:root[data-theme="dark"] .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
+}
+
+/* ---- remaining chat/composer surfaces that still carried light hardcodes ---- */
+:root[data-theme="dark"] .composer-project-pill,
+:root[data-theme="dark"] .composer-project-pill:hover,
+:root[data-theme="dark"] .composer-project-pill.open {
+  background: var(--control);
+}
+:root[data-theme="dark"] .pending-fu {
+  background: linear-gradient(180deg, rgba(49, 69, 54, 0.55), rgba(36, 47, 39, 0.6));
+  border-color: rgba(153, 190, 160, 0.25);
+}
+:root[data-theme="dark"] .ctx-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+:root[data-theme="dark"] .msg-artifacts-count {
+  background: var(--control);
+  color: var(--text-faint);
+}
+:root[data-theme="dark"] .auto-permission-block {
+  background: var(--surface-muted);
+}
+
+/* ---- always-light preview surfaces: pin light-theme text so dark mode
+   does not inherit the near-white --text onto their white backgrounds
+   (code base text, markdown/docx headings, xlsx cells, sheet tabs) ---- */
+:root[data-theme="dark"] .pv-code,
+:root[data-theme="dark"] .pv-md,
+:root[data-theme="dark"] .pv-docx,
+:root[data-theme="dark"] .pv-xlsx table,
+:root[data-theme="dark"] .pv-xlsx .sheet-tab {
+  --text: #1d1e1b;
+  --text-dim: #6c7066;
+  --text-faint: #9aa096;
+  --accent: #2e7d52;
+  --accent-soft: #e4f1e8;
+  --border: #e7e7e1;
+  color: #1d1e1b;
+}
+
 /* ============================================================
    Git panel (sidebar Git tab)
    ============================================================ */
