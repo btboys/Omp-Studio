@@ -1,5 +1,7 @@
 # Omp Studio
 
+**中文** | [English](README.en.md)
+
 Omp Studio 是 [oh-my-pi](https://github.com/can1357/oh-my-pi)（omp，[Pi 编程代理](https://github.com/earendil-works/pi) 的一个分支）的独立 Electron 桌面客户端。它把 omp 的项目、会话、模型配置、扩展、权限控制、自动化与文件预览整合到一个桌面工作区中。
 
 当前版本：`0.5.9`（Windows x64 与 macOS arm64 安装包）。
