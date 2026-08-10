@@ -12,6 +12,7 @@ import type {
   McpServerConfig,
   McpState,
   ModelInfo,
+  OmpConfigSection,
   PendingFollowUp,
   PermissionLevel,
   PluginPackage,
@@ -316,6 +317,7 @@ function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Recor
         model: m.model,
         stopReason: m.stopReason,
         errorMessage: m.errorMessage,
+        usage: m.usage,
       });
     } else if ((m.type === "custom_message" || m.role === "custom") && m.customType === "advisor") {
       const adv = parseAdvisory(typeof m.content === "string" ? m.content : "");
@@ -444,7 +446,9 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
         return t;
       }
       if (m.role === "assistant") {
-        return { ...t, streaming: newAssistant() };
+        // message_start may already carry usage when the frame replays a
+        // completed turn (reconnect mid-stream); the live path fills it at end.
+        return { ...t, streaming: { ...newAssistant(), usage: m.usage } };
       }
       return t;
     }
@@ -481,6 +485,7 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
           model: m.model || t.streaming.model,
           stopReason: m.stopReason,
           errorMessage: m.errorMessage,
+          usage: m.usage || t.streaming.usage,
           timestamp: m.timestamp || t.streaming.timestamp,
         };
         return { ...t, streaming: null, messages: [...t.messages, final] };
@@ -610,6 +615,8 @@ interface PiStore {
   // app
   config: AppConfig | null;
   runtime: AppRuntime | null;
+  /** Mirrors omp's display.showTokenUsage: show per-turn token usage on assistant messages. */
+  showTokenUsage: boolean;
   projects: ProjectSummary[];
   projectsLoading: boolean;
   /** True once bootstrap (config + projects + tab restore) has completed. */
@@ -650,6 +657,8 @@ interface PiStore {
 
   // actions
   bootstrap: () => Promise<void>;
+  /** Re-read omp's display.showTokenUsage from config.yml into showTokenUsage. */
+  refreshShowTokenUsage: () => Promise<void>;
   /** Restore open tabs from localStorage after project discovery. */
   restoreOpenTabs: () => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -879,6 +888,7 @@ function scheduleEventFlush(): void {
 export const useStore = create<PiStore>()((set, get) => ({
   config: null,
   runtime: null,
+  showTokenUsage: true,
   projects: [],
   projectsLoading: false,
   bootstrapped: false,
@@ -961,6 +971,8 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("error", "Failed to load projects: " + (projectsResult.reason?.message || projectsResult.reason));
     }
 
+    get().refreshShowTokenUsage().catch(() => {});
+
     await runtimeTask;
     try {
       await get().restoreOpenTabs();
@@ -971,6 +983,20 @@ export const useStore = create<PiStore>()((set, get) => ({
       openTabsHydrated = true;
       persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds);
       set({ bootstrapped: true });
+    }
+  },
+
+  /** Re-read omp's display.showTokenUsage from config.yml into showTokenUsage. */
+  refreshShowTokenUsage: async () => {
+    try {
+      const sections = (await window.pi.settings.getOmpConfig()) as OmpConfigSection[];
+      const entry = sections
+        ?.flatMap((s) => s.entries)
+        .find((e) => e.key === "display.showTokenUsage");
+      // omp defaults the flag to true; only an explicit false hides the chip.
+      set({ showTokenUsage: entry?.value !== false });
+    } catch {
+      set({ showTokenUsage: true });
     }
   },
 

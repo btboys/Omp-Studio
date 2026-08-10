@@ -515,6 +515,7 @@ function MessageGroupInner({
   const openPreview = useStore((s) => s.openPreview);
   const cwd = useStore((s) => s.threads[threadId]?.cwd || "");
   const language = useStore((s) => s.config?.language || "en");
+  const showTokenUsage = useStore((s) => s.showTokenUsage);
   const artifacts = useMemo(
     () => (group.role === "assistant" ? collectFileArtifacts(group.items, toolRuns, cwd) : []),
     [cwd, group.items, group.role, toolRuns],
@@ -706,6 +707,11 @@ function MessageGroupInner({
         {!streaming && (
           <div className="msg-footer">
             {last.model && <span>{last.model}</span>}
+            {showTokenUsage && last.usage && (last.usage.input || last.usage.output) && (
+              <span className="msg-usage" title={language === "zh" ? "本轮 token 用量（输入 / 输出）" : "This turn's token usage (in / out)"}>
+                ⤵ {formatTokens(last.usage.input)} ⤴ {formatTokens(last.usage.output)}
+              </span>
+            )}
             {last.timestamp && <span>{formatClock(last.timestamp)}</span>}
           </div>
         )}

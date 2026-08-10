@@ -125,6 +125,8 @@ export interface ViewMessage {
   model?: string;
   stopReason?: string;
   errorMessage?: string;
+  /** Per-turn token usage reported by the provider (input/output counts). */
+  usage?: { input?: number; output?: number };
 }
 
 export interface ToolRun {

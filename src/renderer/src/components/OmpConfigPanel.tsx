@@ -401,6 +401,7 @@ export function OmpConfigPanel() {
     await run(() => window.pi.settings.setOmpConfigKey(entry.key, value, entry.type));
     setSavingKey(null);
     void reload();
+    void useStore.getState().refreshShowTokenUsage();
   };
 
   const reset = async (entry: OmpConfigEntry) => {
@@ -408,6 +409,7 @@ export function OmpConfigPanel() {
     await run(() => window.pi.settings.resetOmpConfigKey(entry.key));
     setSavingKey(null);
     void reload();
+    void useStore.getState().refreshShowTokenUsage();
   };
 
   const q = query.trim().toLowerCase();
