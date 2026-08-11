@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "../store";
 import type { ModelInfo } from "../lib/types";
 
@@ -206,8 +207,9 @@ export function ProviderAuthPanel({ language, liveProviders, onAuthChanged }: Pr
         {providers !== null && visible.length === 0 && <div className="set-empty-mini">{t("无匹配供应商", "No matching providers")}</div>}
       </div>
 
-      {login && (
-        <div className="modal-backdrop" onMouseDown={cancelLogin}>
+      {login &&
+        createPortal(
+        <div className="modal-backdrop auth-login-backdrop" onMouseDown={cancelLogin}>
           <div className="modal auth-login-modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-title">
               {t("登录", "Sign in to")} {login.name}
@@ -237,8 +239,9 @@ export function ProviderAuthPanel({ language, liveProviders, onAuthChanged }: Pr
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body,
+        )}
     </div>
   );
 }

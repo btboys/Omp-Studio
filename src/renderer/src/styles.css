@@ -4112,6 +4112,13 @@ textarea.modal-input {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+/* The auth login modal is portaled to <body> so it escapes the settings
+   modal's nested fixed containing blocks (backdrop-filter on
+   .settings-backdrop, transform on .set-card:hover). It must overlay the
+   settings backdrop (z-index 150) and search (160). */
+.auth-login-backdrop {
+  z-index: 200;
+}
 .auth-login-modal {
   width: min(520px, 94vw);
 }
