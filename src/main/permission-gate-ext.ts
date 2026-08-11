@@ -133,6 +133,9 @@ const SAFE_TOOLS = new Set([
   "plan_question",
   "web_search",
   "inspect_image",
+  // Session-local task tracking: mutates only in-memory todo state, never
+  // files/network, so it is always safe to auto-approve.
+  "todo",
 ]);
 const SUBAGENT_TOOLS = new Set(["task"]);
 const MUTATING_TOOL_NAME = /(?:^|[_-])(write|edit|create|update|delete|remove|send|upload|publish|execute|deploy)(?:[_-]|$)/i;
