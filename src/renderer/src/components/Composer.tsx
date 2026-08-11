@@ -481,14 +481,14 @@ export function Composer({ threadId }: { threadId: string }) {
     if (!mention) return;
     const before = text.slice(0, mention.start);
     const after = text.slice(caret);
-    const inserted = `@${file.rel}${file.isDir ? "/" : ""} `;
+    // Code files become a path-only reference: no attachment (that would
+    // inline the content via processAttachments) and no `@` token (omp
+    // auto-reads `@path` mentions server-side into the prompt). The agent
+    // reads the file itself with its own tools. Folders keep the native
+    // `@folder/` mention so the runtime lists the directory.
+    const inserted = file.isDir ? `@${file.rel}/ ` : `\`${file.rel}\` `;
     const next = before + inserted + after;
     setText(next);
-    if (!file.isDir) {
-      // Folders are resolved natively by the runtime (`@folder/` lists the dir);
-      // only files get inlined as attachments.
-      setFiles((prev) => (prev.some((item) => item.abs === file.abs) ? prev : [...prev, { abs: file.abs, name: file.name }]));
-    }
     setAtDismissed(true);
     setAtItems([]);
     requestAnimationFrame(() => {

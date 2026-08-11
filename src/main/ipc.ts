@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { checkForAppUpdate, deferAppUpdate, downloadAppUpdate, installAppUpdate } from "./app-updater";
+import { processAttachments, type Attachment } from "./attachment-utils";
 import { checkForCoreUpdate, installCoreUpdate } from "./core-updater";
 import { getConfig, getConfigDir, updateConfig, type AutomationTask } from "./config";
 import { listDir, searchProjectFiles } from "./fs-service";
@@ -97,61 +98,6 @@ interface BridgeHandle {
 }
 
 const bridges = new Map<string, BridgeHandle>();
-
-const IMG_MIME: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".bmp": "image/bmp",
-  ".svg": "image/svg+xml",
-};
-const TEXT_ATTACH_EXTS = new Set([
-  ".txt", ".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".xml",
-  ".csv", ".tsv", ".log", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css",
-  ".scss", ".html", ".htm", ".py", ".go", ".rs", ".java", ".sh", ".bash", ".sql",
-  ".env", ".ini", ".cfg", ".conf", ".vue", ".svelte",
-]);
-
-interface Attachment {
-  abs: string;
-  name: string;
-}
-
-function processAttachments(attachments: Attachment[] | undefined, text: string): { text: string; images: unknown[] } {
-  const images: unknown[] = [];
-  let extra = "";
-  if (attachments && attachments.length) {
-    for (const a of attachments) {
-      const ext = extname(a.name || a.abs).toLowerCase();
-      try {
-        if (ext in IMG_MIME) {
-          const buf = readFileSync(a.abs);
-          images.push({ type: "image", data: buf.toString("base64"), mimeType: IMG_MIME[ext] });
-          continue;
-        }
-        if (TEXT_ATTACH_EXTS.has(ext) || ext === "") {
-          const st = statSync(a.abs);
-          if (st.isDirectory()) {
-            // Directories aren't inlined; the runtime resolves `@folder/` mentions.
-            extra += `\n\n<folder name="${a.name}" path="${a.abs}" />`;
-            continue;
-          }
-          if (st.size <= 500_000) {
-            const content = readFileSync(a.abs, "utf8");
-            extra += `\n\n<file name="${a.name}">\n${content}\n</file>`;
-            continue;
-          }
-        }
-        extra += `\n\n<file name="${a.name}" path="${a.abs}" note="attached (binary or large; not inlined)" />`;
-      } catch (e: any) {
-        extra += `\n\n<file name="${a.name}" error="${e?.message || "read failed"}" />`;
-      }
-    }
-  }
-  return { text: text + extra, images };
-}
 
 function createHandle(
   cwd: string,
