@@ -352,7 +352,7 @@ function emptyThread(cwd: string): ThreadState {
     messages: [],
     streaming: null,
     toolRuns: {},
-    permission: "sandbox",
+    permission: "auto",
     advisory: true,
     planMode: false,
   };
@@ -373,7 +373,7 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
     isStreaming: !!res.isStreaming,
     messages: views,
     toolRuns,
-    permission: res.permission || fallback.permission || "sandbox",
+    permission: res.permission || fallback.permission || "auto",
     advisory: res.advisory ?? true,
     pendingEditorText,
   };
@@ -1069,7 +1069,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           isStreaming: !!hist.isStreaming,
           messages: views,
           toolRuns,
-          permission: hist.permission || "sandbox",
+          permission: hist.permission || "auto",
           advisory: hist.advisory ?? true,
           planMode: !!get().config?.threadPlanModes?.[hist.sessionFile || sessionFile],
         };
@@ -1328,7 +1328,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           isStreaming: !!hist.isStreaming,
           messages: views,
           toolRuns,
-          permission: hist.permission || permission || "sandbox",
+          permission: hist.permission || permission || "auto",
           advisory: hist.advisory ?? true,
           planMode: !!get().config?.threadPlanModes?.[hist.sessionFile || sessionFile],
         };
@@ -1360,7 +1360,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     // background (adopting the warm spare). No blocking "starting pi" spinner.
     // The temp id is remapped to the real session file once connected.
     const tempId = `opening-${uid()}`;
-    const placeholder: ThreadState = { ...emptyThread(cwd), loading: false, connected: false, permission: permission || "sandbox", advisory: true };
+    const placeholder: ThreadState = { ...emptyThread(cwd), loading: false, connected: false, permission: permission || "auto", advisory: true };
     set((s) => ({
       threads: { ...s.threads, [tempId]: placeholder },
       openThreadIds: s.openThreadIds.includes(tempId) ? s.openThreadIds : [...s.openThreadIds, tempId],
@@ -1809,7 +1809,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         commands: res.commands || [],
         messages: views,
         toolRuns,
-        permission: res.permission || get().threads[id]?.permission || "sandbox",
+        permission: res.permission || get().threads[id]?.permission || "auto",
         advisory: res.advisory ?? get().threads[id]?.advisory ?? true,
       };
       set((s) => {
@@ -2456,7 +2456,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         connected: false,
         messages: views,
         toolRuns,
-        permission: hist.permission || permission || "sandbox",
+        permission: hist.permission || permission || "auto",
         advisory: hist.advisory ?? true,
         planMode: !!get().config?.threadPlanModes?.[nextId],
       };

@@ -281,7 +281,7 @@ export function ensureWarmBridge(): void {
   if (!warmEnabled || warmHandle || !sendToRenderer) return;
   if (warmFailures >= 3) return; // repeated crashes: stop respawning
   const cwd = warmCwd();
-  const handle = createHandle(cwd, undefined, "sandbox", sendToRenderer);
+  const handle = createHandle(cwd, undefined, "auto", sendToRenderer);
   warmHandle = handle;
   // eslint-disable-next-line no-console
   console.log("[omp] warm spare spawning (cwd=" + cwd + ")");
@@ -359,7 +359,7 @@ function resolvePermission(sessionFile: string | undefined, requested: Permissio
     const stored = getConfig().threadPermissions[sessionFile];
     if (stored === "sandbox" || stored === "full" || stored === "auto") return stored;
   }
-  return "sandbox"; // default
+  return "auto"; // default: new sessions start in auto-approve (替我审批)
 }
 
 export function stopAllBridges(): void {
