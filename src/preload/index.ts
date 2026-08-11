@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 
 /**
  * The renderer talks to the main process exclusively through this surface.
@@ -31,6 +31,7 @@ const api = {
     unpinProject: (absPath: string) => ipcRenderer.invoke("app:unpinProject", absPath),
     deleteProject: (cwd: string) => ipcRenderer.invoke("app:deleteProject", cwd),
     showOpenDialog: (kind: "folder" | "file" | "files") => ipcRenderer.invoke("app:showOpenDialog", kind),
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
     getFileTree: (cwd: string, rel?: string) => ipcRenderer.invoke("app:getFileTree", cwd, rel),
     searchProjectFiles: (cwd: string, query: string, limit?: number) =>
       ipcRenderer.invoke("app:searchProjectFiles", cwd, query, limit),

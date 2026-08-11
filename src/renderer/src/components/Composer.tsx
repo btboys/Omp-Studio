@@ -169,14 +169,13 @@ export function Composer({ threadId }: { threadId: string }) {
       if (f.type.startsWith("image/")) {
         const im = await fileToImage(f);
         if (im) imgs.push(im);
-      } else {
-        // dropped files have no reliable absolute path in renderer; read as image or skip
-        const im = await fileToImage(f);
-        if (im) imgs.push(im);
+        continue;
       }
+      const abs = window.pi.app.getPathForFile(f);
+      if (abs) fs.push({ abs, name: f.name });
     }
     setImages((p) => [...p, ...imgs]);
-    setFiles((p) => [...p, ...fs]);
+    setFiles((p) => [...p, ...fs.filter((nf) => !p.some((x) => x.abs === nf.abs))]);
   };
 
   const addFiles = async () => {
@@ -190,18 +189,25 @@ export function Composer({ threadId }: { threadId: string }) {
     const items = e.clipboardData?.items;
     if (!items) return;
     const imgs: PendingImage[] = [];
+    const fs: PendingFile[] = [];
     for (const it of Array.from(items)) {
-      if (it.type.startsWith("image/")) {
-        const f = it.getAsFile();
-        if (f) {
-          const im = await fileToImage(f);
-          if (im) imgs.push(im);
-        }
+      if (it.kind !== "file") continue;
+      const f = it.getAsFile();
+      if (!f) continue;
+      if (f.type.startsWith("image/")) {
+        const im = await fileToImage(f);
+        if (im) imgs.push(im);
+        continue;
       }
+      // Pasted files carry no absolute path in the renderer (File.path was
+      // removed in Electron 32); resolve the real path via webUtils in preload.
+      const abs = window.pi.app.getPathForFile(f);
+      if (abs) fs.push({ abs, name: f.name });
     }
-    if (imgs.length) {
+    if (imgs.length || fs.length) {
       e.preventDefault();
       setImages((p) => [...p, ...imgs]);
+      setFiles((p) => [...p, ...fs.filter((nf) => !p.some((x) => x.abs === nf.abs))]);
     }
   };
 
