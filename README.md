@@ -60,7 +60,7 @@ npm run dist              # bundle + build + 生成安装包
 npm run pack              # 生成未打包的目录构建
 ```
 
-构建产物输出到 `release/`。`npm run dist` 会生成内置 omp 运行时二进制的 Electron 安装包；`release/` 中生成的二进制用于 QA，无需单独上传。仓库在 `package.json`（`ompRuntimeVersion`）中固定了 omp 运行时 `17.2.12`，打包脚本会在下载前校验该版本与 GitHub 最新发布是否一致。设置 `OMP_RUNTIME_VERSION` 可打包其他固定版本。
+构建产物输出到 `release/`。`npm run dist` 会生成内置 omp 运行时二进制的 Electron 安装包；`release/` 中生成的二进制用于 QA，无需单独上传。仓库在 `package.json`（`ompRuntimeVersion`）中固定了 omp 运行时 `17.2.15`，打包脚本会在下载前校验该版本与 GitHub 最新发布是否一致。设置 `OMP_RUNTIME_VERSION` 可打包其他固定版本。
 
 ## 配置与数据
 
