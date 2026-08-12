@@ -3,6 +3,7 @@ import { useStore } from "./store";
 import { usePiEvents } from "./lib/usePiEvents";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
+import { ThreadTabs } from "./components/ThreadTabs";
 import { Chat } from "./components/Chat";
 import { Preview } from "./components/Preview";
 import { Toasts } from "./components/Toasts";
@@ -21,6 +22,8 @@ import appIconUrl from "../../../resources/icon.png";
 export default function App() {
   const bootstrap = useStore((s) => s.bootstrap);
   const activeThreadId = useStore((s) => s.activeThreadId);
+  const primaryThreadId = useStore((s) => s.primaryThreadId);
+  const paneThreadId = useStore((s) => s.paneThreadId);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const previewOpen = useStore((s) => s.previewOpen);
   const previewExpanded = useStore((s) => s.previewExpanded);
@@ -136,10 +139,18 @@ export default function App() {
       <TitleBar />
       <div className={`body ${previewExpanded ? "preview-expanded" : ""}`}>
         <Sidebar />
-        {activeThreadId ? (
-          <Chat />
-        ) : (
-          <section className="main">
+        <section className="main">
+          <ThreadTabs />
+          {activeThreadId ? (
+            paneThreadId ? (
+              <div className="chat-split">
+                <Chat threadId={primaryThreadId ?? activeThreadId} />
+                <Chat threadId={paneThreadId} secondary />
+              </div>
+            ) : (
+              <Chat threadId={activeThreadId} />
+            )
+          ) : (
             <div className="empty-state">
               <div>
                 <div className="empty-state-app-icon">
@@ -161,8 +172,8 @@ export default function App() {
                 {projects.length === 0 && <p className="muted" style={{ marginTop: 14 }}>尚未打开任何项目。</p>}
               </div>
             </div>
-          </section>
-        )}
+          )}
+        </section>
         {previewOpen && <Preview />}
       </div>
       <Toasts />

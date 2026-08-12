@@ -27,6 +27,7 @@ import type {
 } from "./lib/types";
 import { cleanOutput, extensionsAlreadyLatest, hasLibuvAssertion, lastLine, stripAnsi } from "./lib/update";
 import { applyAsyncJobs } from "./lib/subagents";
+import { panesForActivate, panesForClose } from "./lib/panes";
 
 /* ------------------------------------------------------------------ *
  * Pure helpers
@@ -40,6 +41,10 @@ type PersistedOpenTabs = {
   openThreadIds: string[];
   activeThreadId: string | null;
   pinnedThreadIds?: string[];
+  /** Split view: thread shown in the LEFT pane (absent on old payloads). */
+  primaryThreadId?: string | null;
+  /** Split view: thread shown in the RIGHT pane; null/absent = single pane. */
+  paneThreadId?: string | null;
 };
 
 function isPersistableThreadId(id: string): boolean {
@@ -74,13 +79,25 @@ function loadPersistedOpenTabs(): PersistedOpenTabs | null {
     const pinnedRaw = Array.isArray(parsed.pinnedThreadIds) ? parsed.pinnedThreadIds : [];
     const pinnedThreadIds = pinnedRaw.filter((id) => typeof id === "string" && openThreadIds.includes(id));
     const normalized = normalizeOpenTabOrder(openThreadIds, pinnedThreadIds);
+    const primaryThreadId =
+      typeof parsed.primaryThreadId === "string" && normalized.openThreadIds.includes(parsed.primaryThreadId)
+        ? parsed.primaryThreadId
+        : activeThreadId;
+    const paneThreadId =
+      typeof parsed.paneThreadId === "string" &&
+      normalized.openThreadIds.includes(parsed.paneThreadId) &&
+      parsed.paneThreadId !== primaryThreadId
+        ? parsed.paneThreadId
+        : null;
     return {
       openThreadIds: normalized.openThreadIds,
       activeThreadId:
-        activeThreadId && normalized.openThreadIds.includes(activeThreadId)
+        activeThreadId && (activeThreadId === primaryThreadId || activeThreadId === paneThreadId)
           ? activeThreadId
-          : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null,
+          : primaryThreadId,
       pinnedThreadIds: normalized.pinnedThreadIds,
+      primaryThreadId,
+      paneThreadId,
     };
   } catch {
     return null;
@@ -91,6 +108,8 @@ function persistOpenTabs(
   openThreadIds: string[],
   activeThreadId: string | null,
   pinnedThreadIds: string[] = [],
+  primaryThreadId: string | null = null,
+  paneThreadId: string | null = null,
 ): void {
   const ids = openThreadIds.filter(isPersistableThreadId);
   // Before bootstrap finishes, avoid wiping a previously saved non-empty set with [].
@@ -100,11 +119,19 @@ function persistOpenTabs(
     activeThreadId && normalized.openThreadIds.includes(activeThreadId)
       ? activeThreadId
       : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null;
+  const primary =
+    primaryThreadId && normalized.openThreadIds.includes(primaryThreadId) ? primaryThreadId : active;
+  const pane =
+    paneThreadId && normalized.openThreadIds.includes(paneThreadId) && paneThreadId !== primary
+      ? paneThreadId
+      : null;
   try {
     const payload: PersistedOpenTabs = {
       openThreadIds: normalized.openThreadIds,
       activeThreadId: active,
       pinnedThreadIds: normalized.pinnedThreadIds,
+      primaryThreadId: primary,
+      paneThreadId: pane,
     };
     localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(payload));
   } catch {
@@ -638,6 +665,10 @@ interface PiStore {
   /** Pinned tab ids (subset of openThreadIds); always sorted to the left. */
   pinnedThreadIds: string[];
   activeThreadId: string | null;
+  /** Split view: thread shown in the LEFT pane (== activeThreadId when the left pane is focused). */
+  primaryThreadId: string | null;
+  /** Split view: thread shown in the RIGHT pane; null = single-pane layout. */
+  paneThreadId: string | null;
   /** Bumped when chat should pin scroll to bottom (open history / reload). */
   chatScrollSeq: number;
   /** Sidebar flash target after "reveal in sidebar". */
@@ -703,6 +734,12 @@ interface PiStore {
   requestCloseThreadsToRight: (id: string) => Promise<void>;
   requestCloseAllThreads: () => Promise<void>;
   setActiveThread: (id: string) => void;
+  /** Show an open (hidden) tab in the right pane, enabling split view. */
+  splitThreadIntoPane: (id: string) => void;
+  /** Open a brand-new session in the right pane (left pane keeps its thread). */
+  newTaskInSplit: () => Promise<void>;
+  /** End split view: hide the right pane (its thread stays open in the tabs). */
+  unsplitThread: () => void;
   /** Pin/unpin a tab; pinned tabs stay on the left and persist. */
   togglePinThread: (id: string) => void;
   /** Expand project in sidebar and scroll/highlight the thread row. */
@@ -940,6 +977,8 @@ export const useStore = create<PiStore>()((set, get) => ({
   openThreadIds: [],
   pinnedThreadIds: [],
   activeThreadId: null,
+  primaryThreadId: null,
+  paneThreadId: null,
   chatScrollSeq: 0,
   sidebarFlashThreadId: null,
   threads: {},
@@ -1022,7 +1061,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     } finally {
       // Always unlock persistence, even if restore throws/hangs mid-way then recovers.
       openTabsHydrated = true;
-      persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds);
+      persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds, get().primaryThreadId, get().paneThreadId);
       set({ bootstrapped: true });
     }
   },
@@ -1053,7 +1092,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     const wanted = (saved?.openThreadIds || []).filter((file) => fileToCwd.has(file));
     if (wanted.length === 0) {
       openTabsHydrated = true;
-      persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds);
+      persistOpenTabs(get().openThreadIds, get().activeThreadId, get().pinnedThreadIds, get().primaryThreadId, get().paneThreadId);
       return;
     }
 
@@ -1100,20 +1139,29 @@ export const useStore = create<PiStore>()((set, get) => ({
       null;
     const pinnedSaved = (saved?.pinnedThreadIds || []).filter((id) => restored.includes(id));
     const normalized = normalizeOpenTabOrder(restored, pinnedSaved);
+    const activeSaved = active && normalized.openThreadIds.includes(active) ? active : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null;
+    const primarySaved =
+      (saved?.primaryThreadId && restored.includes(saved.primaryThreadId) && saved.primaryThreadId) || activeSaved || null;
+    const paneSaved =
+      saved?.paneThreadId && restored.includes(saved.paneThreadId) && saved.paneThreadId !== primarySaved
+        ? saved.paneThreadId
+        : null;
+    const finalActive = activeSaved && (activeSaved === primarySaved || activeSaved === paneSaved) ? activeSaved : primarySaved;
 
     set((s) => ({
       openThreadIds: normalized.openThreadIds,
       pinnedThreadIds: normalized.pinnedThreadIds,
-      activeThreadId: active && normalized.openThreadIds.includes(active) ? active : normalized.openThreadIds[normalized.openThreadIds.length - 1] || null,
-      activeProjectCwd: active ? s.threads[active]?.cwd || s.activeProjectCwd : s.activeProjectCwd,
-      expandedProjects: active && s.threads[active]?.cwd
-        ? { ...s.expandedProjects, [s.threads[active]!.cwd]: true }
+      primaryThreadId: primarySaved,
+      paneThreadId: paneSaved,
+      activeThreadId: finalActive,
+      activeProjectCwd: finalActive ? s.threads[finalActive]?.cwd || s.activeProjectCwd : s.activeProjectCwd,
+      expandedProjects: finalActive && s.threads[finalActive]?.cwd
+        ? { ...s.expandedProjects, [s.threads[finalActive]!.cwd]: true }
         : s.expandedProjects,
     }));
 
     openTabsHydrated = true;
-    const finalActive = get().activeThreadId;
-    persistOpenTabs(normalized.openThreadIds, finalActive, normalized.pinnedThreadIds);
+    persistOpenTabs(normalized.openThreadIds, get().activeThreadId, normalized.pinnedThreadIds, get().primaryThreadId, get().paneThreadId);
     if (finalActive) get().ensureConnected(finalActive);
   },
 
@@ -1365,9 +1413,10 @@ export const useStore = create<PiStore>()((set, get) => ({
           ? s.openThreadIds
           : [...s.openThreadIds, sessionFile];
         const normalized = normalizeOpenTabOrder(openThreadIds, s.pinnedThreadIds);
-        persistOpenTabs(normalized.openThreadIds, sessionFile, normalized.pinnedThreadIds);
+        const panes = panesForActivate(s, sessionFile);
+        persistOpenTabs(normalized.openThreadIds, panes.activeThreadId, normalized.pinnedThreadIds, panes.primaryThreadId, panes.paneThreadId);
         return {
-          activeThreadId: sessionFile,
+          ...panes,
           activeProjectCwd: cwd,
           expandedProjects: { ...s.expandedProjects, [cwd]: true },
           openThreadIds: normalized.openThreadIds,
@@ -1405,7 +1454,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         set((s) => ({
           threads: { ...s.threads, [sessionFile]: thread },
           openThreadIds: s.openThreadIds.includes(sessionFile) ? s.openThreadIds : [...s.openThreadIds, sessionFile],
-          activeThreadId: sessionFile,
+          ...panesForActivate(s, sessionFile),
           activeProjectCwd: hist.cwd || cwd,
           expandedProjects: { ...s.expandedProjects, [hist.cwd || cwd]: true },
           chatScrollSeq: s.chatScrollSeq + 1,
@@ -1434,7 +1483,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     set((s) => ({
       threads: { ...s.threads, [tempId]: placeholder },
       openThreadIds: s.openThreadIds.includes(tempId) ? s.openThreadIds : [...s.openThreadIds, tempId],
-      activeThreadId: tempId,
+      ...panesForActivate(s, tempId),
       activeProjectCwd: cwd,
       expandedProjects: { ...s.expandedProjects, [cwd]: true },
     }));
@@ -1483,18 +1532,22 @@ export const useStore = create<PiStore>()((set, get) => ({
           let openThreadIds = s.openThreadIds;
           let pinnedThreadIds = s.pinnedThreadIds;
           let activeThreadId = s.activeThreadId;
+          let primaryThreadId = s.primaryThreadId;
+          let paneThreadId = s.paneThreadId;
           let drafts = s.drafts;
           if (id !== threadId) {
             delete threads[threadId];
             openThreadIds = openThreadIds.map((x) => (x === threadId ? id : x));
             pinnedThreadIds = pinnedThreadIds.map((x) => (x === threadId ? id : x));
             if (activeThreadId === threadId) activeThreadId = id;
+            if (primaryThreadId === threadId) primaryThreadId = id;
+            if (paneThreadId === threadId) paneThreadId = id;
             if (threadId in drafts) {
               drafts = { ...drafts, [id]: drafts[threadId] };
               delete drafts[threadId];
             }
           }
-          return { threads, openThreadIds, pinnedThreadIds, activeThreadId, drafts };
+          return { threads, openThreadIds, pinnedThreadIds, activeThreadId, primaryThreadId, paneThreadId, drafts };
         });
         // A brand-new session just appeared on disk (temp id remapped to the
         // real session file); refresh the sidebar so it shows under its project.
@@ -1559,12 +1612,11 @@ export const useStore = create<PiStore>()((set, get) => ({
         drafts = { ...drafts };
         delete drafts[id];
       }
-      let activeThreadId = s.activeThreadId;
-      if (activeThreadId === id) activeThreadId = openThreadIds[openThreadIds.length - 1] || null;
-      const activeProjectCwd = activeThreadId ? threads[activeThreadId]?.cwd || null : null;
+      const panes = panesForClose(s, id, openThreadIds[openThreadIds.length - 1] || null);
+      const activeProjectCwd = panes.activeThreadId ? threads[panes.activeThreadId]?.cwd || null : null;
       const sidebarFlashThreadId = s.sidebarFlashThreadId === id ? null : s.sidebarFlashThreadId;
-      persistOpenTabs(openThreadIds, activeThreadId, pinnedThreadIds);
-      return { openThreadIds, pinnedThreadIds, threads, drafts, activeThreadId, activeProjectCwd, sidebarFlashThreadId };
+      persistOpenTabs(openThreadIds, panes.activeThreadId, pinnedThreadIds, panes.primaryThreadId, panes.paneThreadId);
+      return { openThreadIds, pinnedThreadIds, threads, drafts, ...panes, activeProjectCwd, sidebarFlashThreadId };
     });
   },
 
@@ -1618,10 +1670,11 @@ export const useStore = create<PiStore>()((set, get) => ({
       const cwd = s.threads[id]?.cwd;
       const openThreadIds = s.openThreadIds.includes(id) ? s.openThreadIds : [...s.openThreadIds, id];
       const normalized = normalizeOpenTabOrder(openThreadIds, s.pinnedThreadIds);
-      persistOpenTabs(normalized.openThreadIds, id, normalized.pinnedThreadIds);
+      const panes = panesForActivate(s, id);
+      persistOpenTabs(normalized.openThreadIds, panes.activeThreadId, normalized.pinnedThreadIds, panes.primaryThreadId, panes.paneThreadId);
       if (cwd) {
         return {
-          activeThreadId: id,
+          ...panes,
           activeProjectCwd: cwd,
           expandedProjects: { ...s.expandedProjects, [cwd]: true },
           openThreadIds: normalized.openThreadIds,
@@ -1630,7 +1683,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         };
       }
       return {
-        activeThreadId: id,
+        ...panes,
         openThreadIds: normalized.openThreadIds,
         pinnedThreadIds: normalized.pinnedThreadIds,
         chatScrollSeq: s.chatScrollSeq + 1,
@@ -1638,6 +1691,39 @@ export const useStore = create<PiStore>()((set, get) => ({
     });
     const t = get().threads[id];
     if (t && !t.connected && !t.loading) get().ensureConnected(id);
+  },
+
+  splitThreadIntoPane: (id) => {
+    if (!get().openThreadIds.includes(id)) return;
+    if (id === get().activeThreadId || id === get().primaryThreadId || id === get().paneThreadId) return;
+    set({ paneThreadId: id, activeThreadId: id });
+    const t = get().threads[id];
+    if (t && !t.connected && !t.loading) get().ensureConnected(id);
+  },
+
+  newTaskInSplit: async () => {
+    const before = get().activeThreadId;
+    await get().newTask();
+    const created = get().activeThreadId;
+    if (!created || created === before) return;
+    const s = get();
+    // Already opened into the right pane (split focused right): nothing to move.
+    if (s.paneThreadId === created) return;
+    // Nothing was open before: a split needs two threads, stay single.
+    if (before === null) return;
+    // openThread routed the new session into the focused pane; move it right
+    // and keep the previously focused thread on the left.
+    set({ primaryThreadId: before, paneThreadId: created });
+  },
+
+  unsplitThread: () => {
+    set((s) => {
+      if (s.paneThreadId === null) return s;
+      return {
+        paneThreadId: null,
+        activeThreadId: s.activeThreadId === s.paneThreadId ? s.primaryThreadId : s.activeThreadId,
+      };
+    });
   },
 
   togglePinThread: (id) => {
@@ -1648,7 +1734,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         ? s.pinnedThreadIds.filter((x) => x !== id)
         : [...s.pinnedThreadIds, id];
       const normalized = normalizeOpenTabOrder(openThreadIds, pinned);
-      persistOpenTabs(normalized.openThreadIds, s.activeThreadId, normalized.pinnedThreadIds);
+      persistOpenTabs(normalized.openThreadIds, s.activeThreadId, normalized.pinnedThreadIds, s.primaryThreadId, s.paneThreadId);
       return { openThreadIds: normalized.openThreadIds, pinnedThreadIds: normalized.pinnedThreadIds };
     });
   },
@@ -1659,7 +1745,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     set((s) => ({
       sidebarOpen: true,
       sidebarTab: "threads",
-      activeThreadId: id,
+      ...panesForActivate(s, id),
       activeProjectCwd: t.cwd,
       expandedProjects: { ...s.expandedProjects, [t.cwd]: true },
       sidebarFlashThreadId: id,
@@ -1686,7 +1772,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       openThreadIds.splice(clampedTo, 0, item);
       const nextPinned = openThreadIds.filter((tid) => pinnedSet.has(tid));
       const normalized = normalizeOpenTabOrder(openThreadIds, nextPinned);
-      persistOpenTabs(normalized.openThreadIds, s.activeThreadId, normalized.pinnedThreadIds);
+      persistOpenTabs(normalized.openThreadIds, s.activeThreadId, normalized.pinnedThreadIds, s.primaryThreadId, s.paneThreadId);
       return { openThreadIds: normalized.openThreadIds, pinnedThreadIds: normalized.pinnedThreadIds };
     });
   },
@@ -1888,7 +1974,14 @@ export const useStore = create<PiStore>()((set, get) => ({
         if (newId !== id) delete threads[id];
         const openThreadIds = s.openThreadIds.map((x) => (x === id ? newId : x));
         const pinnedThreadIds = s.pinnedThreadIds.map((x) => (x === id ? newId : x));
-        return { threads, openThreadIds, pinnedThreadIds, activeThreadId: newId };
+        return {
+          threads,
+          openThreadIds,
+          pinnedThreadIds,
+          activeThreadId: newId,
+          primaryThreadId: s.primaryThreadId === id ? newId : s.primaryThreadId,
+          paneThreadId: s.paneThreadId === id ? newId : s.paneThreadId,
+        };
       });
       if (newId !== id) get().refreshProjects();
     } catch (e: any) {
@@ -2056,7 +2149,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       set((s) => ({
         extuiQueue: [...s.extuiQueue, { threadId, request: req }],
         // Confirmation cards belong above the relevant thread's composer.
-        activeThreadId: (m === "select" || m === "confirm") && s.threads[threadId] ? threadId : s.activeThreadId,
+        ...((m === "select" || m === "confirm") && s.threads[threadId] ? panesForActivate(s, threadId) : {}),
       }));
       return;
     }
@@ -2105,12 +2198,13 @@ export const useStore = create<PiStore>()((set, get) => ({
   closeWorktree: () => set({ worktreeOpen: false, worktreeRoot: null, worktreeBranch: null }),
   goToThread: async (cwd, file) => {
     const s = get();
-    if (s.openThreadIds.includes(file)) {      set({
-        activeThreadId: file,
+    if (s.openThreadIds.includes(file)) {
+      set((st) => ({
+        ...panesForActivate(st, file),
         activeProjectCwd: cwd,
-        expandedProjects: { ...s.expandedProjects, [cwd]: true },
-        chatScrollSeq: s.chatScrollSeq + 1,
-      });
+        expandedProjects: { ...st.expandedProjects, [cwd]: true },
+        chatScrollSeq: st.chatScrollSeq + 1,
+      }));
       return;
     }
     await s.openThread(cwd, file);
@@ -2545,11 +2639,15 @@ export const useStore = create<PiStore>()((set, get) => ({
         const openThreadIds = s.openThreadIds.map((x) => (x === threadId ? nextId : x));
         const pinnedThreadIds = s.pinnedThreadIds.map((x) => (x === threadId ? nextId : x));
         const activeThreadId = s.activeThreadId === threadId ? nextId : s.activeThreadId;
-        persistOpenTabs(openThreadIds, activeThreadId, pinnedThreadIds);
+        const primaryThreadId = s.primaryThreadId === threadId ? nextId : s.primaryThreadId;
+        const paneThreadId = s.paneThreadId === threadId ? nextId : s.paneThreadId;
+        persistOpenTabs(openThreadIds, activeThreadId, pinnedThreadIds, primaryThreadId, paneThreadId);
         return {
           threads,
           openThreadIds,
           pinnedThreadIds,
+          primaryThreadId,
+          paneThreadId,
           activeThreadId,
           activeProjectCwd: hist.cwd || cwd,
           chatScrollSeq: s.chatScrollSeq + 1,
@@ -2598,11 +2696,13 @@ useStore.subscribe((state, prev) => {
   if (
     state.openThreadIds === prev.openThreadIds &&
     state.activeThreadId === prev.activeThreadId &&
-    state.pinnedThreadIds === prev.pinnedThreadIds
+    state.pinnedThreadIds === prev.pinnedThreadIds &&
+    state.primaryThreadId === prev.primaryThreadId &&
+    state.paneThreadId === prev.paneThreadId
   ) {
     // still sync active tab for desktop notify
   } else {
-    persistOpenTabs(state.openThreadIds, state.activeThreadId, state.pinnedThreadIds);
+    persistOpenTabs(state.openThreadIds, state.activeThreadId, state.pinnedThreadIds, state.primaryThreadId, state.paneThreadId);
   }
   // Keep main-process desktop-notify suppression in sync with the active tab.
   if (state.activeThreadId !== prev.activeThreadId) {

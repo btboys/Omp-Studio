@@ -10,7 +10,6 @@ import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/sub
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
 import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, ChevronUp, ChevronDown, Close, Undo, Search, Share } from "./icons";
-import { ThreadTabs } from "./ThreadTabs";
 import appIconUrl from "../../../../resources/icon.png";
 
 export type { TodoItem } from "../lib/todos";
@@ -68,9 +67,11 @@ function subagentRowsOf(block: ToolCallBlock, run: ToolRun): SubagentRow[] {
   return [{ name: batch.i, run }];
 }
 
-export function Chat() {
-  const activeThreadId = useStore((s) => s.activeThreadId);
-  const thread = useStore((s) => (s.activeThreadId ? s.threads[s.activeThreadId] : null));
+export function Chat({ threadId, secondary = false }: { threadId: string; secondary?: boolean }) {
+  const thread = useStore((s) => s.threads[threadId]);
+  const focused = useStore((s) => s.activeThreadId === threadId);
+  const setActiveThread = useStore((s) => s.setActiveThread);
+  const unsplitThread = useStore((s) => s.unsplitThread);
   const chatScrollSeq = useStore((s) => s.chatScrollSeq);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const togglePreview = useStore((s) => s.togglePreview);
@@ -116,7 +117,7 @@ export function Chat() {
   // Force pin to bottom when opening/switching a historical session or reloading.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !activeThreadId || thread?.loading) return;
+    if (!el || !threadId || thread?.loading) return;
     const go = () => {
       el.scrollTop = el.scrollHeight;
     };
@@ -129,7 +130,7 @@ export function Chat() {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
-  }, [activeThreadId, chatScrollSeq, thread?.loading]);
+  }, [threadId, chatScrollSeq, thread?.loading]);
 
   useEffect(() => {
     if (!previewImage) return;
@@ -283,20 +284,24 @@ export function Chat() {
     return null;
   }, [thread?.messages, streaming, thread?.toolRuns]);
 
-  if (!thread || !activeThreadId) return null;
+  if (!thread) return null;
+
+  const paneClass = `chat-pane${secondary ? " chat-pane-secondary" : ""}${focused ? " focused" : ""}`;
+  const focusPane = () => {
+    if (!focused) setActiveThread(threadId);
+  };
 
   // Optimistic open: the omp process is still booting. Show the chrome plus a
   // spinner immediately instead of leaving the previous view frozen.
   if (thread.loading) {
     return (
-      <section className="main">
-        <ThreadTabs />
+      <div className={paneClass} onMouseDown={focusPane}>
         <div className="chat-head">
           <button className="iconbtn" title="Toggle sidebar" onClick={toggleSidebar}>
             <Sidebar size={16} />
           </button>
           <div className="chat-head-titlewrap">
-            <div key={activeThreadId} className="chat-head-title">{thread.sessionName || "新会话"}</div>
+            <div key={threadId} className="chat-head-title">{thread.sessionName || "新会话"}</div>
           </div>
           <div className="spacer" />
         </div>
@@ -304,7 +309,7 @@ export function Chat() {
           <span className="spinner" />
           正在启动 omp 进程…
         </div>
-      </section>
+      </div>
     );
   }
 
@@ -339,7 +344,7 @@ export function Chat() {
   const commitRename = () => {
     setEditing(false);
     const v = editValue.trim();
-    if (v) renameThread(activeThreadId, v);
+    if (v) renameThread(threadId, v);
   };
 
   const cancelRename = () => {
@@ -347,10 +352,10 @@ export function Chat() {
   };
 
   const loadCtx = async () => {
-    if (!activeThreadId) return;
+    if (!threadId) return;
     setCtxLoading(true);
     try {
-      const id = await useStore.getState().ensureConnected(activeThreadId);
+      const id = await useStore.getState().ensureConnected(threadId);
       setCtxStats(id ? await window.pi.thread.getStats(id) : null);
     } catch {
       setCtxStats(null);
@@ -402,8 +407,7 @@ export function Chat() {
   const shownUser = userRails.length ? Math.min(userIdx, userRails.length - 1) : 0;
 
   return (
-    <section className="main">
-      <ThreadTabs />
+    <div className={paneClass} onMouseDown={focusPane}>
       <div className="chat-head">
         <button className="iconbtn" title="Toggle sidebar" onClick={toggleSidebar}>
           <Sidebar size={16} />
@@ -424,7 +428,7 @@ export function Chat() {
             />
           ) : (
             <>
-              <div key={activeThreadId} className="chat-head-title" title={title} onDoubleClick={startRename}>
+              <div key={threadId} className="chat-head-title" title={title} onDoubleClick={startRename}>
                 <span className="chat-head-title-text">{title}</span>
                 <button
                   type="button"
@@ -575,7 +579,7 @@ export function Chat() {
             </div>
           )}
         </div>
-        <button className="iconbtn" title="重新加载会话" onClick={() => reloadThread(activeThreadId)}>
+        <button className="iconbtn" title="重新加载会话" onClick={() => reloadThread(threadId)}>
           <Refresh size={15} />
         </button>
         <button
@@ -584,7 +588,7 @@ export function Chat() {
           disabled={!canShare || sharing}
           onClick={() => {
             setSharing(true);
-            void shareThread(activeThreadId).finally(() => setSharing(false));
+            void shareThread(threadId).finally(() => setSharing(false));
           }}
         >
           {sharing ? <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <Share size={15} />}
@@ -592,6 +596,11 @@ export function Chat() {
         <button className="iconbtn" title="切换预览" onClick={togglePreview}>
           <PanelRight size={16} />
         </button>
+        {secondary && (
+          <button className="iconbtn" title="关闭分屏（会话保留在标签栏）" onClick={unsplitThread}>
+            <Close size={15} />
+          </button>
+        )}
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
@@ -618,12 +627,12 @@ export function Chat() {
           )}
           <div className="messages">
           {headGroups.map((g) => (
-            <MessageGroup key={g.key} threadId={activeThreadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} searchQuery={searchQuery} onPreviewImage={setPreviewImage} isLastUser={g.key === lastUserKey} canUndo={canUndo} />
+            <MessageGroup key={g.key} threadId={threadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} searchQuery={searchQuery} onPreviewImage={setPreviewImage} isLastUser={g.key === lastUserKey} canUndo={canUndo} />
           ))}
           {streaming && streamingExtends && lastGroup && (
             <MessageGroup
               key={lastGroup.key}
-              threadId={activeThreadId}
+              threadId={threadId}
               group={{ key: lastGroup.key, role: "assistant", items: [...lastGroup.items, streaming] }}
               toolRuns={thread.toolRuns}
               streaming
@@ -637,7 +646,7 @@ export function Chat() {
           {streaming && !streamingExtends && (
             <MessageGroup
               key={streaming.key}
-              threadId={activeThreadId}
+              threadId={threadId}
               group={{ key: streaming.key, role: "assistant", items: [streaming] }}
               toolRuns={thread.toolRuns}
               streaming
@@ -657,13 +666,13 @@ export function Chat() {
         </div>
       </div>
 
-      {todoInfo && <TodoPanel threadId={activeThreadId} items={todoInfo.items} />}
-      {subagentInfo && <SubagentPanel threadId={activeThreadId} rows={subagentInfo.rows} />}
+      {todoInfo && <TodoPanel threadId={threadId} items={todoInfo.items} />}
+      {subagentInfo && <SubagentPanel threadId={threadId} rows={subagentInfo.rows} />}
 
       <div className="composer-confirmation-region" aria-live="assertive">
-        <ExtUiPromptCard threadId={activeThreadId} />
+        <ExtUiPromptCard threadId={threadId} />
       </div>
-      <Composer threadId={activeThreadId} />
+      <Composer threadId={threadId} />
       {hoveredRail && hoverPos && (
         <div className="msg-rail-preview" style={{ left: hoverPos.left, top: hoverPos.top }}>
           <div className="msg-rail-preview-label">用户提示词</div>
@@ -676,7 +685,7 @@ export function Chat() {
           <img src={previewImage} alt="图片预览" onMouseDown={(e) => e.stopPropagation()} />
         </div>
       )}
-    </section>
+    </div>
   );
 }
 

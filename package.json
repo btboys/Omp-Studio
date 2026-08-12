@@ -21,6 +21,7 @@
     "test:permission": "node scripts/test-permission-gate.mjs",
     "test:memory": "node scripts/test-memory-service.mjs",
     "test:todos": "node scripts/test-todos.mjs",
+    "test:panes": "node scripts/test-panes.mjs",
     "bundle": "node scripts/bundle-runtime.mjs",
     "finalize-runtime": "node scripts/finalize-runtime.mjs",
     "pack": "npm run bundle && npm run build && electron-builder --dir && npm run finalize-runtime",

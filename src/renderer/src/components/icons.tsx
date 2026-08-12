@@ -21,6 +21,12 @@ export const Plus = (p: P) => (
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
+export const Split = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </svg>
+);
 export const Search = (p: P) => (
   <svg {...base(p)}>
     <circle cx="11" cy="11" r="7" />

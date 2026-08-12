@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } 
 import { getDisplayThreadTitle, useStore } from "../store";
 import type { ThreadState } from "../lib/types";
 import { useOutsideClose } from "../lib/useOutsideClose";
-import { Close, Pin, Plus } from "./icons";
+import { Close, Pin, Plus, Split } from "./icons";
 
 function tabLabel(thread: ThreadState | undefined): string {
   const firstUser = thread?.messages.find((m) => m.role === "user")?.text || "";
@@ -20,8 +20,12 @@ export function ThreadTabs() {
   const openThreadIds = useStore((s) => s.openThreadIds);
   const pinnedThreadIds = useStore((s) => s.pinnedThreadIds);
   const activeThreadId = useStore((s) => s.activeThreadId);
+  const primaryThreadId = useStore((s) => s.primaryThreadId);
+  const paneThreadId = useStore((s) => s.paneThreadId);
   const threads = useStore((s) => s.threads);
   const setActiveThread = useStore((s) => s.setActiveThread);
+  const splitThreadIntoPane = useStore((s) => s.splitThreadIntoPane);
+  const newTaskInSplit = useStore((s) => s.newTaskInSplit);
   const requestCloseThread = useStore((s) => s.requestCloseThread);
   const requestCloseOtherThreads = useStore((s) => s.requestCloseOtherThreads);
   const requestCloseThreadsToRight = useStore((s) => s.requestCloseThreadsToRight);
@@ -161,6 +165,9 @@ export function ThreadTabs() {
       <button type="button" className="thread-tab-add" title="新会话" onClick={() => void newTask()}>
         <Plus size={14} />
       </button>
+      <button type="button" className="thread-tab-add" title="分屏新建会话" onClick={() => void newTaskInSplit()}>
+        <Split size={14} />
+      </button>
 
       {menu && (
         <div ref={menuRef} className="thread-tab-context-menu" style={{ left: menu.x, top: menu.y }} role="menu">
@@ -220,6 +227,17 @@ export function ThreadTabs() {
             关闭全部标签
           </button>
           <div className="thread-tab-context-sep" />
+          <button
+            role="menuitem"
+            disabled={menu.id === activeThreadId || menu.id === primaryThreadId || menu.id === paneThreadId}
+            onClick={() => {
+              const id = menu.id;
+              setMenu(null);
+              splitThreadIntoPane(id);
+            }}
+          >
+            在分屏打开
+          </button>
           <button
             role="menuitem"
             onClick={() => {
