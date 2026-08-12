@@ -348,7 +348,7 @@ async function gatherThread(bridge: PiBridge, threadId: string, permission: Perm
     models: modelsRes?.models ?? [],
     commands: cmdsRes?.commands ?? [],
     permission,
-    advisory: getConfig().threadAdvisories[threadId] ?? true,
+    advisory: getConfig().threadAdvisories[threadId] ?? false,
   };
 }
 
@@ -857,7 +857,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       models: [],
       commands: [],
       permission,
-      advisory: getConfig().threadAdvisories[sessionFile] ?? true,
+      advisory: getConfig().threadAdvisories[sessionFile] ?? false,
     };
   });
 
@@ -933,14 +933,13 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       if (state.sessionFile) {
         const perms = getConfig().threadPermissions;
         if (perms[state.sessionFile] !== permission) updateConfig({ threadPermissions: { ...perms, [state.sessionFile]: permission } });
-        // omp does not persist advisor state in the session file, so re-apply
-        // the stored per-session preference on every open (fire-and-forget;
-        // the `/advisor` command is handled without invoking the agent).
-        const storedAdvisory = getConfig().threadAdvisories[state.sessionFile];
-        if (storedAdvisory !== undefined) {
-          handle.bridge.prompt(`/advisor ${storedAdvisory ? "on" : "off"}`).catch(() => {});
-        }
       }
+      // omp does not persist advisor state in the session file, so re-apply
+      // the effective per-session preference on every open (fire-and-forget;
+      // the `/advisor` command is handled without invoking the agent).
+      // Absent = off: new conversations start with advisory notes disabled.
+      const effectiveAdvisory = getConfig().threadAdvisories[finalId] ?? false;
+      handle.bridge.prompt(`/advisor ${effectiveAdvisory ? "on" : "off"}`).catch(() => {});
       return gatherThread(handle.bridge, finalId, permission, handle);
     } catch (e) {
       bridges.delete(handle.getId());
@@ -1067,6 +1066,10 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     const state: any = await h.bridge.getState();
     const newId = state.sessionFile || threadId;
     h.setId(newId);
+    // A new session is a fresh conversation: re-apply the effective advisor
+    // preference (absent = off) since the new session starts from defaults.
+    const effectiveAdvisory = getConfig().threadAdvisories[newId] ?? false;
+    h.bridge.prompt(`/advisor ${effectiveAdvisory ? "on" : "off"}`).catch(() => {});
     return { cancelled: false, ...(await gatherThread(h.bridge, newId, h.permission, h)) };
   });
 

@@ -53,7 +53,7 @@ export function Composer({ threadId }: { threadId: string }) {
   const pending = useStore((s) => s.threads[threadId]?.pendingFollowUp || null);
   const injected = useStore((s) => s.threads[threadId]?.pendingEditorText);
   const permission = useStore((s) => s.threads[threadId]?.permission);
-  const advisory = useStore((s) => s.threads[threadId]?.advisory ?? true);
+  const advisory = useStore((s) => s.threads[threadId]?.advisory ?? false);
   const language = useStore((s) => s.config?.language || "en");
   const commands = useStore((s) => s.threads[threadId]?.commands);
   const models = useStore((s) => s.threads[threadId]?.models);

@@ -50,7 +50,7 @@ export interface AppConfig {
   language: "en" | "zh";
   /** Per-thread permission level, keyed by session file path. Defaults to "sandbox" when absent. */
   threadPermissions: Record<string, "sandbox" | "full" | "auto">;
-  /** Per-thread advisor (advisory note) enablement, keyed by session file path. Absent = enabled (omp default). */
+  /** Per-thread advisor (advisory note) enablement, keyed by session file path. Absent = disabled (new conversations start with advisory off). */
   threadAdvisories: Record<string, boolean>;
   /** Per-thread plan-mode (plan-role model routing) toggle, keyed by session file path. */
   threadPlanModes: Record<string, boolean>;

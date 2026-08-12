@@ -177,7 +177,7 @@ export interface ThreadState {
   error?: string;
   /** Permission level the thread's omp process runs under. */
   permission: PermissionLevel;
-  /** Whether the session-level advisor (advisory notes) is enabled for this thread. */
+  /** Whether the session-level advisor (advisory notes) is enabled for this thread. Absent = off for new conversations. */
   advisory: boolean;
   /** Whether plan mode is on: the thread's model is routed to the configured plan role. */
   planMode?: boolean;

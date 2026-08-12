@@ -353,7 +353,7 @@ function emptyThread(cwd: string): ThreadState {
     streaming: null,
     toolRuns: {},
     permission: "auto",
-    advisory: true,
+    advisory: false,
     planMode: false,
   };
 }
@@ -374,7 +374,7 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
     messages: views,
     toolRuns,
     permission: res.permission || fallback.permission || "auto",
-    advisory: res.advisory ?? true,
+    advisory: res.advisory ?? false,
     pendingEditorText,
   };
 }
@@ -1070,7 +1070,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           messages: views,
           toolRuns,
           permission: hist.permission || "auto",
-          advisory: hist.advisory ?? true,
+          advisory: hist.advisory ?? false,
           planMode: !!get().config?.threadPlanModes?.[hist.sessionFile || sessionFile],
         };
         set((s) => ({
@@ -1329,7 +1329,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           messages: views,
           toolRuns,
           permission: hist.permission || permission || "auto",
-          advisory: hist.advisory ?? true,
+          advisory: hist.advisory ?? false,
           planMode: !!get().config?.threadPlanModes?.[hist.sessionFile || sessionFile],
         };
         set((s) => ({
@@ -1360,7 +1360,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     // background (adopting the warm spare). No blocking "starting pi" spinner.
     // The temp id is remapped to the real session file once connected.
     const tempId = `opening-${uid()}`;
-    const placeholder: ThreadState = { ...emptyThread(cwd), loading: false, connected: false, permission: permission || "auto", advisory: true };
+    const placeholder: ThreadState = { ...emptyThread(cwd), loading: false, connected: false, permission: permission || "auto" };
     set((s) => ({
       threads: { ...s.threads, [tempId]: placeholder },
       openThreadIds: s.openThreadIds.includes(tempId) ? s.openThreadIds : [...s.openThreadIds, tempId],
@@ -1405,6 +1405,7 @@ export const useStore = create<PiStore>()((set, get) => ({
             messages: optimistic.length ? [...views, ...optimistic] : views,
             toolRuns,
             permission: res.permission || t.permission,
+            advisory: res.advisory ?? prev?.advisory ?? false,
             pendingEditorText: prev?.pendingEditorText,
             planMode: prev?.planMode ?? !!get().config?.threadPlanModes?.[res.sessionFile || t.sessionFile || id],
           };
@@ -1810,7 +1811,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         messages: views,
         toolRuns,
         permission: res.permission || get().threads[id]?.permission || "auto",
-        advisory: res.advisory ?? get().threads[id]?.advisory ?? true,
+        advisory: res.advisory ?? get().threads[id]?.advisory ?? false,
       };
       set((s) => {
         const threads: Record<string, ThreadState> = { ...s.threads, [newId]: thread };
@@ -2457,7 +2458,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         messages: views,
         toolRuns,
         permission: hist.permission || permission || "auto",
-        advisory: hist.advisory ?? true,
+        advisory: hist.advisory ?? false,
         planMode: !!get().config?.threadPlanModes?.[nextId],
       };
       set((s) => {
