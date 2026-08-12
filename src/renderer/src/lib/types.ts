@@ -98,6 +98,42 @@ export interface ModelInfo {
   thinkingLevelMap?: Record<string, string | null>;
 }
 
+/** One plan-quota line from `omp usage --json` (e.g. "7 Day", "Monthly"). */
+export interface ProviderUsageLimit {
+  id: string;
+  label: string;
+  window: { id: string; label: string; resetsAt?: number; durationMs?: number };
+  amount: {
+    unit: string;
+    limit?: number;
+    used?: number;
+    remaining?: number;
+    usedFraction?: number;
+    remainingFraction?: number;
+    /** Currency code for balance-type amounts (unit "balance"). */
+    currency?: string;
+  };
+  status: "ok" | "warning" | "exhausted" | string;
+}
+
+/** Authenticated provider with its plan-quota snapshot. */
+export interface ProviderUsageReport {
+  provider: string;
+  fetchedAt?: number;
+  limits: ProviderUsageLimit[];
+  notes?: string[];
+  metadata?: { planType?: string; endpoint?: string; source?: string };
+}
+
+/** Full `omp usage --json` payload (unknown fields kept loose). */
+export interface ProviderUsageData {
+  generatedAt?: number;
+  reports: ProviderUsageReport[];
+  accountsWithoutUsage?: unknown[];
+  disabledCredentials?: unknown[];
+  capacity?: Record<string, unknown>;
+}
+
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }

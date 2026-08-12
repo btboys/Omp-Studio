@@ -27,6 +27,7 @@ import {
   gitUnstage,
   gitUnstageAll,
   gitWorktreeAdd,
+  fetchDeepSeekBalance,
   type GitLogOpts,
 } from "./git-service";
 import { createHtmlPreviewUrl } from "./html-preview-protocol";
@@ -458,6 +459,29 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("app:getTotalUsage", () => getTotalUsage());
+
+  // Live plan-quota snapshot for every authenticated provider (`omp usage`).
+  // omp caches reports, so repeated calls are cheap; a manual refresh just
+  // re-runs the command.
+  ipcMain.handle("app:getProviderUsage", async () => {
+    try {
+      const res = await runOmpCli(["usage", "--json"], undefined, 30_000);
+      if (res.code !== 0) {
+        const detail = (res.stdout + res.stderr).trim() || `omp usage exited with code ${res.code}`;
+        return { ok: false, error: detail };
+      }
+      const data = JSON.parse(res.stdout.trim()) as { reports?: unknown[] };
+      // DeepSeek is API-key based (no omp usage report): append its account
+      // balance as a synthetic report when a credential is available.
+      if (Array.isArray(data.reports)) {
+        const balance = await fetchDeepSeekBalance();
+        if (balance) data.reports.push(balance);
+      }
+      return { ok: true, data: data as unknown };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
 
   // Restructure a user prompt with project context before sending (composer
   // wand). Returns null when no lightweight model endpoint is available.

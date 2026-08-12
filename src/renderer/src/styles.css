@@ -3071,6 +3071,61 @@ body.sidebar-resizing * {
 .ctx-ext-status + .ctx-ext-status {
   margin-top: 4px;
 }
+.provider-usage-inline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 5px 12px 6px;
+  font-size: 11px;
+  border-top: 1px solid var(--border, #e5e5dd);
+}
+.puv-name {
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-right: 4px;
+}
+.puv-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.puv-chip-label {
+  color: var(--text-faint);
+}
+.puv-chip-value {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+}
+.puv-chip em {
+  font-style: normal;
+  color: #c0392b;
+}
+.puv-chip.exhausted .puv-chip-value {
+  color: #c0392b;
+}
+.puv-chip.near .puv-chip-value {
+  color: #d9930d;
+}
+.puv-refresh {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.puv-refresh:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--accent);
+}
 .usage-bignum {
   font-family: var(--mono);
   font-size: 18px;

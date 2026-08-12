@@ -8,6 +8,7 @@ import { readLightweightRoleModel } from "./models-service";
 import { runOmpCli } from "./plugins";
 import { getAgentDir } from "./session-store";
 import { resolveSqlite3 } from "./sqlite3-cli";
+import type { ProviderUsageReport } from "../renderer/src/lib/types";
 
 const execFileAsync = promisify(execFile);
 
@@ -562,7 +563,7 @@ async function postJson(
   return promise;
 }
 
-async function readProviderKey(provider: string): Promise<string | null> {
+export async function readProviderKey(provider: string): Promise<string | null> {
   const meta = PROVIDER_CHAT[provider];
   if (!meta) return null;
   for (const env of meta.envKeys) {
@@ -633,6 +634,67 @@ export async function chatCandidates(): Promise<ChatEndpoint[]> {
   await push("moonshot", "kimi-k2-turbo-preview");
   if (sqlite) await push("kimi-code", "kimi-k2.5");
   return out;
+}
+
+interface DeepSeekBalanceInfo {
+  currency: string;
+  total_balance?: string;
+  granted_balance?: string;
+  topped_up_balance?: string;
+}
+
+/**
+ * DeepSeek account balance (`GET /user/balance`), rendered as a synthetic
+ * plan-quota report so the ctx popover shows it next to subscription quotas.
+ * DeepSeek is API-key based, so `omp usage` reports nothing for it. Returns
+ * null when no credential is available or the endpoint rejects the request.
+ */
+export async function fetchDeepSeekBalance(): Promise<ProviderUsageReport | null> {
+  const key = await readProviderKey("deepseek");
+  if (!key) return null;
+  const eFetch = electronFetch();
+  const fetcher = eFetch ?? fetch;
+  try {
+    const res = await fetcher("https://api.deepseek.com/user/balance", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as { is_available?: boolean; balance_infos?: DeepSeekBalanceInfo[] };
+    const infos = Array.isArray(payload.balance_infos) ? payload.balance_infos : [];
+    if (infos.length === 0) return null;
+    const notes: string[] = [];
+    if (payload.is_available === false) notes.push("账户不可用或余额不足");
+    return {
+      provider: "deepseek",
+      fetchedAt: Date.now(),
+      metadata: { planType: "DeepSeek", source: "api.deepseek.com/user/balance" },
+      limits: infos.map((b, i) => {
+        const total = Number(b.total_balance ?? 0);
+        const granted = Number(b.granted_balance ?? 0);
+        const toppedUp = Number(b.topped_up_balance ?? 0);
+        if (granted > 0 || toppedUp > 0) {
+          notes.push(`余额构成：赠送 ${formatCurrency(granted, b.currency)} · 充值 ${formatCurrency(toppedUp, b.currency)}`);
+        }
+        return {
+          id: `deepseek:balance:${i}`,
+          label: "账户余额",
+          window: { id: "balance", label: "余额" },
+          amount: { unit: "balance", used: total, currency: b.currency },
+          status: payload.is_available === false ? "exhausted" : "ok",
+        };
+      }),
+      notes: notes.length ? notes : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatCurrency(n: number, currency: string): string {
+  const symbol = currency === "CNY" || currency === "CNH" ? "¥" : currency === "USD" ? "$" : `${currency} `;
+  return `${symbol}${n.toFixed(2)}`;
 }
 
 export async function chatCompletion(endpoint: ChatEndpoint, userPrompt: string, opts?: {

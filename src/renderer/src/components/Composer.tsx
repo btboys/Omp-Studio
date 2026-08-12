@@ -3,8 +3,9 @@ import { useStore } from "../store";
 import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
-import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage } from "../lib/types";
+import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage, ProviderUsageReport } from "../lib/types";
 import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand, Sparkle, Clipboard } from "./icons";
+import { ProviderUsageInline, parseProviderUsage } from "./ProviderUsage";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
@@ -98,6 +99,24 @@ export function Composer({ threadId }: { threadId: string }) {
       alive = false;
     };
   }, [cwd, isStreaming]);
+
+  // Provider plan/balance strip inside the input card: fetch once the thread's
+  // model provider is known (connect may lag the tab open).
+  const [providerUsage, setProviderUsage] = useState<ProviderUsageReport | null>(null);
+  const loadProviderUsage = async () => {
+    try {
+      const res = await window.pi.app.getProviderUsage();
+      const reports = parseProviderUsage(res);
+      const provider = useStore.getState().threads[threadId]?.model?.provider;
+      setProviderUsage(provider ? (reports || []).find((r) => r.provider === provider) || null : null);
+    } catch {
+      setProviderUsage(null);
+    }
+  };
+  useEffect(() => {
+    if (!useStore.getState().threads[threadId]?.model?.provider) return;
+    void loadProviderUsage();
+  }, [threadId, model?.provider]);
 
   // Per-tab draft lives in the store: switching tabs no longer shares one
   // composer instance's local state (which made the text effectively global).
@@ -1034,6 +1053,7 @@ export function Composer({ threadId }: { threadId: string }) {
             )}
           </div>
         </div>
+        {providerUsage && <ProviderUsageInline report={providerUsage} onRefresh={() => void loadProviderUsage()} />}
       </div>
     </div>
   );
