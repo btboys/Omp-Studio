@@ -94,6 +94,13 @@ export function ProviderAuthPanel({ language, liveProviders, onAuthChanged }: Pr
         if (ok) {
           pushToast("success", message);
           onAuthChanged();
+          // The provider list (signed-in status) may have changed; re-pull it.
+          window.pi.settings
+            .listAuthProviders()
+            .then((res) => {
+              if (res?.ok) setProviders((res as ListAuthProvidersResult).providers || []);
+            })
+            .catch(() => undefined);
         } else {
           pushToast("error", message);
         }

@@ -48,7 +48,7 @@ export async function listAuthProviders(): Promise<AuthProviderInfo[]> {
     const detail = (res.stdout + res.stderr).trim() || `omp auth-broker list exited with code ${res.code}`;
     throw new Error(detail);
   }
-  const parsed = JSON.parse(res.stdout.trim() || "[]");
+  const parsed = JSON.parse(res.stdout.replace(/^\uFEFF/, "").trim() || "[]");
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((p: unknown): p is AuthProviderInfo => !!p && typeof (p as AuthProviderInfo).id === "string");
 }

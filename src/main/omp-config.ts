@@ -275,7 +275,7 @@ function runConfig(args: string[]): Promise<{ stdout: string; stderr: string }> 
 /** Full curated schema: resolved values + enum options from the omp CLI. */
 export async function getOmpConfig(): Promise<OmpConfigSection[]> {
   const [jsonOut, listOut] = await Promise.all([runConfig(["list", "--json"]), runConfig(["list"])]);
-  const schema = JSON.parse(jsonOut.stdout) as Record<string, SchemaEntry>;
+  const schema = JSON.parse(jsonOut.stdout.replace(/^\uFEFF/, "").trim()) as Record<string, SchemaEntry>;
 
   // `omp config list` prints enum keys as `key = value (opt1|opt2|…)`; the JSON
   // schema omits the choices, so recover them from the human output.

@@ -101,27 +101,79 @@ export function Composer({ threadId }: { threadId: string }) {
     };
   }, [cwd, isStreaming]);
 
-  // Provider plan/balance strip inside the input card: fetch once the thread's
-  // model provider is known (connect may lag the tab open).
+  // Balance/quota strip for the CURRENT thread's provider only (original
+  // design). When the thread has no provider yet (brand-new task), fall back to
+  // the first authenticated provider so something still shows.
   const [providerUsage, setProviderUsage] = useState<ProviderUsageReport | null>(null);
   const [usageRefreshing, setUsageRefreshing] = useState(false);
   const loadProviderUsage = useCallback(async () => {
     setUsageRefreshing(true);
     try {
-      const res = await window.pi.app.getProviderUsage();
-      const reports = parseProviderUsage(res);
       const provider = useStore.getState().threads[threadId]?.model?.provider;
-      setProviderUsage(provider ? (reports || []).find((r) => r.provider === provider) || null : null);
+      // Query only the conversation's current provider (logged-out accounts
+      // are never queried).
+      const res = await window.pi.app.getProviderUsage(provider || undefined);
+      if (!res?.ok) {
+        setProviderUsage(null);
+        return;
+      }
+      const reports = parseProviderUsage(res);
+      setProviderUsage(provider ? (reports || []).find((r) => r.provider === provider) || null : (reports || [])[0] || null);
     } catch {
       setProviderUsage(null);
     } finally {
       setUsageRefreshing(false);
     }
   }, [threadId]);
+  // Reload when the provider is known OR provider credentials changed
+  // (login/logout/key save in Settings bumps providerAuthVersion). A freshly
+  // booted session's `omp usage` probe can be empty or lag, so retry with
+  // backoff before giving up (matters on cold starts, e.g. app restart).
+  const providerAuthVersion = useStore((s) => s.providerAuthVersion);
+  const usageRetryRef = useRef(0);
   useEffect(() => {
-    if (!useStore.getState().threads[threadId]?.model?.provider) return;
-    void loadProviderUsage();
-  }, [threadId, model?.provider, loadProviderUsage]);
+    const provider = useStore.getState().threads[threadId]?.model?.provider;
+    if (!provider) {
+      usageRetryRef.current = 0;
+      return;
+    }
+    usageRetryRef.current = 0;
+    let cancelled = false;
+    const attempt = async () => {
+      if (cancelled) return;
+      setUsageRefreshing(true);
+      try {
+        const res = await window.pi.app.getProviderUsage(useStore.getState().threads[threadId]?.model?.provider || undefined);
+        if (res?.ok) {
+          const reports = parseProviderUsage(res);
+          const p = useStore.getState().threads[threadId]?.model?.provider;
+          const match = p ? (reports || []).find((r) => r.provider === p) : (reports || [])[0];
+          if (cancelled) return;
+          if (match) {
+            setProviderUsage(match);
+            usageRetryRef.current = 0;
+            return;
+          }
+        }
+        if (cancelled) return;
+        if (usageRetryRef.current < 3) {
+          const n = ++usageRetryRef.current;
+          setProviderUsage(null);
+          setTimeout(attempt, 1000 * n);
+        } else {
+          setProviderUsage(null);
+        }
+      } catch {
+        if (!cancelled) setProviderUsage(null);
+      } finally {
+        if (!cancelled) setUsageRefreshing(false);
+      }
+    };
+    void attempt();
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId, model?.provider, providerAuthVersion]);
 
   // Re-pull the provider quota after every completed turn: the balance/limits
   // change with each request. `isStreaming` true→false is the turn-complete
@@ -1010,18 +1062,29 @@ export function Composer({ threadId }: { threadId: string }) {
             )}
           </div>
         </div>
-        {(providerUsage || cacheStats.requestCount > 0) && (
-          <div className={`provider-usage-inline${cacheStats.requestCount > 0 ? "" : " single"}`}>
-            {cacheStats.requestCount > 0 && (
-              <CacheUsageInline
-                key={`${cacheStats.hitCount}:${cacheStats.requestCount}:${cacheStats.cachedTokens}:${cacheStats.totalInput}`}
-                stats={cacheStats}
-                currency={providerUsage?.limits.find((l) => l.amount?.currency)?.amount?.currency}
-              />
-            )}
-            {providerUsage && <ProviderUsageInline report={providerUsage} refreshing={usageRefreshing} onRefresh={() => void loadProviderUsage()} />}
-          </div>
-        )}
+        {(() => {
+          // Currency for the session-cost chip: prefer the provider's balance
+          // currency (DeepSeek → CNY), else infer USD from a usd-unit limit
+          // (Cursor/OpenCode Go), else leave unset for the locale fallback.
+          const limits = providerUsage?.limits || [];
+          const usageCurrency =
+            limits.find((l) => l.amount?.currency)?.amount?.currency ||
+            (limits.some((l) => l.amount?.unit === "usd") ? "USD" : undefined);
+          return (
+            (providerUsage || cacheStats.requestCount > 0) && (
+              <div className={`provider-usage-inline${cacheStats.requestCount > 0 ? "" : " single"}`}>
+                {cacheStats.requestCount > 0 && (
+                  <CacheUsageInline
+                    key={`${cacheStats.hitCount}:${cacheStats.requestCount}:${cacheStats.cachedTokens}:${cacheStats.totalInput}`}
+                    stats={cacheStats}
+                    currency={usageCurrency}
+                  />
+                )}
+                {providerUsage && <ProviderUsageInline report={providerUsage} refreshing={usageRefreshing} onRefresh={() => void loadProviderUsage()} />}
+              </div>
+            )
+          );
+        })()}
       </div>
     </div>
   );

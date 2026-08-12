@@ -462,25 +462,52 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   // Live plan-quota snapshot for every authenticated provider (`omp usage`).
   // omp caches reports, so repeated calls are cheap; a manual refresh just
-  // re-runs the command.
-  ipcMain.handle("app:getProviderUsage", async () => {
+  // re-runs the command. providerId narrows the query to the conversation's
+  // currently selectable provider (only that one is queried, so logged-out
+  // accounts are never hit).
+  ipcMain.handle("app:getProviderUsage", async (_e, providerId?: string) => {
+    // Collect quota reports from `omp usage --json`. This can be empty or fail
+    // on some platforms (Windows output quirks) — never let it block the
+    // DeepSeek balance, which is fetched separately and is cross-platform.
+    let reports: unknown[] = [];
+    let usageError: string | null = null;
     try {
       const res = await runOmpCli(["usage", "--json"], undefined, 30_000);
-      if (res.code !== 0) {
-        const detail = (res.stdout + res.stderr).trim() || `omp usage exited with code ${res.code}`;
-        return { ok: false, error: detail };
+      const raw = res.stdout.replace(/^\uFEFF/, "").trim();
+      if (raw) {
+        const start = raw.indexOf("{");
+        const slice = start >= 0 ? raw.slice(start) : raw;
+        try {
+          const data = JSON.parse(slice) as { reports?: unknown[] };
+          if (Array.isArray(data.reports)) reports = data.reports;
+          else usageError = "omp usage returned no reports";
+        } catch (e) {
+          usageError = `usage JSON parse failed (${(e as Error)?.message})`;
+        }
+      } else {
+        const err = (res.stderr || "").trim().slice(0, 160);
+        usageError = `omp usage empty (code ${res.code})${err ? `: ${err}` : ""}`;
       }
-      const data = JSON.parse(res.stdout.trim()) as { reports?: unknown[] };
-      // DeepSeek is API-key based (no omp usage report): append its account
-      // balance as a synthetic report when a credential is available.
-      if (Array.isArray(data.reports)) {
-        const balance = await fetchDeepSeekBalance();
-        if (balance) data.reports.push(balance);
-      }
-      return { ok: true, data: data as unknown };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      usageError = e instanceof Error ? e.message : String(e);
     }
+    // Keep only the requested provider's usage (no dead accounts).
+    if (providerId) reports = reports.filter((r) => (r as { provider?: string })?.provider === providerId);
+    // DeepSeek is API-key based (no omp usage report): append its balance only
+    // when the conversation is actually using DeepSeek. Isolated so a usage
+    // failure cannot hide the balance.
+    if (!providerId || providerId === "deepseek") {
+      try {
+        const balance = await fetchDeepSeekBalance();
+        if (balance) reports.push(balance);
+      } catch {
+        /* keep whatever omp usage produced */
+      }
+    }
+    if (reports.length === 0) {
+      return { ok: false, error: usageError || "no usage data" };
+    }
+    return { ok: true, data: { reports } as unknown };
   });
 
   // Restructure a user prompt with project context before sending (composer

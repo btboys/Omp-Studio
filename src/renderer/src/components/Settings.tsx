@@ -654,6 +654,8 @@ export function Settings() {
     }
     refreshLiveProviders();
     refreshOpenThreadModels();
+    // Signal cross-cutting UI (composer balance strip) that credentials changed.
+    useStore.getState().bumpProviderAuth();
   };
   const [thinking, setThinking] = useState<ThinkingDefaults>({});
   const [initialThinking, setInitialThinking] = useState("{}");
@@ -1029,6 +1031,8 @@ export function Settings() {
       await window.pi.settings.saveModels(providers);
       await refreshOpenThreadModels();
       refreshLiveProviders();
+      // apiKey edits count as credential changes: re-probe the composer strip.
+      useStore.getState().bumpProviderAuth();
       setInitialProviders(JSON.stringify(draft.providers));
       setFlash("models");
       setTimeout(() => setFlash(null), 1500);

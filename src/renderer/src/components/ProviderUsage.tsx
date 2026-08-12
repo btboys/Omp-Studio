@@ -113,14 +113,14 @@ export function CacheUsageInline({ stats, currency }: { stats: CacheStats; curre
   const language = useStore((s) => s.config?.language || "en");
   const zh = language !== "en";
   if (stats.requestCount === 0) return null;
-  // Locale-aware monetary formatting: symbol/code comes from the provider's
-  // reported currency (never hardcoded), and decimals follow the active locale.
+  // Locale-aware monetary formatting. Prefer the provider's reported currency
+  // (DeepSeek → CNY, Cursor/OpenCode usd → USD); when none is known, fall back
+  // to the active locale's currency so the symbol never silently disappears.
+  const effCurrency = currency || (zh ? "CNY" : "USD");
   const costText =
-    currency && stats.costTotal > 0
-      ? new Intl.NumberFormat(language, { style: "currency", currency, minimumFractionDigits: 4 }).format(stats.costTotal)
-      : stats.costTotal > 0
-        ? new Intl.NumberFormat(language, { minimumFractionDigits: 4 }).format(stats.costTotal)
-        : "";
+    stats.costTotal > 0
+      ? new Intl.NumberFormat(language, { style: "currency", currency: effCurrency, minimumFractionDigits: 4 }).format(stats.costTotal)
+      : "";
   return (
     <span className="puv-group">
       <span className="puv-chip">

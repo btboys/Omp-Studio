@@ -673,6 +673,9 @@ interface PiStore {
   paneThreadId: string | null;
   /** Bumped when chat should pin scroll to bottom (open history / reload). */
   chatScrollSeq: number;
+  /** Bumped after provider credentials change (login/logout/key save) so
+   *  cross-cutting UI (composer balance strip) can re-probe omp usage. */
+  providerAuthVersion: number;
   /** Sidebar flash target after "reveal in sidebar". */
   sidebarFlashThreadId: string | null;
   threads: Record<string, ThreadState>;
@@ -721,6 +724,7 @@ interface PiStore {
   deleteProjectGroup: (name: string) => Promise<void>;
   toggleProject: (cwd: string) => void;
   setActiveProject: (cwd: string) => void;
+  bumpProviderAuth: () => void;
 
   openThread: (cwd: string, sessionFile?: string, permission?: PermissionLevel) => Promise<string | null>;
   /** Ensure a live omp process backs the thread (adopting the warm spare).
@@ -989,6 +993,7 @@ export const useStore = create<PiStore>()((set, get) => ({
   primaryThreadId: null,
   paneThreadId: null,
   chatScrollSeq: 0,
+  providerAuthVersion: 0,
   sidebarFlashThreadId: null,
   threads: {},
   drafts: {},
@@ -1418,6 +1423,7 @@ export const useStore = create<PiStore>()((set, get) => ({
 
   toggleProject: (cwd) => set((s) => ({ expandedProjects: { ...s.expandedProjects, [cwd]: !s.expandedProjects[cwd] } })),
   setActiveProject: (cwd) => set({ activeProjectCwd: cwd }),
+  bumpProviderAuth: () => set((s) => ({ providerAuthVersion: s.providerAuthVersion + 1 })),
 
   openThread: async (cwd, sessionFile, permission) => {
     // Already on screen: just activate. If it was only disk-rendered so far

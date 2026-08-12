@@ -1,20 +1,36 @@
 import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
 /**
  * SQLite access for the main process. Electron's main process runs Node 20,
- * which has no `node:sqlite`, so we shell out to the system `sqlite3` CLI.
- * Missing CLI is common on Windows — callers must degrade gracefully.
+ * which has no `node:sqlite`, so we shell out to a sqlite3 CLI. A Windows
+ * `sqlite3.exe` is bundled (extraResources) so the app doesn't depend on a
+ * user-installed CLI; macOS/Linux use the system `sqlite3`.
  */
 
 /** Cached sqlite3 CLI probe: undefined=unprobed, null=missing. */
 let sqlite3Bin: string | null | undefined;
+const execFileAsync = promisify(execFile);
+
+/** Bundled Windows sqlite3.exe under extraResources (resources/sqlite3.exe). */
+function bundledSqlite3Path(): string | null {
+  if (process.platform !== "win32") return null;
+  const root = (process as { resourcesPath?: string }).resourcesPath || process.cwd();
+  const path = join(root, "sqlite3.exe");
+  return existsSync(path) ? path : null;
+}
 
 export async function resolveSqlite3(): Promise<string | null> {
   if (sqlite3Bin !== undefined) return sqlite3Bin;
-  const candidates = process.platform === "win32" ? ["sqlite3.exe", "sqlite3"] : ["sqlite3"];
+  const bundled = bundledSqlite3Path();
+  const candidates = [...(bundled ? [bundled] : []), ...(process.platform === "win32" ? ["sqlite3.exe", "sqlite3"] : ["sqlite3"])];
   for (const bin of candidates) {
     try {
-      await execFile(bin, ["-version"], { timeout: 2000, windowsHide: true });
+      // NB: must await the PROMISE (callback-less execFile returns a ChildProcess
+      // that resolves immediately, so the probe never actually ran before).
+      await execFileAsync(bin, ["-version"], { timeout: 2000, windowsHide: true });
       sqlite3Bin = bin;
       return bin;
     } catch {

@@ -95,6 +95,10 @@
       {
         "from": "resources/icon.ico",
         "to": "icon.ico"
+      },
+      {
+        "from": "resources/sqlite3.exe",
+        "to": "sqlite3.exe"
       }
     ],
     "win": {

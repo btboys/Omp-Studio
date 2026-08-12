@@ -4,7 +4,7 @@ import * as http from "node:http";
 import * as tls from "node:tls";
 import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { readLightweightRoleModel } from "./models-service";
+import { readLightweightRoleModel, readModelsFile } from "./models-service";
 import { runOmpCli } from "./plugins";
 import { getAgentDir } from "./session-store";
 import { resolveSqlite3 } from "./sqlite3-cli";
@@ -565,10 +565,20 @@ async function postJson(
 
 export async function readProviderKey(provider: string): Promise<string | null> {
   const meta = PROVIDER_CHAT[provider];
-  if (!meta) return null;
-  for (const env of meta.envKeys) {
-    const v = process.env[env]?.trim();
-    if (v) return v;
+  if (meta) {
+    for (const env of meta.envKeys) {
+      const v = process.env[env]?.trim();
+      if (v) return v;
+    }
+  }
+  // Custom provider apiKey in models.yml — no sqlite3 CLI required (important
+  // on Windows, where the sqlite3 shell is usually absent).
+  try {
+    const def = readModelsFile()?.providers?.[provider];
+    const k = def?.apiKey?.trim();
+    if (k) return k;
+  } catch {
+    /* fall through */
   }
   // Electron's Node build has no node:sqlite; shell out to system sqlite3
   // against omp's agent.db (oauth access / api_key blobs). Missing CLI is
@@ -578,13 +588,16 @@ export async function readProviderKey(provider: string): Promise<string | null> 
   const bin = await resolveSqlite3();
   if (!bin) return null;
   try {
+    // NB: SQLite single quotes are STRING literals; double quotes are column
+    // identifiers. JSON.stringify(provider) yields "deepseek" (double-quoted)
+    // which SQLite reads as a column named deepseek → "no such column". Escape
+    // single quotes defensively even though provider values are trusted.
+    const lit = "'" + provider.replace(/'/g, "''") + "'";
     const { stdout } = await execFileAsync(
       bin,
       [
         dbPath,
-        "SELECT data FROM auth_credentials WHERE provider = " +
-          JSON.stringify(provider) +
-          " AND disabled_cause IS NULL LIMIT 1;",
+        `SELECT data FROM auth_credentials WHERE provider = ${lit} AND disabled_cause IS NULL LIMIT 1;`,
       ],
       { timeout: 3000, windowsHide: true },
     );
