@@ -1046,10 +1046,9 @@ export const useStore = create<PiStore>()((set, get) => ({
       set((state) => ({
         projects,
         activeProjectCwd: state.activeProjectCwd || projects[0]?.cwd || null,
-        expandedProjects:
-          state.activeProjectCwd || !projects[0]
-            ? state.expandedProjects
-            : { ...state.expandedProjects, [projects[0].cwd]: true },
+        // Collapsed by default; restoreOpenTabs expands any project that has an
+        // open session tab. Never force-open the first project here.
+        expandedProjects: state.expandedProjects,
       }));
       if (projects[0]) {
         // Pre-warm the standby omp process for the active project so the first
@@ -1158,17 +1157,24 @@ export const useStore = create<PiStore>()((set, get) => ({
         : null;
     const finalActive = activeSaved && (activeSaved === primarySaved || activeSaved === paneSaved) ? activeSaved : primarySaved;
 
-    set((s) => ({
-      openThreadIds: normalized.openThreadIds,
-      pinnedThreadIds: normalized.pinnedThreadIds,
-      primaryThreadId: primarySaved,
-      paneThreadId: paneSaved,
-      activeThreadId: finalActive,
-      activeProjectCwd: finalActive ? s.threads[finalActive]?.cwd || s.activeProjectCwd : s.activeProjectCwd,
-      expandedProjects: finalActive && s.threads[finalActive]?.cwd
-        ? { ...s.expandedProjects, [s.threads[finalActive]!.cwd]: true }
-        : s.expandedProjects,
-    }));
+    set((s) => {
+      // Expand every project that has an open session tab so restored sessions
+      // are visible; everything else stays collapsed on startup.
+      let expanded = s.expandedProjects;
+      for (const id of normalized.openThreadIds) {
+        const cwd = s.threads[id]?.cwd;
+        if (cwd) expanded = { ...expanded, [cwd]: true };
+      }
+      return {
+        openThreadIds: normalized.openThreadIds,
+        pinnedThreadIds: normalized.pinnedThreadIds,
+        primaryThreadId: primarySaved,
+        paneThreadId: paneSaved,
+        activeThreadId: finalActive,
+        activeProjectCwd: finalActive ? s.threads[finalActive]?.cwd || s.activeProjectCwd : s.activeProjectCwd,
+        expandedProjects: expanded,
+      };
+    });
 
     openTabsHydrated = true;
     persistOpenTabs(normalized.openThreadIds, get().activeThreadId, normalized.pinnedThreadIds, get().primaryThreadId, get().paneThreadId);

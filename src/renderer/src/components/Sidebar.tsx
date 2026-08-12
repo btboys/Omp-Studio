@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Refresh, Gauge, Branch, Sidebar as SidebarIcon, Plug } from "./icons";
+import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Refresh, Gauge, Branch, Grid, Sidebar as SidebarIcon, Plug } from "./icons";
 import { GitPanel } from "./GitPanel";
 import { ThreadListModal } from "./ThreadListModal";
 
@@ -30,6 +30,8 @@ export function Sidebar() {
   const activeProjectCwd = useStore((s) => s.activeProjectCwd);
   const expandedProjects = useStore((s) => s.expandedProjects);
   const activeThreadId = useStore((s) => s.activeThreadId);
+  const openThreadIds = useStore((s) => s.openThreadIds);
+  const threads = useStore((s) => s.threads);
   const sidebarFlashThreadId = useStore((s) => s.sidebarFlashThreadId);
   const sidebarTab = useStore((s) => s.sidebarTab);
   const language = useStore((s) => s.config?.language || "en");
@@ -234,12 +236,14 @@ export function Sidebar() {
           onDragOver: (e: ReactDragEvent) => {
             if (!dragItem) return;
             e.preventDefault();
+            e.stopPropagation(); // keep the members-container drop from overriding position
             e.dataTransfer.dropEffect = "move";
             setDragHover({ key: item.key, pos: dropPosFor(e, item.kind) });
           },
           onDragLeave: () => setDragHover((h) => (h?.key === item.key ? null : h)),
           onDrop: (e: ReactDragEvent) => {
             e.preventDefault();
+            e.stopPropagation(); // handle in-group before/after here; don't let the container re-append
             if (dragItem) handleDrop(dragItem, item, dropPosFor(e, item.kind));
             clearDrag();
           },
@@ -249,9 +253,19 @@ export function Sidebar() {
 
   const groupHoverClass = (key: string) => (dragHover?.key === key ? ` drag-${dragHover.pos}` : "");
 
+  /** True when a sidebar entry (project cwd or worktree container commonDir)
+   *  has an open session tab — used to auto-expand groups/containers on start. */
+  const entryHasOpenTab = (entry: string) => {
+    if (projectByCwd.has(entry)) return openThreadIds.some((id) => threads[id]?.cwd === entry);
+    const members = allContainers.get(entry);
+    return !!members?.some((m) => openThreadIds.some((id) => threads[id]?.cwd === m.cwd));
+  };
+
   /** A worktree repo container: head + worktree members. ctx "group" = inside a user group. */
   const renderContainer = (commonDir: string, members: (typeof projects)[number][], ctx: "top" | "group") => {
-    const open = !collapsedGroups.has(commonDir);
+    // Collapsed by default; a container opens when the user expanded it or a
+    // member has an open session tab (so restored sessions are visible).
+    const open = expandedContainers.has(commonDir) || members.some((m) => openThreadIds.some((id) => threads[id]?.cwd === m.cwd));
     return (
       <div className={`project worktree-group ${ctx === "group" ? "container-in-group" : ""}`} key={commonDir}>
         <div
@@ -285,20 +299,21 @@ export function Sidebar() {
     );
   };
 
-  // collapsed repo containers (default expanded)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Repo container expand state (default collapsed; auto-opens on a session tab).
+  const [expandedContainers, setExpandedContainers] = useState<Set<string>>(new Set());
   const toggleGroup = (commonDir: string) => {
-    setCollapsedGroups((prev) => {
+    setExpandedContainers((prev) => {
       const next = new Set(prev);
       if (next.has(commonDir)) next.delete(commonDir);
       else next.add(commonDir);
       return next;
     });
   };
-  // collapsed user-defined project groups (default expanded)
-  const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(new Set());
+  // User-defined project group expand state (default collapsed; auto-opens when
+  // a member holds a session tab, mirroring repo containers).
+  const [expandedUserGroups, setExpandedUserGroups] = useState<Set<string>>(new Set());
   const toggleUserGroup = (name: string) => {
-    setCollapsedUserGroups((prev) => {
+    setExpandedUserGroups((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -504,7 +519,10 @@ export function Sidebar() {
           <span className="caret">
             <ChevronRight size={10} />
           </span>
-          {nested ? <Branch size={14} /> : <Folder size={15} />}
+          {/* Worktree members are real git branches (Branch icon); a flat
+              project inside a user group is still a project — keep Folder so it
+              doesn't read as a git branch. */}
+          {ctx === "none" ? <Branch size={14} /> : <Folder size={15} />}
           <span className="pname" title={branch ? `${p.cwd} · ${branch}` : p.cwd}>
             {label}
           </span>
@@ -704,7 +722,7 @@ export function Sidebar() {
               {projects.length === 0 && <div className="ft-empty">尚无项目，点击 + 打开一个文件夹。</div>}
               {topItems.map((item) => {
                 if (item.kind === "group") {
-                  const open = !collapsedUserGroups.has(item.key);
+                  const open = expandedUserGroups.has(item.key) || item.entries.some(entryHasOpenTab);
                   return (
                     <div className="project worktree-group user-group" key={item.key}>
                       <div
@@ -724,7 +742,7 @@ export function Sidebar() {
                         <span className="caret">
                           <ChevronRight size={10} />
                         </span>
-                        <Folder size={15} />
+                        <Grid size={15} />
                         <span className="pname" title={`${item.key} · ${item.entries.length} 个条目`}>
                           {item.name}
                         </span>

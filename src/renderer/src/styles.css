@@ -394,9 +394,9 @@ body.sidebar-resizing * {
   white-space: nowrap;
 }
 .project.worktree-child {
-  margin-left: 14px;
-  padding-left: 8px;
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
 }
 .project.worktree-child .project-head {
   font-weight: 500;
@@ -428,8 +428,18 @@ body.sidebar-resizing * {
 .project.worktree-group {
   margin-top: 4px;
 }
+/* User-defined project groups: muted icon color distinct from worktree
+   containers (which keep the default gray), name stays the default text
+   color so grouped directories don't shout. */
+.project.user-group .group-head > svg {
+  color: #6a8fe0;
+}
+:root[data-theme="dark"] .project.user-group .group-head > svg {
+  color: #8fb0f0;
+}
 .project.worktree-group .worktree-members {
-  margin: 1px 0 6px 4px;
+  margin: 2px 0 6px 0;
+  padding-left: 15px;
 }
 .project-head .pactions {
   margin-left: auto;
@@ -475,8 +485,7 @@ body.sidebar-resizing * {
 }
 .thread-list {
   margin: 1px 0 6px 6px;
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
-  padding-left: 6px;
+  padding-left: 10px;
   display: flex;
   flex-direction: column;
   gap: 1px;
