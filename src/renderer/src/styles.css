@@ -3074,12 +3074,23 @@ body.sidebar-resizing * {
 .provider-usage-inline {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   flex-wrap: wrap;
   padding: 5px 12px 6px;
   font-size: 11px;
   border-top: 1px solid var(--border, #e5e5dd);
+}
+/* No cache group (fresh session): the quota group alone right-aligns. */
+.provider-usage-inline.single {
+  justify-content: flex-end;
+}
+.puv-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .puv-name {
   font-weight: 700;
@@ -3122,9 +3133,13 @@ body.sidebar-resizing * {
   place-items: center;
   flex: 0 0 auto;
 }
-.puv-refresh:hover {
+.puv-refresh:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.06);
   color: var(--accent);
+}
+.puv-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .usage-bignum {
   font-family: var(--mono);

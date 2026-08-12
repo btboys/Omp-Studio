@@ -28,6 +28,7 @@ import type {
 import { cleanOutput, extensionsAlreadyLatest, hasLibuvAssertion, lastLine, stripAnsi } from "./lib/update";
 import { applyAsyncJobs } from "./lib/subagents";
 import { panesForActivate, panesForClose } from "./lib/panes";
+import { cacheStatsOf } from "./lib/cache";
 
 /* ------------------------------------------------------------------ *
  * Pure helpers
@@ -400,6 +401,7 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
     connected: true,
     isStreaming: !!res.isStreaming,
     messages: views,
+    cacheStats: cacheStatsOf(views),
     toolRuns,
     permission: res.permission || fallback.permission || "auto",
     advisory: res.advisory ?? false,
@@ -923,7 +925,14 @@ function scheduleEventFlush(): void {
         let t = t0;
         for (const ev of events) t = reduceThread(t, ev);
         if (t !== t0) {
-          threads[threadId] = t;
+          // Authoritative prompt-cache stats. Recompute only when the message
+          // list actually changed (per-token streaming frames leave the
+          // reference untouched), so the value is stable across those renders.
+          if (t.messages !== t0.messages) {
+            threads[threadId] = { ...t, cacheStats: cacheStatsOf(t.messages) };
+          } else {
+            threads[threadId] = t;
+          }
           changed = true;
         }
       }
@@ -1119,6 +1128,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           connected: !!hist.connected,
           isStreaming: !!hist.isStreaming,
           messages: views,
+          cacheStats: cacheStatsOf(views),
           toolRuns,
           permission: hist.permission || "auto",
           advisory: hist.advisory ?? false,
@@ -1446,6 +1456,7 @@ export const useStore = create<PiStore>()((set, get) => ({
           connected: !!hist.connected,
           isStreaming: !!hist.isStreaming,
           messages: views,
+          cacheStats: cacheStatsOf(views),
           toolRuns,
           permission: hist.permission || permission || "auto",
           advisory: hist.advisory ?? false,
@@ -1522,6 +1533,7 @@ export const useStore = create<PiStore>()((set, get) => ({
             connected: true,
             isStreaming: !!res.isStreaming || optimistic.length > 0,
             messages: optimistic.length ? [...views, ...optimistic] : views,
+            cacheStats: cacheStatsOf(optimistic.length ? [...views, ...optimistic] : views),
             toolRuns,
             permission: res.permission || t.permission,
             advisory: res.advisory ?? prev?.advisory ?? false,
@@ -1822,7 +1834,8 @@ export const useStore = create<PiStore>()((set, get) => ({
     set((s) => {
       const t = s.threads[threadId];
       if (!t) return s;
-      return { threads: { ...s.threads, [threadId]: { ...t, messages: [...t.messages, optimistic], isStreaming: true, error: undefined } } };
+      const messages = [...t.messages, optimistic];
+      return { threads: { ...s.threads, [threadId]: { ...t, messages, cacheStats: cacheStatsOf(messages), isStreaming: true, error: undefined } } };
     });
     // A disk-rendered or brand-new thread may not have a live process yet.
     // ensureConnected keeps the optimistic bubble across the connect/remap and
@@ -1965,6 +1978,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         thinking: res.thinkingLevel || "off",
         commands: res.commands || [],
         messages: views,
+        cacheStats: cacheStatsOf(views),
         toolRuns,
         permission: res.permission || get().threads[id]?.permission || "auto",
         advisory: res.advisory ?? get().threads[id]?.advisory ?? false,
@@ -2628,6 +2642,7 @@ export const useStore = create<PiStore>()((set, get) => ({
         loading: false,
         connected: false,
         messages: views,
+        cacheStats: cacheStatsOf(views),
         toolRuns,
         permission: hist.permission || permission || "auto",
         advisory: hist.advisory ?? false,

@@ -98,6 +98,22 @@ export interface ModelInfo {
   thinkingLevelMap?: Record<string, string | null>;
 }
 
+/** Prompt-cache statistics aggregated from a thread's message usage. */
+export interface CacheStats {
+  /** Token hit ratio across the whole thread: cacheRead / (cacheRead + input). */
+  hitRatio: number | null;
+  /** Same ratio restricted to the last 10 requests with usage. */
+  recentRatio: number | null;
+  /** Requests whose input was served (at least in part) from the prompt cache. */
+  hitCount: number;
+  /** Requests with measurable input (cacheRead or fresh input). */
+  requestCount: number;
+  /** Prompt tokens read from cache, summed. */
+  cachedTokens: number;
+  /** All prompt tokens (cached + fresh), summed. */
+  totalInput: number;
+}
+
 /** One plan-quota line from `omp usage --json` (e.g. "7 Day", "Monthly"). */
 export interface ProviderUsageLimit {
   id: string;
@@ -162,7 +178,7 @@ export interface ViewMessage {
   stopReason?: string;
   errorMessage?: string;
   /** Per-turn token usage reported by the provider (input/output counts). */
-  usage?: { input?: number; output?: number };
+  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
 }
 
 export interface ToolRun {
@@ -208,6 +224,9 @@ export interface ThreadState {
   connected?: boolean;
   isStreaming: boolean;
   messages: ViewMessage[];
+  /** Authoritative prompt-cache stats, recomputed in the store whenever the
+   *  message list changes. Absent on threads created before this feature. */
+  cacheStats?: CacheStats;
   streaming: ViewMessage | null;
   toolRuns: Record<string, ToolRun>;
   error?: string;

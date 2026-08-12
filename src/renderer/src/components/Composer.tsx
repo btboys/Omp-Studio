@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
+import { EMPTY_CACHE_STATS } from "../lib/cache";
 import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage, ProviderUsageReport } from "../lib/types";
 import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, At, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand, Sparkle, Clipboard } from "./icons";
-import { ProviderUsageInline, parseProviderUsage } from "./ProviderUsage";
+import { CacheUsageInline, ProviderUsageInline, parseProviderUsage } from "./ProviderUsage";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
@@ -103,7 +104,9 @@ export function Composer({ threadId }: { threadId: string }) {
   // Provider plan/balance strip inside the input card: fetch once the thread's
   // model provider is known (connect may lag the tab open).
   const [providerUsage, setProviderUsage] = useState<ProviderUsageReport | null>(null);
-  const loadProviderUsage = async () => {
+  const [usageRefreshing, setUsageRefreshing] = useState(false);
+  const loadProviderUsage = useCallback(async () => {
+    setUsageRefreshing(true);
     try {
       const res = await window.pi.app.getProviderUsage();
       const reports = parseProviderUsage(res);
@@ -111,12 +114,28 @@ export function Composer({ threadId }: { threadId: string }) {
       setProviderUsage(provider ? (reports || []).find((r) => r.provider === provider) || null : null);
     } catch {
       setProviderUsage(null);
+    } finally {
+      setUsageRefreshing(false);
     }
-  };
+  }, [threadId]);
   useEffect(() => {
     if (!useStore.getState().threads[threadId]?.model?.provider) return;
     void loadProviderUsage();
-  }, [threadId, model?.provider]);
+  }, [threadId, model?.provider, loadProviderUsage]);
+
+  // Re-pull the provider quota after every completed turn: the balance/limits
+  // change with each request. `isStreaming` true→false is the turn-complete
+  // edge (also fires once on connect when resuming a mid-stream session).
+  const streamingEdge = useRef(false);
+  useEffect(() => {
+    if (streamingEdge.current && !isStreaming) void loadProviderUsage();
+    streamingEdge.current = isStreaming;
+  }, [isStreaming, loadProviderUsage]);
+
+  // Authoritative prompt-cache stats: computed in the store whenever the
+  // thread's message list changes, so the value stays in lockstep with the
+  // rendered conversation (no memo-timing skew after a turn completes).
+  const cacheStats = useStore((s) => s.threads[threadId]?.cacheStats ?? EMPTY_CACHE_STATS);
 
   // Per-tab draft lives in the store: switching tabs no longer shares one
   // composer instance's local state (which made the text effectively global).
@@ -1053,7 +1072,17 @@ export function Composer({ threadId }: { threadId: string }) {
             )}
           </div>
         </div>
-        {providerUsage && <ProviderUsageInline report={providerUsage} onRefresh={() => void loadProviderUsage()} />}
+        {(providerUsage || cacheStats.requestCount > 0) && (
+          <div className={`provider-usage-inline${cacheStats.requestCount > 0 ? "" : " single"}`}>
+            {cacheStats.requestCount > 0 && (
+              <CacheUsageInline
+                key={`${cacheStats.hitCount}:${cacheStats.requestCount}:${cacheStats.cachedTokens}:${cacheStats.totalInput}`}
+                stats={cacheStats}
+              />
+            )}
+            {providerUsage && <ProviderUsageInline report={providerUsage} refreshing={usageRefreshing} onRefresh={() => void loadProviderUsage()} />}
+          </div>
+        )}
       </div>
     </div>
   );
