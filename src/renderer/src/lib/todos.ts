@@ -4,13 +4,16 @@ export interface TodoItem {
   text: string;
 }
 
-/** Args of one `todo` tool call (op + payload). */
+/** Args of one `todo` tool call — either legacy op-based or new full-state. */
 export interface TodoOp {
-  op: string;
+  op?: string;
   phase?: string;
   task?: string;
   items?: string[];
   list?: { phase: string; items: string[] }[];
+  /** New omp format: full-state replacement per call. */
+  todos?: { content: string; status: string }[];
+  merged?: boolean;
 }
 
 /** Replayed state of a single todo item. */
@@ -27,6 +30,20 @@ interface TodoItemState {
  * panel state must be derived by replay rather than from a single message.
  */
 export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
+  // --- New omp format: each call carries the full list in `todos`. ---
+  // Walk forward; last call with `todos` wins (full-state replacement).
+  let latestTodos: { content: string; status: string }[] | null = null;
+  for (const op of ops) {
+    if (Array.isArray(op.todos)) latestTodos = op.todos;
+  }
+  if (latestTodos) {
+    return latestTodos.map((t) => ({
+      done: t.status === "completed" || t.status === "done",
+      text: t.content || "",
+    }));
+  }
+
+  // --- Legacy op-based format (init/start/done/drop/…). ---
   const items: TodoItemState[] = [];
   const findTask = (task: string | undefined) => (task ? items.find((it) => it.text === task) : undefined);
   const removeMatching = (op: { task?: string; phase?: string }) => {
@@ -43,7 +60,6 @@ export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
             for (const text of group.items || []) items.push({ phase: group.phase, text, state: "pending" });
           }
         } else {
-          // Flat single-phase form: `init` with a bare `items` list.
           for (const text of op.items || []) items.push({ phase: "", text, state: "pending" });
         }
         break;
@@ -80,7 +96,6 @@ export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
         if (target) target.state = "pending";
         break;
       }
-      // "view" and unknown ops carry no state change.
     }
   }
   return items.map((it) => ({ done: it.state === "done", text: it.text }));
