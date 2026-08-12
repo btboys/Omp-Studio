@@ -640,6 +640,48 @@ body.sidebar-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* git working-tree status colors in the file tree */
+.ft-name.ft-git-untracked {
+  color: #3e9e5c;
+}
+.ft-name.ft-git-staged,
+.ft-name.ft-git-renamed {
+  color: #1f8f7a;
+  font-weight: 600;
+}
+.ft-name.ft-git-modified {
+  color: #b07d2b;
+}
+.ft-name.ft-git-deleted {
+  color: #b23a2c;
+  text-decoration: line-through;
+}
+.ft-name.ft-git-conflict {
+  color: #b23a2c;
+  font-weight: 700;
+}
+.ft-git-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  margin-left: auto;
+}
+.ft-git-dot.ft-git-dir {
+  background: var(--accent);
+}
+.ft-git-dot.ft-git-untracked,
+.ft-git-dot.ft-git-staged,
+.ft-git-dot.ft-git-renamed {
+  background: #3e9e5c;
+}
+.ft-git-dot.ft-git-modified {
+  background: #b07d2b;
+}
+.ft-git-dot.ft-git-deleted,
+.ft-git-dot.ft-git-conflict {
+  background: #b23a2c;
+}
 .ft-empty {
   color: var(--text-faint);
   font-size: 12px;
@@ -2489,6 +2531,9 @@ body.sidebar-resizing * {
 .iconbtn:hover {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text);
+}
+.iconbtn.active {
+  color: var(--accent);
 }
 .iconbtn:disabled {
   opacity: 0.4;

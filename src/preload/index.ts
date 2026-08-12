@@ -33,6 +33,7 @@ const api = {
     showOpenDialog: (kind: "folder" | "file" | "files") => ipcRenderer.invoke("app:showOpenDialog", kind),
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     getFileTree: (cwd: string, rel?: string) => ipcRenderer.invoke("app:getFileTree", cwd, rel),
+    getGitFileStatus: (cwd: string) => ipcRenderer.invoke("app:getGitFileStatus", cwd),
     searchProjectFiles: (cwd: string, query: string, limit?: number) =>
       ipcRenderer.invoke("app:searchProjectFiles", cwd, query, limit),
     fileExists: (absPath: string) => ipcRenderer.invoke("app:fileExists", absPath),

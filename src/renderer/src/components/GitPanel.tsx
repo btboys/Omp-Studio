@@ -68,6 +68,67 @@ function CommitFileTree({ files, onFileClick }: { files: GitCommitFile[]; onFile
   return <div className="gpd-filetree">{render(rootNode, "", 0)}</div>;
 }
 
+/** Working-tree change rows rendered as a collapsible directory tree ("tree" view). */
+function WorkingTreeRows({
+  items,
+  renderLeaf,
+}: {
+  items: { path: string; letter: string | null }[];
+  renderLeaf: (item: { path: string; letter: string | null }) => React.ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  type Node = { dirs: Map<string, Node>; files: { path: string; letter: string | null }[] };
+  const rootNode = useMemo<Node>(() => {
+    const root: Node = { dirs: new Map(), files: [] };
+    for (const f of items) {
+      const parts = f.path.split("/");
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const d = parts[i];
+        if (!node.dirs.has(d)) node.dirs.set(d, { dirs: new Map(), files: [] });
+        node = node.dirs.get(d)!;
+      }
+      node.files.push(f);
+    }
+    return root;
+  }, [items]);
+  const toggle = (key: string) =>
+    setCollapsed((c) => {
+      const next = new Set(c);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const render = (node: Node, prefix: string, depth: number): React.ReactNode => (
+    <>
+      {[...node.dirs.entries()]
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .map(([name, child]) => {
+          const key = `${prefix}${name}/`;
+          const open = !collapsed.has(key);
+          return (
+            <div key={key}>
+              <div className="gpd-dir" style={{ paddingLeft: 10 + depth * 14 }} onClick={() => toggle(key)}>
+                <ChevronRight size={10} className={open ? "gpd-caret-open" : ""} />
+                <span className="gpd-dir-name">{name}</span>
+                <span className="gpd-dir-count">{child.files.length + child.dirs.size}</span>
+              </div>
+              {open && render(child, key, depth + 1)}
+            </div>
+          );
+        })}
+      {[...node.files]
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((f) => (
+          <div key={f.path} style={{ paddingLeft: 10 + depth * 14 + 16 }}>
+            {renderLeaf(f)}
+          </div>
+        ))}
+    </>
+  );
+  return <div className="gpd-filetree">{render(rootNode, "", 0)}</div>;
+}
+
 /** Expanded commit detail: full hash/meta, message body, changed-file tree. */
 function CommitDetailView({ root, d }: { root: string; d: GitCommitDetail }) {
   const language = useStore((s) => s.config?.language || "en");
@@ -130,6 +191,21 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   const [generating, setGenerating] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<"flat" | "tree">(() => {
+    try {
+      return localStorage.getItem("pi-studio.git-view") === "tree" ? "tree" : "flat";
+    } catch {
+      return "flat";
+    }
+  });
+  const switchView = (mode: "flat" | "tree") => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("pi-studio.git-view", mode);
+    } catch {
+      /* non-persistent view toggle is fine */
+    }
+  };
   const branchRef = useRef<HTMLDivElement>(null);
   useOutsideClose(branchRef, branchOpen, () => setBranchOpen(false));
 
@@ -338,6 +414,13 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
   }
 
   const { row } = fileRows;
+  /** Flat rows or the same rows nested under a collapsible directory tree. */
+  const rowsFor = (files: { path: string; letter: string | null }[], actions: (path: string, letter: string | null) => React.ReactNode) =>
+    viewMode === "tree" ? (
+      <WorkingTreeRows items={files} renderLeaf={(f) => row(f.path, f.letter, actions(f.path, f.letter))} />
+    ) : (
+      files.map((f) => row(f.path, f.letter, actions(f.path, f.letter)))
+    );
   const totalChanges = status.staged.length + status.unstaged.length + status.untracked.length;
   const canCommit = !busy && !!message.trim() && totalChanges > 0;
 
@@ -392,6 +475,22 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
           )}
         </div>
         <button
+          className={`iconbtn gp-view-toggle${viewMode === "tree" ? " active" : ""}`}
+          title={viewMode === "flat" ? t("树形显示", "Tree view") : t("扁平显示", "Flat view")}
+          onClick={() => switchView(viewMode === "flat" ? "tree" : "flat")}
+        >
+          {viewMode === "flat" ? (
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round">
+              <path d="M2 2.5h4l2 2h6v9H2z" />
+              <path d="M2 10.5h4M6 6v4.5" />
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2 3.5h12M2 8h12M2 12.5h8" />
+            </svg>
+          )}
+        </button>
+        <button
           className="iconbtn"
           title={t("刷新", "Refresh")}
           disabled={busy}
@@ -429,12 +528,13 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
         <button className="gp-act" title={t("全部取消暂存", "Unstage all")} onClick={() => void run(window.pi.git.unstageAll(root), { keepMessage: true })}>
           <Minus size={13} />
         </button>,
-        status.staged.map((f) =>
-          row(f.path, f.status, (
-            <button className="gp-act" title={t("取消暂存", "Unstage")} onClick={() => void run(window.pi.git.unstage({ cwd: root, paths: [f.path] }), { keepMessage: true })}>
+        rowsFor(
+          status.staged.map((f) => ({ path: f.path, letter: f.status })),
+          (path) => (
+            <button className="gp-act" title={t("取消暂存", "Unstage")} onClick={() => void run(window.pi.git.unstage({ cwd: root, paths: [path] }), { keepMessage: true })}>
               <Minus size={13} />
             </button>
-          )),
+          ),
         ),
       )}
       {section(
@@ -444,17 +544,18 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
         <button className="gp-act" title={t("全部暂存", "Stage all")} onClick={() => void run(window.pi.git.stage({ cwd: root, paths: status.unstaged.map((f) => f.path) }), { keepMessage: true })}>
           <Plus size={13} />
         </button>,
-        status.unstaged.map((f) =>
-          row(f.path, f.status, (
+        rowsFor(
+          status.unstaged.map((f) => ({ path: f.path, letter: f.status })),
+          (path) => (
             <>
-              <button className="gp-act" title={t("放弃更改", "Discard changes")} onClick={() => discard([f.path], [])}>
+              <button className="gp-act" title={t("放弃更改", "Discard changes")} onClick={() => discard([path], [])}>
                 <Undo size={12} />
               </button>
-              <button className="gp-act" title={t("暂存", "Stage")} onClick={() => void run(window.pi.git.stage({ cwd: root, paths: [f.path] }), { keepMessage: true })}>
+              <button className="gp-act" title={t("暂存", "Stage")} onClick={() => void run(window.pi.git.stage({ cwd: root, paths: [path] }), { keepMessage: true })}>
                 <Plus size={13} />
               </button>
             </>
-          )),
+          ),
         ),
       )}
       {section(
@@ -464,17 +565,18 @@ export function GitPanel({ cwd }: { cwd: string | null }) {
         <button className="gp-act" title={t("全部暂存", "Stage all")} onClick={() => void run(window.pi.git.stage({ cwd: root, paths: status.untracked }), { keepMessage: true })}>
           <Plus size={13} />
         </button>,
-        status.untracked.map((p) =>
-          row(p, null, (
+        rowsFor(
+          status.untracked.map((p) => ({ path: p, letter: null })),
+          (path) => (
             <>
-              <button className="gp-act" title={t("删除文件", "Delete file")} onClick={() => discard([], [p])}>
+              <button className="gp-act" title={t("删除文件", "Delete file")} onClick={() => discard([], [path])}>
                 <Undo size={12} />
               </button>
-              <button className="gp-act" title={t("暂存", "Stage")} onClick={() => void run(window.pi.git.stage({ cwd: root, paths: [p] }), { keepMessage: true })}>
+              <button className="gp-act" title={t("暂存", "Stage")} onClick={() => void run(window.pi.git.stage({ cwd: root, paths: [path] }), { keepMessage: true })}>
                 <Plus size={13} />
               </button>
             </>
-          )),
+          ),
         ),
       )}
       {totalChanges === 0 && <div className="ft-empty">{t("工作区干净，没有待提交的更改。", "Working tree clean.")}</div>}

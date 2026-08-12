@@ -8,7 +8,7 @@ import { checkForAppUpdate, deferAppUpdate, downloadAppUpdate, installAppUpdate 
 import { processAttachments, type Attachment } from "./attachment-utils";
 import { checkForCoreUpdate, installCoreUpdate } from "./core-updater";
 import { getConfig, getConfigDir, updateConfig, type AutomationTask } from "./config";
-import { listDir, searchProjectFiles } from "./fs-service";
+import { getGitFileStatus, listDir, searchProjectFiles } from "./fs-service";
 import {
   gitBranches,
   gitCheckout,
@@ -590,6 +590,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   // ---- files / preview ----------------------------------------------------
   ipcMain.handle("app:getFileTree", (_e, cwd: string, rel?: string) => listDir(cwd, rel));
+  ipcMain.handle("app:getGitFileStatus", (_e, cwd: string) => getGitFileStatus(cwd));
   ipcMain.handle("app:searchProjectFiles", (_e, cwd: string, query: string, limit?: number) =>
     searchProjectFiles(cwd, query, limit),
   );

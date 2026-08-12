@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
 
@@ -93,6 +94,60 @@ export function fileExists(abs: string): boolean {
   } catch {
     return false;
   }
+}
+
+export interface GitFileStatus {
+  /** rel path → status ("untracked" | "modified" | "staged" | "deleted" | "conflict" | "renamed"). */
+  files: Record<string, string>;
+  /** ancestor directories (rel, no trailing slash) that contain changed files. */
+  dirs: string[];
+}
+
+function classifyGitStatus(xy: string): string {
+  const x = xy[0];
+  const y = xy[1];
+  if (x === "?" && y === "?") return "untracked";
+  if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D")) return "conflict";
+  if (x === "D" || y === "D") return "deleted";
+  if (x !== " " && x !== "?") return x === "R" ? "renamed" : "staged"; // index change
+  if (y !== " " && y !== "?") return "modified"; // worktree change
+  return "modified";
+}
+
+/** Working-tree git status for the sidebar file tree: file → status + changed dirs. */
+export function getGitFileStatus(cwd: string): Promise<GitFileStatus> {
+  const { promise, resolve } = Promise.withResolvers<GitFileStatus>();
+  execFile(
+    "git",
+    ["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all"],
+    { timeout: 8000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 },
+    (err, stdout) => {
+      if (err) return resolve({ files: {}, dirs: [] });
+      const files: Record<string, string> = {};
+      const dirs = new Set<string>();
+      const addDirs = (rel: string) => {
+        const parts = rel.split("/");
+        let acc = "";
+        for (let i = 0; i < parts.length - 1; i++) {
+          acc = acc ? `${acc}/${parts[i]}` : parts[i];
+          dirs.add(acc);
+        }
+      };
+      for (const line of stdout.split("\n")) {
+        if (line.length < 4) continue;
+        const xy = line.slice(0, 2);
+        let path = line.slice(3).trim();
+        // porcelain v1 rename/copy lines: "R  old -> new" — the new path is the change.
+        const arrow = path.indexOf(" -> ");
+        if (arrow >= 0) path = path.slice(arrow + 4);
+        if (!path || path.startsWith('"')) continue; // quoted (special chars): skip
+        files[path] = classifyGitStatus(xy);
+        addDirs(path);
+      }
+      resolve({ files, dirs: [...dirs] });
+    },
+  );
+  return promise;
 }
 
 export function baseName(abs: string): string {

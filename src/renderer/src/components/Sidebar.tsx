@@ -913,10 +913,16 @@ export function Sidebar() {
 
 function FileTreeView({ cwd }: { cwd: string | null }) {
   const loadFileTree = useStore((s) => s.loadFileTree);
+  const loadGitFileStatus = useStore((s) => s.loadGitFileStatus);
   const fileTree = useStore((s) => s.fileTree);
   useEffect(() => {
     if (cwd && !fileTree[treeKey(cwd, "")]?.loaded) loadFileTree(cwd, "");
   }, [cwd, loadFileTree, fileTree]);
+  // Refresh git status each time the tab opens (remount) so file colors stay
+  // current after edits/commits elsewhere.
+  useEffect(() => {
+    if (cwd) void loadGitFileStatus(cwd);
+  }, [cwd, loadGitFileStatus]);
   if (!cwd) return <div className="ft-empty">先在“会话”页打开一个项目。</div>;
   const root = fileTree[treeKey(cwd, "")];
   if (!root?.loaded) return <div className="ft-empty">加载中…</div>;
@@ -933,9 +939,11 @@ function FileRow({ cwd, node, depth }: { cwd: string; node: FileNode; depth: num
   const toggleFolder = useStore((s) => s.toggleFolder);
   const openPreview = useStore((s) => s.openPreview);
   const fileTree = useStore((s) => s.fileTree);
+  const gitStatus = useStore((s) => s.gitFileStatus[cwd]);
   const previewPath = useStore((s) => s.previewPath);
   const entry = node.isDir ? fileTree[treeKey(cwd, node.rel)] : undefined;
   const expanded = !!entry?.expanded;
+  const status = node.isDir ? (gitStatus?.dirs.includes(node.rel) ? "changed" : null) : gitStatus?.files[node.rel];
 
   return (
     <>
@@ -957,7 +965,8 @@ function FileRow({ cwd, node, depth }: { cwd: string; node: FileNode; depth: num
         ) : (
           <span className="ft-ico">{fileIcon(node.ext, false)}</span>
         )}
-        <span className="ft-name">{node.name}</span>
+        <span className={`ft-name${status ? ` ft-git-${status}` : ""}`}>{node.name}</span>
+        {status && <span className={`ft-git-dot ft-git-${status === "changed" ? "dir" : status}`} />}
       </div>
       {node.isDir && expanded && entry?.loaded && entry.nodes.map((c) => <FileRow key={c.rel} cwd={cwd} node={c} depth={depth + 1} />)}
     </>

@@ -365,6 +365,12 @@ export interface FileNode {
   size: number;
 }
 
+/** Working-tree git status for the file tree: rel → status + changed ancestor dirs. */
+export interface GitFileStatus {
+  files: Record<string, string>;
+  dirs: string[];
+}
+
 export interface GitFileEntry {
   path: string;
   status: string;

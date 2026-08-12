@@ -9,6 +9,7 @@ import type {
   CoreUpdateStatus,
   ExtUiRequest,
   FileNode,
+  GitFileStatus,
   McpServerConfig,
   McpState,
   ModelInfo,
@@ -647,6 +648,8 @@ interface PiStore {
 
   // files / preview
   fileTree: Record<string, FileTreeEntry>;
+  /** Working-tree git status per project cwd (for the file tree coloring). */
+  gitFileStatus: Record<string, GitFileStatus>;
   previewPath: string | null;
   previewRoot: string | null;
   previewPayload: PreviewPayload | null;
@@ -728,6 +731,7 @@ interface PiStore {
   togglePreview: () => void;
   togglePreviewExpanded: () => void;
   loadFileTree: (cwd: string, rel?: string) => Promise<void>;
+  loadGitFileStatus: (cwd: string) => Promise<void>;
   toggleFolder: (cwd: string, rel: string) => void;
   openPreview: (abs: string, projectRoot?: string, commitHash?: string) => Promise<void>;
   closePreview: () => void;
@@ -941,6 +945,7 @@ export const useStore = create<PiStore>()((set, get) => ({
   threads: {},
   drafts: {},
   fileTree: {},
+  gitFileStatus: {},
   previewPath: null,
   previewRoot: null,
   previewPayload: null,
@@ -1933,6 +1938,14 @@ export const useStore = create<PiStore>()((set, get) => ({
       set((s) => ({ fileTree: { ...s.fileTree, [key]: { nodes, loaded: true, expanded: s.fileTree[key]?.expanded ?? true } } }));
     } catch (e: any) {
       get().pushToast("error", e?.message || "load tree failed");
+    }
+  },
+  loadGitFileStatus: async (cwd) => {
+    try {
+      const status = await window.pi.app.getGitFileStatus(cwd);
+      set((s) => ({ gitFileStatus: { ...s.gitFileStatus, [cwd]: status } }));
+    } catch {
+      /* non-git project or git unavailable: leave empty */
     }
   },
 
