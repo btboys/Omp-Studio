@@ -36,11 +36,14 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -t ed25519 gitee.com >> ~/.ssh/known_hosts 2>/dev/null
           git remote add gitee git@gitee.com:gson/Omp-Studio.git
-          # Push heads + tags explicitly. No --prune: on a tag-triggered run the
-          # checkout is detached (no local refs/heads/*), and --prune would try
-          # to delete Gitee's current branch, which Gitee rejects. main arrives
-          # via the main-branch run; tags via the tag run.
-          git push gitee '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          # Push only the refs this run was triggered by. Pushing tags on a
+          # main-branch run pre-creates tags that the later tag-triggered run
+          # then fails to force-overwrite (Gitee rejects tag updates).
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            git push gitee '+refs/tags/*:refs/tags/*'
+          else
+            git push gitee '+refs/heads/*:refs/heads/*'
+          fi
 
   # After a GitHub release is published, create/update the matching Gitee
   # release and upload small assets. Gitee free tier caps attachments at
