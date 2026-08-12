@@ -112,6 +112,8 @@ export interface CacheStats {
   cachedTokens: number;
   /** All prompt tokens (cached + fresh), summed. */
   totalInput: number;
+  /** Sum of per-turn monetary cost across the thread (provider unit, e.g. USD). */
+  costTotal: number;
 }
 
 /** One plan-quota line from `omp usage --json` (e.g. "7 Day", "Monthly"). */
@@ -178,7 +180,20 @@ export interface ViewMessage {
   stopReason?: string;
   errorMessage?: string;
   /** Per-turn token usage reported by the provider (input/output counts). */
-  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    /** Monetary cost of this turn (provider unit, typically USD). */
+    cost?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      total?: number;
+    };
+  };
 }
 
 export interface ToolRun {

@@ -2134,20 +2134,27 @@ body.sidebar-resizing * {
   width: 100%;
   z-index: 8;
 }
-.composer-branch-pill {
+.composer-branch-pill,
+.composer-add-files {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   flex-shrink: 0;
   max-width: 180px;
   min-height: 30px;
   padding: 5px 10px;
+  border: none; /* button default is 2px outset black; span has none */
   border-radius: 9px;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 12px;
   font-weight: 560;
   line-height: 1.3;
+}
+.composer-add-files {
+  background: #f5f0e7;
+  color: #8c692d;
 }
 .composer-branch-name {
   overflow: hidden;
@@ -3091,11 +3098,31 @@ body.sidebar-resizing * {
   gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
+  white-space: nowrap;
 }
 .puv-name {
   font-weight: 700;
   color: var(--text-dim);
   margin-right: 4px;
+}
+.puv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.puv-toggle:hover {
+  color: var(--accent);
+}
+.puv-toggle[aria-expanded="false"] .puv-name,
+.puv-toggle:hover .puv-name {
+  color: var(--accent);
 }
 .puv-chip {
   display: inline-flex;

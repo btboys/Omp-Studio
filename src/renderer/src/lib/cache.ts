@@ -10,6 +10,7 @@ export const EMPTY_CACHE_STATS: CacheStats = {
   requestCount: 0,
   cachedTokens: 0,
   totalInput: 0,
+  costTotal: 0,
 };
 
 const RECENT_WINDOW = 10;
@@ -35,16 +36,20 @@ export function cacheStatsOf(messages: ViewMessage[]): CacheStats {
   let fresh = 0;
   let hitCount = 0;
   let requestCount = 0;
+  let costTotal = 0;
   const recent: { cached: number; fresh: number }[] = [];
   for (const m of messages) {
     const t = requestTokens(m);
-    if (!t) continue;
-    cached += t.cached;
-    fresh += t.fresh;
-    requestCount += 1;
-    if (t.cached > 0) hitCount += 1;
-    recent.push(t);
-    if (recent.length > RECENT_WINDOW) recent.shift();
+    if (t) {
+      cached += t.cached;
+      fresh += t.fresh;
+      requestCount += 1;
+      if (t.cached > 0) hitCount += 1;
+      recent.push(t);
+      if (recent.length > RECENT_WINDOW) recent.shift();
+    }
+    const turnCost = m.usage?.cost?.total;
+    if (typeof turnCost === "number" && Number.isFinite(turnCost)) costTotal += turnCost;
   }
   const recentCached = recent.reduce((s, t) => s + t.cached, 0);
   const recentFresh = recent.reduce((s, t) => s + t.fresh, 0);
@@ -55,6 +60,7 @@ export function cacheStatsOf(messages: ViewMessage[]): CacheStats {
     requestCount,
     cachedTokens: cached,
     totalInput: cached + fresh,
+    costTotal,
   };
 }
 
