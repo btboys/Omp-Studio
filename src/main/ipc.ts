@@ -432,6 +432,20 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       else result.push({ cwd, name: cwd.split(/[\\/]/).filter(Boolean).pop() || cwd, threads: [] });
     }
     for (const p of visibleScanned) if (!visiblePinned.includes(p.cwd)) result.push(p);
+    // User drag order (may also contain group names / worktree commonDirs,
+    // which simply never match a project cwd). Unknown projects keep their
+    // scan order and follow the ordered ones (stable sort).
+    const order = getConfig().projectOrder || [];
+    if (order.length) {
+      const idx = new Map(order.map((cwd, i) => [cwd.toLowerCase(), i]));
+      result.sort((a, b) => {
+        const ia = idx.get(a.cwd.toLowerCase());
+        const ib = idx.get(b.cwd.toLowerCase());
+        if (ia === undefined) return ib === undefined ? 0 : 1;
+        if (ib === undefined) return -1;
+        return ia - ib;
+      });
+    }
     return result;
   });
 

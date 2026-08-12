@@ -401,6 +401,30 @@ body.sidebar-resizing * {
 .project.worktree-child .project-head {
   font-weight: 500;
 }
+/* drag & drop indicators for project reordering / regrouping */
+.project-head[draggable="true"] {
+  cursor: grab;
+}
+.project-head[draggable="true"]:active {
+  cursor: grabbing;
+}
+.project-head.drag-before {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+.project-head.drag-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+.project-head.drag-in {
+  background: var(--accent-soft);
+}
+.worktree-members .drag-drop-hint {
+  padding: 10px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}
 .project.worktree-group {
   margin-top: 4px;
 }
@@ -2129,6 +2153,68 @@ body.sidebar-resizing * {
 }
 .project-context-menu button:hover {
   background: #f1f1ed;
+}
+.project-context-sep {
+  height: 1px;
+  margin: 5px 2px;
+  background: var(--border);
+}
+.project-context-label {
+  padding: 4px 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.project-context-menu button.checked {
+  color: var(--accent);
+  font-weight: 600;
+}
+.group-name-pop {
+  position: fixed;
+  z-index: 121;
+  width: 200px;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow-md);
+  -webkit-app-region: no-drag;
+}
+.group-name-pop input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.group-name-pop input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.group-name-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.group-name-pop-actions button {
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.group-name-pop-actions button:first-child {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.group-name-pop-actions button:hover {
+  filter: brightness(0.95);
 }
 .composer-project-pill.open .project-pill-caret {
   transform: rotate(90deg);
@@ -5851,7 +5937,8 @@ mark.hl {
 /* ---- chat composer selection menus (project / slash / at) + context menus ---- */
 :root[data-theme="dark"] .composer-project-menu,
 :root[data-theme="dark"] .slash-menu,
-:root[data-theme="dark"] .project-context-menu {
+:root[data-theme="dark"] .project-context-menu,
+:root[data-theme="dark"] .group-name-pop {
   background: var(--surface);
   box-shadow: var(--shadow-md);
 }

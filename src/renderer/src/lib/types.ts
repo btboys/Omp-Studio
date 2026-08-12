@@ -250,6 +250,10 @@ export interface AppConfig {
   /** Path to the omp (oh-my-pi) binary, or empty string to auto-detect. */
   ompBinPath: string;
   pinnedProjects: string[];
+  /** User drag order of top-level sidebar items: project cwds, group names, and worktree repo commonDirs. */
+  projectOrder: string[];
+  /** User-defined project groups: group name → ordered member project cwds. */
+  projectGroups: Record<string, string[]>;
   archivedProjects: string[];
   archivedThreads: ArchivedThread[];
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };

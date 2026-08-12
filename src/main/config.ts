@@ -38,6 +38,10 @@ export interface AppConfig {
   ompBinPath: string;
   /** Projects the user opened manually; shown pinned at the top of the sidebar. */
   pinnedProjects: string[];
+  /** User drag order of top-level sidebar items: project cwds, group names, and worktree repo commonDirs. */
+  projectOrder: string[];
+  /** User-defined project groups: group name → ordered member project cwds. */
+  projectGroups: Record<string, string[]>;
   /** Project folders hidden from normal navigation until restored in Settings. */
   archivedProjects: string[];
   /** Individual sessions hidden from normal navigation until restored in Settings. */
@@ -100,6 +104,8 @@ export const DEFAULT_DESKTOP_NOTIFY: DesktopNotifyConfig = {
 const DEFAULTS: AppConfig = {
   ompBinPath: "",
   pinnedProjects: [],
+  projectOrder: [],
+  projectGroups: {},
   archivedProjects: [],
   archivedThreads: [],
   theme: "light",

@@ -676,6 +676,13 @@ interface PiStore {
   deleteProject: (cwd: string) => Promise<void>;
   archiveThread: (cwd: string, file: string, title?: string) => Promise<void>;
   restoreThread: (file: string) => Promise<void>;
+  /** Persist the sidebar top-level item order + user group memberships (see Sidebar drag). */
+  applyProjectLayout: (order: string[], groups: Record<string, string[]>) => Promise<void>;
+  /** Move sidebar items (project cwds or worktree container commonDirs) into a group (null = ungrouped), appending to the group. */
+  moveItemsToGroup: (items: string[], group: string | null) => Promise<void>;
+  createProjectGroup: (name: string) => Promise<void>;
+  renameProjectGroup: (oldName: string, newName: string) => Promise<void>;
+  deleteProjectGroup: (name: string) => Promise<void>;
   toggleProject: (cwd: string) => void;
   setActiveProject: (cwd: string) => void;
 
@@ -1280,6 +1287,64 @@ export const useStore = create<PiStore>()((set, get) => ({
     } catch (e: any) {
       get().pushToast("error", "恢复会话失败：" + (e?.message || e));
     }
+  },
+
+  applyProjectLayout: async (order, groups) => {
+    try {
+      const config = await window.pi.app.setConfig({ projectOrder: order, projectGroups: groups });
+      set({ config });
+      await get().refreshProjects();
+    } catch (e: any) {
+      get().pushToast("error", "保存项目布局失败：" + (e?.message || e));
+    }
+  },
+  moveItemsToGroup: async (items, group) => {
+    const moving = new Set(items);
+    const groups = { ...(get().config?.projectGroups || {}) };
+    for (const [name, members] of Object.entries(groups)) {
+      groups[name] = members.filter((m) => !moving.has(m));
+    }
+    let order = (get().config?.projectOrder || []).filter((e) => !moving.has(e));
+    if (group) {
+      const existing = (groups[group] || []).filter((m) => !moving.has(m));
+      groups[group] = [...existing, ...items];
+      if (!order.includes(group)) order.push(group);
+    }
+    await get().applyProjectLayout(order, groups);
+  },
+  createProjectGroup: async (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const groups = { ...(get().config?.projectGroups || {}) };
+    if (groups[trimmed]) {
+      get().pushToast("warning", `分组「${trimmed}」已存在。`);
+      return;
+    }
+    groups[trimmed] = [];
+    const order = [...(get().config?.projectOrder || [])];
+    if (!order.includes(trimmed)) order.push(trimmed);
+    await get().applyProjectLayout(order, groups);
+  },
+  renameProjectGroup: async (oldName, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    const groups = { ...(get().config?.projectGroups || {}) };
+    if (groups[trimmed]) {
+      get().pushToast("warning", `分组「${trimmed}」已存在。`);
+      return;
+    }
+    if (!(oldName in groups)) return;
+    groups[trimmed] = groups[oldName];
+    delete groups[oldName];
+    const order = (get().config?.projectOrder || []).map((e) => (e === oldName ? trimmed : e));
+    await get().applyProjectLayout(order, groups);
+  },
+  deleteProjectGroup: async (name) => {
+    const groups = { ...(get().config?.projectGroups || {}) };
+    if (!(name in groups)) return;
+    delete groups[name];
+    const order = (get().config?.projectOrder || []).filter((e) => e !== name);
+    await get().applyProjectLayout(order, groups);
   },
 
   toggleProject: (cwd) => set((s) => ({ expandedProjects: { ...s.expandedProjects, [cwd]: !s.expandedProjects[cwd] } })),

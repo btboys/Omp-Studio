@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
@@ -69,12 +69,35 @@ export function Sidebar() {
     };
   }, [projectsKey, runningKey]);
 
-  // Group by repo identity. Every git repo becomes a pure container (no threads
+  // User-defined project groups (config). Entries are sidebar item keys: a
+  // project cwd OR a worktree container commonDir (a whole repo container can
+  // live inside a group). Display order comes from projectOrder (top-level
+  // items) with new groups appended.
+  const projectGroups = useStore((s) => s.config?.projectGroups || {});
+  const projectOrder = useStore((s) => s.config?.projectOrder || []);
+  // All cwds claimed by groups: direct entries plus members of grouped containers.
+  const groupedCwds = useMemo(() => {
+    const set = new Set<string>();
+    for (const entries of Object.values(projectGroups)) {
+      for (const entry of entries) {
+        if (projectByCwd.has(entry)) {
+          set.add(entry);
+        } else {
+          for (const p of projects) if (gitInfos[p.cwd]?.commonDir === entry) set.add(p.cwd);
+        }
+      }
+    }
+    return set;
+  }, [projectGroups, projects, gitInfos, projectByCwd]);
+
+  // Group by repo identity (user groups take precedence: only ungrouped
+  // projects participate). Every git repo becomes a pure container (no threads
   // of its own); members — main checkout first, then linked worktrees — are
   // branch children with their own thread lists. Non-git projects stay flat.
   const { flatProjects, worktreeGroups } = useMemo(() => {
     const byRepo: Record<string, string[]> = {};
     for (const p of projects) {
+      if (groupedCwds.has(p.cwd)) continue;
       const common = gitInfos[p.cwd]?.commonDir;
       if (common) (byRepo[common] ||= []).push(p.cwd);
     }
@@ -89,8 +112,178 @@ export function Sidebar() {
       });
       cwds.forEach((c) => grouped.add(c));
     }
-    return { flatProjects: projects.filter((p) => !grouped.has(p.cwd)), worktreeGroups: groups };
-  }, [projects, gitInfos, projectByCwd]);
+    return { flatProjects: projects.filter((p) => !groupedCwds.has(p.cwd) && !grouped.has(p.cwd)), worktreeGroups: groups };
+  }, [projects, gitInfos, projectByCwd, groupedCwds]);
+
+  const repoName = (commonDir: string) => commonDir.replace(/[\\/]+$/, "").split(/[\\/]/).slice(-2, -1)[0] || commonDir;
+
+  type TopItem =
+    | { key: string; kind: "group"; name: string; entries: string[] }
+    | { key: string; kind: "container"; name: string; container: (typeof worktreeGroups)[number] }
+    | { key: string; kind: "project"; project: (typeof projects)[number] };
+
+  // Every repo's container members by commonDir, regardless of grouping
+  // (grouped containers render inside user groups from this map).
+  const allContainers = useMemo(() => {
+    const byKey = new Map<string, (typeof projects)[number][]>();
+    for (const p of projects) {
+      const common = gitInfos[p.cwd]?.commonDir;
+      if (!common) continue;
+      const list = byKey.get(common) || [];
+      list.push(p);
+      list.sort((a, b) => (gitInfos[a.cwd]?.isLinked ? 1 : 0) - (gitInfos[b.cwd]?.isLinked ? 1 : 0)); // main first
+      byKey.set(common, list);
+    }
+    return byKey;
+  }, [projects, gitInfos]);
+
+  // Ordered top-level sidebar items: user groups / worktree containers / flat
+  // projects, in projectOrder, with anything new appended (insertion order).
+  const topItems = useMemo<TopItem[]>(() => {
+    const groupNames = Object.keys(projectGroups);
+    const containerByKey = new Map(worktreeGroups.map((g) => [g.commonDir, g]));
+    const items: TopItem[] = [];
+    const placed = new Set<string>();
+    const appendItem = (key: string) => {
+      if (placed.has(key)) return;
+      if (projectGroups[key]) {
+        const entries = (projectGroups[key] || []).filter((e) => projectByCwd.has(e) || allContainers.has(e));
+        items.push({ key, kind: "group", name: key, entries });
+        placed.add(key);
+      } else if (containerByKey.has(key)) {
+        const container = containerByKey.get(key)!;
+        items.push({ key, kind: "container", name: repoName(key), container });
+        placed.add(key);
+      } else if (projectByCwd.has(key) && !groupedCwds.has(key)) {
+        items.push({ key, kind: "project", project: projectByCwd.get(key)! });
+        placed.add(key);
+      }
+    };
+    for (const key of projectOrder) appendItem(key);
+    for (const name of groupNames) appendItem(name);
+    for (const g of worktreeGroups) appendItem(g.commonDir);
+    for (const p of flatProjects) appendItem(p.cwd);
+    return items;
+  }, [projectOrder, projectGroups, worktreeGroups, flatProjects, projectByCwd, groupedCwds, allContainers]);
+
+  // drag & drop state for project reordering / regrouping
+  type DragItem = { key: string; kind: "project" | "group" | "container" };
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
+  const [dragHover, setDragHover] = useState<{ key: string; pos: "before" | "after" | "in" } | null>(null);
+  const clearDrag = () => {
+    setDragItem(null);
+    setDragHover(null);
+  };
+
+  /** Recompute projectOrder + projectGroups after a drop and persist them.
+   *  Items are project cwds or worktree container commonDirs; both may live at
+   *  the top level or inside a user group (a group can hold a whole container). */
+  const handleDrop = (item: DragItem, target: { key: string; kind: "project" | "group" | "container" }, pos: "before" | "after" | "in") => {
+    const order = [...projectOrder];
+    const groups: Record<string, string[]> = {};
+    for (const [name, members] of Object.entries(projectGroups)) groups[name] = [...members];
+    if (item.kind === "group") {
+      // group containers only reorder at the top level
+      const nextOrder = order.filter((e) => e !== item.key);
+      const i = nextOrder.indexOf(target.key);
+      if (i < 0) nextOrder.push(item.key);
+      else nextOrder.splice(pos === "before" ? i : i + 1, 0, item.key);
+      useStore.getState().applyProjectLayout(nextOrder, groups);
+      return;
+    }
+    // project or worktree container: can join / leave / reorder within groups
+    for (const [name, members] of Object.entries(groups)) groups[name] = members.filter((c) => c !== item.key);
+    let nextOrder = order.filter((e) => e !== item.key);
+    const targetGroup = Object.keys(groups).find((name) => groups[name].includes(target.key));
+    if (target.kind === "group" && pos === "in") {
+      // drop onto a group head/body: move into that group (append)
+      groups[target.key] = [...(groups[target.key] || []), item.key];
+      if (!nextOrder.includes(target.key)) nextOrder.push(target.key);
+    } else if (targetGroup) {
+      // drop onto a member of a user group: move into that group at position
+      const members = groups[targetGroup].filter((c) => c !== item.key);
+      const i = members.indexOf(target.key);
+      members.splice(i < 0 ? members.length : pos === "before" ? i : i + 1, 0, item.key);
+      groups[targetGroup] = members;
+    } else {
+      // drop onto a top-level item: ungroup + reorder at top level
+      const i = nextOrder.indexOf(target.key);
+      if (i < 0) nextOrder.push(item.key);
+      else nextOrder.splice(pos === "before" ? i : i + 1, 0, item.key);
+    }
+    useStore.getState().applyProjectLayout(nextOrder, groups);
+  };
+
+  /** before/after by pointer Y midpoint; group heads always accept projects/containers as "in". */
+  const dropPosFor = (e: ReactDragEvent, targetKind: "project" | "group" | "container"): "before" | "after" | "in" => {
+    if (targetKind === "group" && dragItem?.kind !== "group") return "in";
+    const rect = e.currentTarget.getBoundingClientRect();
+    return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  };
+
+  const headDragProps = (item: DragItem, drop: boolean) => ({
+    draggable: true,
+    onDragStart: (e: ReactDragEvent) => {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", item.key);
+      setDragItem(item);
+    },
+    onDragEnd: clearDrag,
+    ...(drop
+      ? {
+          onDragOver: (e: ReactDragEvent) => {
+            if (!dragItem) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDragHover({ key: item.key, pos: dropPosFor(e, item.kind) });
+          },
+          onDragLeave: () => setDragHover((h) => (h?.key === item.key ? null : h)),
+          onDrop: (e: ReactDragEvent) => {
+            e.preventDefault();
+            if (dragItem) handleDrop(dragItem, item, dropPosFor(e, item.kind));
+            clearDrag();
+          },
+        }
+      : {}),
+  });
+
+  const groupHoverClass = (key: string) => (dragHover?.key === key ? ` drag-${dragHover.pos}` : "");
+
+  /** A worktree repo container: head + worktree members. ctx "group" = inside a user group. */
+  const renderContainer = (commonDir: string, members: (typeof projects)[number][], ctx: "top" | "group") => {
+    const open = !collapsedGroups.has(commonDir);
+    return (
+      <div className={`project worktree-group ${ctx === "group" ? "container-in-group" : ""}`} key={commonDir}>
+        <div
+          className={`project-head group-head ${open ? "open" : ""}${groupHoverClass(commonDir)}`}
+          {...headDragProps({ key: commonDir, kind: "container" }, true)}
+          onClick={() => toggleGroup(commonDir)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setProjectMenu({
+              members: [commonDir],
+              name: repoName(commonDir),
+              x: Math.min(event.clientX, window.innerWidth - 190),
+              y: Math.min(event.clientY, window.innerHeight - 70),
+            });
+          }}
+        >
+          <span className="caret">
+            <ChevronRight size={10} />
+          </span>
+          <Folder size={15} />
+          <span className="pname" title={`${commonDir} · ${members.length} 个分支`}>
+            {repoName(commonDir)}
+          </span>
+          <div className="pactions">
+            <span className="pcount">{members.length}</span>
+          </div>
+        </div>
+        {open && <div className="worktree-members">{members.map((m) => renderProject(m, "none"))}</div>}
+      </div>
+    );
+  };
 
   // collapsed repo containers (default expanded)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -102,12 +295,48 @@ export function Sidebar() {
       return next;
     });
   };
+  // collapsed user-defined project groups (default expanded)
+  const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(new Set());
+  const toggleUserGroup = (name: string) => {
+    setCollapsedUserGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+  /** Context menu for a user group head: rename / delete. */
+  const [groupMenu, setGroupMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+  const groupMenuRef = useRef<HTMLDivElement>(null);
+  useOutsideClose(groupMenuRef, !!groupMenu, () => setGroupMenu(null));
+  // Inline group-name input (Electron has no window.prompt). mode:
+  // create (optionally moving a project in) / rename.
+  const [groupPrompt, setGroupPrompt] = useState<{ mode: "create"; moveCwd?: string; moveAll?: string[]; x: number; y: number } | { mode: "rename"; oldName: string; x: number; y: number } | null>(null);
+  const [groupPromptValue, setGroupPromptValue] = useState("");
+  const groupPromptRef = useRef<HTMLDivElement>(null);
+  useOutsideClose(groupPromptRef, !!groupPrompt, () => setGroupPrompt(null));
+  const submitGroupPrompt = () => {
+    const value = groupPromptValue.trim();
+    const prompt = groupPrompt;
+    setGroupPrompt(null);
+    setGroupPromptValue("");
+    if (!value) return;
+    if (prompt?.mode === "create") {
+      void useStore.getState().createProjectGroup(value).then(() => {
+        if (prompt.moveAll?.length) void useStore.getState().moveItemsToGroup(prompt.moveAll, value);
+        else if (prompt.moveCwd) void useStore.getState().moveItemsToGroup([prompt.moveCwd], value);
+      });
+    } else if (prompt?.mode === "rename" && value !== prompt.oldName) {
+      void useStore.getState().renameProjectGroup(prompt.oldName, value);
+    }
+  };
 
   // total-usage popover (sidebar footer)
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
   const [usageLoading, setUsageLoading] = useState(false);
-  const [projectMenu, setProjectMenu] = useState<{ cwd: string; name: string; x: number; y: number } | null>(null);
+  /** members = worktree-repo container menu (applies group actions to all members). */
+  const [projectMenu, setProjectMenu] = useState<{ cwd?: string; members?: string[]; name: string; x: number; y: number } | null>(null);
   /** Project whose full session list is open in the paginated/searchable modal. */
   const [threadListCwd, setThreadListCwd] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
@@ -116,6 +345,29 @@ export function Sidebar() {
   const resizeRef = useRef<{ startX: number; startWidth: number; width: number } | null>(null);
   useOutsideClose(usageRef, usageOpen, () => setUsageOpen(false));
   useOutsideClose(projectMenuRef, !!projectMenu, () => setProjectMenu(null));
+  // Context menus grew with the group actions: when a menu would overflow the
+  // window bottom/right edge, flip it above/left of the cursor instead.
+  const flipMenu = <T extends { x: number; y: number }>(menu: T, el: HTMLElement | null): T => {
+    if (!el) return menu;
+    const pad = 8;
+    const r = el.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    let { x, y } = menu;
+    if (r.bottom > vh - pad) y = Math.max(pad, menu.y - r.height - pad);
+    if (r.right > vw - pad) x = Math.max(pad, menu.x - r.width - pad);
+    return x === menu.x && y === menu.y ? menu : { ...menu, x, y };
+  };
+  useLayoutEffect(() => {
+    if (!projectMenu || !projectMenuRef.current) return;
+    const fixed = flipMenu(projectMenu, projectMenuRef.current);
+    if (fixed !== projectMenu) setProjectMenu(fixed);
+  }, [projectMenu]);
+  useLayoutEffect(() => {
+    if (!groupMenu || !groupMenuRef.current) return;
+    const fixed = flipMenu(groupMenu, groupMenuRef.current);
+    if (fixed !== groupMenu) setGroupMenu(fixed);
+  }, [groupMenu]);
 
   useEffect(() => {
     if (!sidebarFlashThreadId) return;
@@ -225,14 +477,18 @@ export function Sidebar() {
     void goToThread(cwd, file);
   };
 
-  const renderProject = (p: (typeof projects)[number], nested = false) => {
+  /** ctx: "top" = top-level flat project, "group" = user-group member, "none" = worktree member (no drag). */
+  const renderProject = (p: (typeof projects)[number], ctx: "top" | "group" | "none" = "top") => {
     const open = !!expandedProjects[p.cwd];
     const branch = gitInfos[p.cwd]?.branch;
+    const nested = ctx !== "top";
     const label = nested ? branch || p.name : p.name;
+    const item: DragItem = { key: p.cwd, kind: "project" };
     return (
       <div className={`project ${nested ? "worktree-child" : ""}`} key={p.cwd}>
         <div
-          className={`project-head ${open ? "open" : ""}`}
+          className={`project-head ${open ? "open" : ""}${groupHoverClass(p.cwd)}`}
+          {...(ctx === "none" ? {} : headDragProps(item, true))}
           onClick={() => toggleProject(p.cwd)}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -446,32 +702,73 @@ export function Sidebar() {
             </div>
             <div className="sb-project-list">
               {projects.length === 0 && <div className="ft-empty">尚无项目，点击 + 打开一个文件夹。</div>}
-              {flatProjects.map((p) => renderProject(p))}
-              {worktreeGroups.map((g) => {
-                const open = !collapsedGroups.has(g.commonDir);
-                const repoName = g.commonDir.replace(/[\\/]+$/, "").split(/[\\/]/).slice(-2, -1)[0] || g.commonDir;
-                return (
-                  <div className="project worktree-group" key={g.commonDir}>
-                    <div
-                      className={`project-head group-head ${open ? "open" : ""}`}
-                      onClick={() => toggleGroup(g.commonDir)}
-                    >
-                      <span className="caret">
-                        <ChevronRight size={10} />
-                      </span>
-                      <Folder size={15} />
-                      <span className="pname" title={`${g.commonDir} · ${g.members.length} 个分支`}>
-                        {repoName}
-                      </span>
-                      <div className="pactions">
-                        <span className="pcount">{g.members.length}</span>
+              {topItems.map((item) => {
+                if (item.kind === "group") {
+                  const open = !collapsedUserGroups.has(item.key);
+                  return (
+                    <div className="project worktree-group user-group" key={item.key}>
+                      <div
+                        className={`project-head group-head ${open ? "open" : ""}${groupHoverClass(item.key)}`}
+                        {...headDragProps({ key: item.key, kind: "group" }, true)}
+                        onClick={() => toggleUserGroup(item.key)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setGroupMenu({
+                            name: item.key,
+                            x: Math.min(event.clientX, window.innerWidth - 190),
+                            y: Math.min(event.clientY, window.innerHeight - 70),
+                          });
+                        }}
+                      >
+                        <span className="caret">
+                          <ChevronRight size={10} />
+                        </span>
+                        <Folder size={15} />
+                        <span className="pname" title={`${item.key} · ${item.entries.length} 个条目`}>
+                          {item.name}
+                        </span>
+                        <div className="pactions">
+                          <span className="pcount">{item.entries.length}</span>
+                        </div>
                       </div>
+                      {open && (
+                        <div
+                          className="worktree-members"
+                          onDragOver={(e) => {
+                            if (dragItem && dragItem.kind !== "group") {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                              setDragHover({ key: item.key, pos: "in" });
+                            }
+                          }}
+                          onDragLeave={() => setDragHover((h) => (h?.key === item.key ? null : h))}
+                          onDrop={(e) => {
+                            if (dragItem && dragItem.kind !== "group") {
+                              e.preventDefault();
+                              handleDrop(dragItem, item, "in");
+                            }
+                            clearDrag();
+                          }}
+                        >
+                          {item.entries.length === 0 && (
+                            <div className="ft-empty drag-drop-hint">{language === "zh" ? "将项目或仓库拖到这里加入分组" : "Drag projects or repos here to group them"}</div>
+                          )}
+                          {item.entries.map((entry) => {
+                            const proj = projectByCwd.get(entry);
+                            if (proj) return renderProject(proj, "group");
+                            const members = allContainers.get(entry);
+                            return members?.length ? renderContainer(entry, members, "group") : null;
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {open && (
-                      <div className="worktree-members">{g.members.map((m) => renderProject(m, true))}</div>
-                    )}
-                  </div>
-                );
+                  );
+                }
+                if (item.kind === "container") {
+                  return renderContainer(item.key, item.container.members, "top");
+                }
+                return renderProject(item.project, "top");
               })}
             </div>
           </>
@@ -504,17 +801,109 @@ export function Sidebar() {
           style={{ left: projectMenu.x, top: projectMenu.y }}
           role="menu"
         >
-          <div className="project-context-name" title={projectMenu.cwd}>{projectMenu.name}</div>
+          <div className="project-context-name" title={projectMenu.cwd || (projectMenu.members || []).join("\n")}>{projectMenu.name}</div>
+          {projectMenu.cwd && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                const cwd = projectMenu.cwd!;
+                setProjectMenu(null);
+                archiveProject(cwd);
+              }}
+            >
+              归档项目
+            </button>
+          )}
+          <div className="project-context-sep" />
+          <div className="project-context-label">{language === "zh" ? "移动到分组" : "Move to group"}</div>
+          {Object.keys(projectGroups).map((name) => {
+            const targets = projectMenu.members || [projectMenu.cwd!];
+            const current = targets.every((c) => (projectGroups[name] || []).includes(c));
+            return (
+              <button
+                key={name}
+                role="menuitem"
+                className={current ? "checked" : ""}
+                onClick={() => {
+                  const list = projectMenu.members || [projectMenu.cwd!];
+                  setProjectMenu(null);
+                  if (!current) void useStore.getState().moveItemsToGroup(list, name);
+                }}
+              >
+                {current ? "✓ " : ""}
+                {name}
+              </button>
+            );
+          })}
           <button
             role="menuitem"
             onClick={() => {
-              const cwd = projectMenu.cwd;
+              const list = projectMenu.members || [projectMenu.cwd!];
+              const x = projectMenu.x;
+              const y = projectMenu.y;
               setProjectMenu(null);
-              archiveProject(cwd);
+              setGroupPromptValue("");
+              setGroupPrompt({ mode: "create", moveCwd: list.length === 1 ? list[0] : undefined, moveAll: list.length > 1 ? list : undefined, x, y });
             }}
           >
-            归档项目
+            {language === "zh" ? "新建分组并移入…" : "New group and move here…"}
           </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              const list = projectMenu.members || [projectMenu.cwd!];
+              setProjectMenu(null);
+              void useStore.getState().moveItemsToGroup(list, null);
+            }}
+          >
+            {language === "zh" ? "移到未分组" : "Ungroup"}
+          </button>
+        </div>
+      )}
+      {groupMenu && (
+        <div ref={groupMenuRef} className="project-context-menu" style={{ left: groupMenu.x, top: groupMenu.y }} role="menu">
+          <div className="project-context-name" title={groupMenu.name}>{groupMenu.name}</div>
+          <button
+            role="menuitem"
+            onClick={() => {
+              const name = groupMenu.name;
+              const x = groupMenu.x;
+              const y = groupMenu.y;
+              setGroupMenu(null);
+              setGroupPromptValue(name);
+              setGroupPrompt({ mode: "rename", oldName: name, x, y });
+            }}
+          >
+            {language === "zh" ? "重命名分组" : "Rename group"}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              const name = groupMenu.name;
+              setGroupMenu(null);
+              void useStore.getState().deleteProjectGroup(name);
+            }}
+          >
+            {language === "zh" ? "删除分组" : "Delete group"}
+          </button>
+        </div>
+      )}
+      {groupPrompt && (
+        <div ref={groupPromptRef} className="group-name-pop" style={{ left: groupPrompt.x, top: groupPrompt.y }} role="dialog">
+          <input
+            autoFocus
+            value={groupPromptValue}
+            placeholder={language === "zh" ? "分组名称" : "Group name"}
+            onChange={(e) => setGroupPromptValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitGroupPrompt();
+              else if (e.key === "Escape") setGroupPrompt(null);
+            }}
+          />
+          <div className="group-name-pop-actions">
+            <button onClick={submitGroupPrompt}>{language === "zh" ? "确定" : "OK"}</button>
+            <button onClick={() => setGroupPrompt(null)}>{language === "zh" ? "取消" : "Cancel"}</button>
+          </div>
         </div>
       )}
       {threadListProject && <ThreadListModal project={threadListProject} onClose={() => setThreadListCwd(null)} />}
