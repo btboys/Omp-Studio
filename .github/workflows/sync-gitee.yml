@@ -36,8 +36,10 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -t ed25519 gitee.com >> ~/.ssh/known_hosts 2>/dev/null
           git remote add gitee git@gitee.com:gson/Omp-Studio.git
-          # --mirror mirrors both directions: refs deleted upstream are pruned.
-          git push --mirror gitee
+          # Push heads + tags explicitly (mirror would also push refs/remotes/*
+          # tracking refs, which Gitee rejects as hidden refs). + refspec + --prune
+          # keeps both directions in sync.
+          git push --prune gitee '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
 
   # After a GitHub release is published, create/update the matching Gitee
   # release and upload small assets. Gitee free tier caps attachments at
