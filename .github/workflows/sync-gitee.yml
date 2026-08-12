@@ -97,7 +97,7 @@ jobs:
               -F "tag_name=$TAG" \
               -F "name=$TAG" \
               -F "target_commitish=$COMMITISH" \
-              -F "body=")"
+              -F "body=Omp Studio $TAG")"
             ID="$(echo "$RESP" | jq -r '.id // empty')"
             echo "created release $TAG (id=$ID)"
             [ -n "$ID" ] || { echo "create failed: $RESP"; exit 1; }
