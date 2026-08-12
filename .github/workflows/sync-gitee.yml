@@ -1,0 +1,130 @@
+name: Sync to Gitee
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Sync a specific release tag, e.g. v0.5.14 (default: latest)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Mirror every ref (branches + tags) to gitee.com/gson/Omp-Studio over SSH.
+  mirror-git:
+    name: Mirror git refs to Gitee
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source (full refs)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Push all refs to Gitee
+        env:
+          GITEE_PRIVATE_KEY: ${{ secrets.GITEE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$GITEE_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -t ed25519 gitee.com >> ~/.ssh/known_hosts 2>/dev/null
+          git remote add gitee git@gitee.com:gson/Omp-Studio.git
+          # --mirror mirrors both directions: refs deleted upstream are pruned.
+          git push --mirror gitee
+
+  # After a GitHub release is published, create/update the matching Gitee
+  # release and upload small assets. Gitee free tier caps attachments at
+  # 100MB, so installers (dmg/exe, ~150-170MB) cannot be uploaded: their
+  # GitHub download URLs are written into the release body instead. Gitee
+  # auto-generates <tag>.zip/.tar.gz source archives on every release.
+  release-assets:
+    name: Sync release assets to Gitee
+    needs: mirror-git
+    if: (github.event_name == 'release' && github.event.action == 'published') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="$(curl -s https://api.github.com/repos/btboys/Omp-Studio/releases/latest | jq -r .tag_name)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" --repo btboys/Omp-Studio --dir ./assets
+
+      - name: Create/update Gitee release with assets
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          OWNER_REPO="gson/Omp-Studio"
+          API="https://gitee.com/api/v5/repos/$OWNER_REPO/releases"
+          # Existing release id for this tag (idempotent re-runs), or empty.
+          EXISTING="$(curl -s "$API/tags/$TAG?access_token=$GITEE_TOKEN" | jq -r '.id // empty')"
+          COMMITISH="$(git rev-parse HEAD)"
+          if [ -n "$EXISTING" ]; then
+            echo "release $TAG exists (id=$EXISTING), updating"
+            ID="$EXISTING"
+            curl -s -X PATCH "$API/$ID" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg t "$GITEE_TOKEN" --arg c "$COMMITISH" --arg n "$TAG" '{access_token:$t, tag_name:$n, name:$n, target_commitish:$c}')" >/dev/null
+          else
+            RESP="$(curl -s -X POST "$API" \
+              -F "access_token=$GITEE_TOKEN" \
+              -F "tag_name=$TAG" \
+              -F "name=$TAG" \
+              -F "target_commitish=$COMMITISH" \
+              -F "body=")"
+            ID="$(echo "$RESP" | jq -r '.id // empty')"
+            echo "created release $TAG (id=$ID)"
+            [ -n "$ID" ] || { echo "create failed: $RESP"; exit 1; }
+          fi
+          LINKS=()
+          for f in ./assets/*; do
+            [ -f "$f" ] || continue
+            NAME="$(basename "$f")"
+            SIZE="$(du -k "$f" | cut -f1)"
+            if [ "$SIZE" -ge 100000 ]; then
+              # Over the 100MB attachment cap: reference GitHub instead.
+              echo "$NAME ($((SIZE / 1024))MB) too large for Gitee, linking GitHub"
+              LINKS+=("https://github.com/btboys/Omp-Studio/releases/download/$TAG/$NAME")
+              continue
+            fi
+            echo "uploading $NAME (${SIZE}KB)..."
+            OUT="$(curl -s -X POST "$API/$ID/attach_files" \
+              -F "access_token=$GITEE_TOKEN" \
+              -F "file=@$f")"
+            if echo "$OUT" | jq -e '.id' >/dev/null 2>&1; then
+              echo "  ok"
+            else
+              echo "  upload failed: $(echo "$OUT" | jq -r '.message // .' | head -c 200)"
+              LINKS+=("https://github.com/btboys/Omp-Studio/releases/download/$TAG/$NAME")
+            fi
+          done
+          if [ "${#LINKS[@]}" -gt 0 ]; then
+            BODY="$(printf 'Download: %s\n' "${LINKS[@]}")"
+            curl -s -X PATCH "$API/$ID" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg t "$GITEE_TOKEN" --arg b "$BODY" --arg n "$TAG" '{access_token:$t, name:$n, tag_name:$n, body:$b}')" >/dev/null
+            echo "GitHub download links written to release body"
+          fi
