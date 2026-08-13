@@ -180,7 +180,6 @@ const CONFIG_GROUPS: { id: OmpConfigSectionId; keys: string[] }[] = [
       "images.describeForTextModels",
       "modelRoleStorage",
       "advisor.enabled",
-      "advisor.subagents",
       "advisor.syncBacklog",
       "prewalk.enabled",
       "retry.maxRetries",

@@ -151,7 +151,6 @@ const ZH_DESC: Record<string, string> = {
   "images.describeForTextModels": "当图片附加到不支持视觉的模型时，保存到 local:// 下并用视觉模型注入描述，而不是丢弃它",
   modelRoleStorage: "模型选择器角色分配保存的位置",
   "advisor.enabled": "配对第二个模型（分配 'advisor' 角色）被动审查每一轮并注入笔记",
-  "advisor.subagents": "对派生的 task/eval 子 agent 也启用 advisor",
   "advisor.syncBacklog": "advisor 落后该轮数时暂停主 agent 最多 30 秒。Off 关闭追赶延迟",
   "prewalk.enabled": "在活动模型上开始，计划提示的待办列表出现后、首次编辑/写入时切换到快速/廉价模型（默认 'smol' 角色）——强模型规划、提交待办并开始实现后再交接。可用 --prewalk / --no-prewalk 按会话覆盖",
   "retry.maxRetries": "API 错误时的最大重试次数",
