@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const mod = await import(`${pathToFileURL(resolve("src/renderer/src/lib/todos.ts")).href}?test=${Date.now()}`);
-const { replayTodoOps, groupTodosByPhase } = mod;
+const { replayTodoOps, groupTodosByPhase, todosFromPhases } = mod;
 
 // init creates the list in order, phase by phase; first pending auto-promotes
 assert.deepEqual(
@@ -192,6 +192,74 @@ assert.deepEqual(
     },
   ],
   "groupTodosByPhase must keep first-seen phase order and collect members",
+);
+
+
+// full-state todos without phase default to "Tasks" (matches omp toolResult details)
+assert.deepEqual(
+  replayTodoOps([
+    {
+      todos: [
+        { content: "one", status: "in_progress" },
+        { content: "two", status: "pending" },
+        { content: "three", status: "pending" },
+      ],
+      merged: false,
+    },
+  ]),
+  [
+    { done: false, text: "one", phase: "Tasks", status: "in_progress" },
+    { done: false, text: "two", phase: "Tasks", status: "pending" },
+    { done: false, text: "three", phase: "Tasks", status: "pending" },
+  ],
+  "full-state todos without phase must default to Tasks",
+);
+
+// todosFromPhases maps toolResult.details.phases (the tree Image 2 expects)
+assert.deepEqual(
+  todosFromPhases([
+    {
+      name: "Tasks",
+      tasks: [
+        { content: "useInvoiceListPage.js: 新增删除关联凭证逻辑", status: "in_progress" },
+        { content: "IncomeInvoice/OutputInvoice: 批量操作菜单加入口", status: "pending" },
+        { content: "自检与简要验证", status: "pending" },
+      ],
+    },
+  ]),
+  [
+    { done: false, text: "useInvoiceListPage.js: 新增删除关联凭证逻辑", phase: "Tasks", status: "in_progress" },
+    { done: false, text: "IncomeInvoice/OutputInvoice: 批量操作菜单加入口", phase: "Tasks", status: "pending" },
+    { done: false, text: "自检与简要验证", phase: "Tasks", status: "pending" },
+  ],
+  "todosFromPhases must flatten details.phases with status mapping",
+);
+
+assert.deepEqual(todosFromPhases(null), [], "todosFromPhases(null) must be empty");
+assert.deepEqual(todosFromPhases([]), [], "todosFromPhases([]) must be empty");
+
+assert.deepEqual(
+  groupTodosByPhase(
+    todosFromPhases([
+      {
+        name: "Tasks",
+        tasks: [
+          { content: "a", status: "in_progress" },
+          { content: "b", status: "pending" },
+        ],
+      },
+    ]),
+  ),
+  [
+    {
+      phase: "Tasks",
+      items: [
+        { done: false, text: "a", phase: "Tasks", status: "in_progress" },
+        { done: false, text: "b", phase: "Tasks", status: "pending" },
+      ],
+    },
+  ],
+  "phases from details must group under Tasks for the panel header",
 );
 
 console.log("todo replay tests passed");
