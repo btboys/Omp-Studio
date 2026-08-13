@@ -164,9 +164,10 @@ export function ProviderAuthPanel({ language, liveProviders, onAuthChanged }: Pr
   const visible = useMemo(() => {
     if (!providers) return [];
     const q = filter.trim().toLowerCase();
-    if (!q) return providers;
-    return providers.filter((p) => p.id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
-  }, [providers, filter]);
+    const filtered = q ? providers.filter((p) => p.id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)) : providers;
+    // Signed-in providers first
+    return [...filtered].sort((a, b) => (liveProviders[b.id] ? 1 : 0) - (liveProviders[a.id] ? 1 : 0));
+  }, [providers, filter, liveProviders]);
 
   return (
     <div className="set-card">
