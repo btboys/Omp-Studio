@@ -219,6 +219,7 @@ const CONFIG_GROUPS: { id: OmpConfigSectionId; keys: string[] }[] = [
     id: "providers",
     keys: [
       "disabledProviders",
+      "web_search.enabled",
       "providers.webSearchOrder",
       "providers.webSearchExclude",
       "providers.webSearchTimeoutSeconds",

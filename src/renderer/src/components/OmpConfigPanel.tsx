@@ -182,6 +182,7 @@ const ZH_DESC: Record<string, string> = {
   "hindsight.mentalModelsEnabled": "启动时把精选的 reflect 摘要（思维模型）读入开发者指引。只加载库中已有模型，不写入。配合 hindsight.mentalModelAutoSeed 可自动创建内置种子集",
   // providers
   disabledProviders: "禁用的提供商列表（其模型不会出现在选择器中）",
+  "web_search.enabled": "启用 web_search 工具获取实时网页结果。Console Go 等 Responses 接口会把 web_search 当保留名，冲突时可先关掉",
   "providers.webSearchOrder": "web_search 工具的优先提供商列表；未列出的提供商保持默认顺序",
   "providers.webSearchExclude": "web_search 绝不使用的提供商，即使作为回退",
   "providers.webSearchTimeoutSeconds": "每个提供商搜索传输的硬超时秒数，超时后 web_search 进入下一个回退（最大 300）",

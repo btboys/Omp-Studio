@@ -253,6 +253,8 @@ export interface ThreadState {
   planMode?: boolean;
   /** text injected by an extension via set_editor_text */
   pendingEditorText?: string;
+  /** Custom answer from ask "Other"; auto-sent to the follow-up ui.editor. */
+  pendingAskCustomInput?: string;
   /** Follow-up queued via Enter while streaming; delivered when the agent settles. */
   pendingFollowUp?: PendingFollowUp | null;
   /** Status lines pushed by extensions via setStatus (e.g. usage cache stats), keyed by statusKey. */

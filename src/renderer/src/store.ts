@@ -1564,6 +1564,7 @@ export const useStore = create<PiStore>()((set, get) => ({
             permission: res.permission || t.permission,
             advisory: res.advisory ?? prev?.advisory ?? false,
             pendingEditorText: prev?.pendingEditorText,
+            pendingAskCustomInput: prev?.pendingAskCustomInput,
             planMode: prev?.planMode ?? !!get().config?.threadPlanModes?.[res.sessionFile || t.sessionFile || id],
           };
           const threads: Record<string, ThreadState> = { ...s.threads, [id]: merged };
@@ -2184,6 +2185,22 @@ export const useStore = create<PiStore>()((set, get) => ({
       });
       return;
     }
+    // ask "Other (type your own)" already collected text in ExtUiPromptCard; omp
+    // still follows with ui.editor/input. Auto-answer that follow-up so the user
+    // is not prompted twice for the same custom answer.
+    if (m === "editor" || m === "input") {
+      const pending = get().threads[threadId]?.pendingAskCustomInput;
+      if (typeof pending === "string" && pending.length > 0) {
+        set((s) => {
+          const t = s.threads[threadId];
+          if (!t) return s;
+          return { threads: { ...s.threads, [threadId]: { ...t, pendingAskCustomInput: undefined } } };
+        });
+        window.pi.thread.extuiResponse({ threadId, id: req.id, payload: { value: pending } }).catch(() => {});
+        return;
+      }
+    }
+
     // dialog methods -> queue
     if (m === "select" || m === "confirm" || m === "input" || m === "editor") {
       set((s) => ({

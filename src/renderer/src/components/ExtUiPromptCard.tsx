@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
-import type { ContentBlock, ViewMessage } from "../lib/types";
+import type { ContentBlock, ExtUiRequest, ViewMessage } from "../lib/types";
 import { Check, Close, Shield } from "./icons";
 
 const OTHER_OPTION = "Other (type your own)";
@@ -133,25 +133,38 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
   const toolRuns = useStore((s) => s.threads[threadId]?.toolRuns);
   const request = item?.request;
 
-  // Local multi-select mirror. omp re-prompts after every toggle; we keep the
-  // checked set across those replacements and reconcile with title "(N selected)".
+  // Local multi-select mirror. omp re-prompts after every toggle; respondExtUi
+  // removes the current request from the queue before the next one arrives, so
+  // we must NOT wipe selection on that brief null gap or checkboxes never stick.
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
   const [answerLog, setAnswerLog] = useState<Record<number, { title: string; selected: string[] }>>({});
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [customDraft, setCustomDraft] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
-  const pendingToggleRef = useRef<string | null>(null);
+  const [stickyRequest, setStickyRequest] = useState<ExtUiRequest | null>(null);
+  const [awaitingReprompt, setAwaitingReprompt] = useState(false);
   const questionKeyRef = useRef<string>("");
 
-  const titleParts = String(request?.title || "omp extension").split(/\r?\n/);
+  // Keep showing the last select/confirm card while omp re-arms the next prompt.
+  useEffect(() => {
+    if (request) {
+      setStickyRequest(request);
+      return;
+    }
+    if (!awaitingReprompt) setStickyRequest(null);
+  }, [request, awaitingReprompt]);
+
+  const activeRequest = request || (awaitingReprompt ? stickyRequest : null);
+
+  const titleParts = String(activeRequest?.title || "omp extension").split(/\r?\n/);
   const rawTitle = titleParts.shift() || "omp extension";
-  const detail = [...titleParts, request?.message || ""].filter(Boolean).join("\n");
+  const detail = [...titleParts, activeRequest?.message || ""].filter(Boolean).join("\n");
   const askTitle = useMemo(() => parseAskSelectTitle(rawTitle), [rawTitle]);
   const askArgs = useMemo(() => latestAskArgs(threadMessages, streaming, toolRuns), [threadMessages, streaming, toolRuns]);
   const askArgMeta = useMemo(() => askMetaFromArgs(askArgs), [askArgs]);
 
   const selectOptions = useMemo<SelectOptionView[]>(() => {
-    const rawOptions = Array.isArray(request?.options) ? request!.options : [];
+    const rawOptions = Array.isArray(activeRequest?.options) ? activeRequest!.options : [];
     return rawOptions.map((raw) => {
       const value = optionLabelOf(raw);
       const label = stripRecommendedSuffix(value);
@@ -163,10 +176,10 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
         recommended: value.endsWith(RECOMMENDED_SUFFIX),
       };
     });
-  }, [request?.options, askArgMeta.descriptions]);
+  }, [activeRequest?.options, askArgMeta.descriptions]);
 
   const optionLabels = useMemo(() => selectOptions.map((o) => o.value), [selectOptions]);
-  const askMode = request?.method === "select" && isAskSelect(optionLabels, rawTitle);
+  const askMode = activeRequest?.method === "select" && isAskSelect(optionLabels, rawTitle);
   const doneOption = optionLabels.find(isDoneSelectingOption) || DONE_SELECTING_FALLBACK;
   const choiceOptions = selectOptions.filter((opt) => !isDoneSelectingOption(opt.value) && opt.value !== OTHER_OPTION);
 
@@ -181,57 +194,64 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
     (multiFromAskArgs ||
       askTitle.selectedCount > 0 ||
       optionLabels.some(isDoneSelectingOption) ||
-      multiSelected.length > 0);
+      multiSelected.length > 0 ||
+      awaitingReprompt);
 
   useEffect(() => {
-    if (!request || request.method !== "select" || !askMode) {
+    // respondExtUi dequeues the current prompt before omp sends the next one.
+    // Keep local multi-select state across that gap.
+    if (!activeRequest || activeRequest.method !== "select" || !askMode) {
+      if (awaitingReprompt) return;
       setMultiSelected([]);
       setAnswerLog({});
       setReviewIndex(null);
       setCustomOpen(false);
       setCustomDraft("");
-      pendingToggleRef.current = null;
       questionKeyRef.current = "";
       return;
     }
 
     const questionKey = `${askTitle.questionIndex ?? 0}:${askTitle.displayTitle}`;
-    const questionChanged = questionKeyRef.current !== questionKey;
+    const questionChanged = questionKeyRef.current !== "" && questionKeyRef.current !== questionKey;
     questionKeyRef.current = questionKey;
     if (questionChanged) {
+      setMultiSelected([]);
       setReviewIndex(null);
       setCustomOpen(false);
       setCustomDraft("");
+      setAwaitingReprompt(false);
     }
 
-    setMultiSelected((prev) => {
-      if (askTitle.selectedCount <= 0) return [];
-      if (prev.length === askTitle.selectedCount && !questionChanged) return prev;
-      const pending = pendingToggleRef.current;
-      if (!pending) return questionChanged ? [] : prev;
-      if (askTitle.selectedCount > prev.length && !prev.includes(pending)) return [...prev, pending];
-      if (askTitle.selectedCount < prev.length && prev.includes(pending)) return prev.filter((x) => x !== pending);
-      return prev.length === askTitle.selectedCount ? prev : prev.slice(0, askTitle.selectedCount);
-    });
-  }, [request?.id, askMode, askTitle.displayTitle, askTitle.selectedCount, askTitle.questionIndex]);
+    // Fresh prompt for this question arrived — stop sticky gap handling.
+    if (request) setAwaitingReprompt(false);
+  }, [activeRequest?.id, request?.id, askMode, askTitle.displayTitle, askTitle.questionIndex, awaitingReprompt]);
 
   useEffect(() => {
     if (!request?.timeout) return;
     // Keep the card open while the user is mid multi-select; omp re-arms its
     // own timeout on every toggle response.
-    if (askMode && multiSelect && multiSelected.length > 0) return;
+    if (askMode && multiSelect && (multiSelected.length > 0 || awaitingReprompt)) return;
     const timer = setTimeout(
       () => respond(threadId, request.id, request.method === "confirm" ? { confirmed: false } : { cancelled: true, timedOut: true }),
       request.timeout,
     );
     return () => clearTimeout(timer);
-  }, [request?.id, request?.method, request?.timeout, respond, threadId, askMode, multiSelect, multiSelected.length]);
+  }, [request?.id, request?.method, request?.timeout, respond, threadId, askMode, multiSelect, multiSelected.length, awaitingReprompt]);
 
-  if (!request) return null;
+  if (!activeRequest) return null;
 
-  const cancel = () =>
+  // While sticky across the respond→reprompt gap, keep UI visible but ignore
+  // extra clicks until the live request returns.
+  const interactionLocked = !request;
+
+  const cancel = () => {
+    if (!request) return;
+    setAwaitingReprompt(false);
+    setStickyRequest(null);
     respond(threadId, request.id, request.method === "confirm" ? { confirmed: false } : { cancelled: true });
+  };
   const autoApprove = () => {
+    if (!request) return;
     setPermission(threadId, "auto");
     if (request.method === "confirm") {
       respond(threadId, request.id, { confirmed: true });
@@ -246,26 +266,28 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
   const totalQuestions = askTitle.questionTotal ?? 1;
   const viewingIndex = reviewIndex ?? currentQuestion;
   const isReviewing = reviewIndex !== null && reviewIndex !== currentQuestion;
-  const canAdvance = multiSelected.length > 0;
+  const canAdvance = multiSelected.length > 0 && !interactionLocked;
   const isLastQuestion = totalQuestions <= 1 || currentQuestion >= totalQuestions;
   const nextLabel = language === "zh" ? (isLastQuestion ? "提交" : "下一题") : isLastQuestion ? "Submit" : "Next";
 
-  const respondOption = (option: string) => {
-    pendingToggleRef.current = stripRecommendedSuffix(option);
-    respond(threadId, request.id, { value: option });
+  const respondLive = (payload: Record<string, unknown>, awaitNext: boolean) => {
+    if (!request) return;
+    setAwaitingReprompt(awaitNext);
+    respond(threadId, request.id, payload);
   };
 
   const toggleMulti = (option: string) => {
-    if (isReviewing) return;
+    if (isReviewing || interactionLocked) return;
     const bare = stripRecommendedSuffix(option);
     setMultiSelected((prev) => (prev.includes(bare) ? prev.filter((x) => x !== bare) : [...prev, bare]));
-    respondOption(option);
+    // omp multi-loop toggles on each returned value and re-prompts.
+    respondLive({ value: option }, true);
   };
 
   const chooseSingle = (option: string) => {
-    if (isReviewing) return;
-    pendingToggleRef.current = stripRecommendedSuffix(option);
-    respond(threadId, request.id, { value: option });
+    if (isReviewing || interactionLocked) return;
+    // Single-select finishes the prompt; multi may re-prompt with "(1 selected)".
+    respondLive({ value: option }, multiFromAskArgs || multiSelect);
   };
 
   const advanceMulti = () => {
@@ -276,18 +298,37 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
     }));
     // "Done selecting" breaks omp's multi loop even when omitted from options
     // (multi-question allowForward path), then the ask loop advances.
-    respond(threadId, request.id, { value: doneOption });
+    respondLive({ value: doneOption }, !isLastQuestion);
+    if (!isLastQuestion) setMultiSelected([]);
   };
 
   const openOther = () => {
-    if (isReviewing) return;
+    if (isReviewing || interactionLocked) return;
     setCustomOpen(true);
   };
 
   const submitOther = () => {
-    if (!customDraft.trim()) return;
-    respond(threadId, request.id, { value: OTHER_OPTION });
+    const text = customDraft.trim();
+    if (!text || interactionLocked) return;
+    // omp always follows OTHER with ui.editor(). Stash the already-typed answer
+    // so handleExtUi can auto-respond to that editor and skip the second dialog.
+    // Use pendingAskCustomInput — NOT pendingEditorText (Composer injects that).
+    useStore.setState((s) => {
+      const t = s.threads[threadId];
+      if (!t) return s;
+      return { threads: { ...s.threads, [threadId]: { ...t, pendingAskCustomInput: text } } };
+    });
+    setAnswerLog((prev) => ({
+      ...prev,
+      [currentQuestion]: {
+        title: askTitle.displayTitle,
+        selected: [...multiSelected, language === "zh" ? `其他：${text}` : `Other: ${text}`],
+      },
+    }));
     setCustomOpen(false);
+    setCustomDraft("");
+    // Don't sticky-await: editor is answered invisibly; next select remounts the card.
+    respondLive({ value: OTHER_OPTION }, false);
   };
 
   const renderOptionBody = (option: SelectOptionView) => (
@@ -299,9 +340,9 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
 
   return (
     <div
-      className={`extui-card ${request.method} ${isSandbox ? "sandbox-card" : ""} ${askMode ? "ask-card" : ""}`}
+      className={`extui-card ${activeRequest.method} ${isSandbox ? "sandbox-card" : ""} ${askMode ? "ask-card" : ""}`}
       role="alertdialog"
-      aria-labelledby={`extui-title-${request.id}`}
+      aria-labelledby={`extui-title-${activeRequest.id}`}
     >
       <div className="extui-card-head">
         <div className="extui-card-heading">
@@ -324,7 +365,7 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
                   : ` · ${multiSelected.length} selected`
                 : ""}
             </div>
-            <div className="extui-card-title" id={`extui-title-${request.id}`}>
+            <div className="extui-card-title" id={`extui-title-${activeRequest.id}`}>
               {askTitle.displayTitle}
             </div>
           </div>
@@ -374,12 +415,16 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
         </div>
       )}
 
-      {request.method === "confirm" ? (
+      {activeRequest.method === "confirm" ? (
         <div className="extui-card-actions">
-          <button className="btn" onClick={cancel}>
+          <button className="btn" onClick={cancel} disabled={interactionLocked}>
             {language === "zh" ? "拒绝" : "Deny"}
           </button>
-          <button className="btn primary" onClick={() => respond(threadId, request.id, { confirmed: true })}>
+          <button
+            className="btn primary"
+            disabled={interactionLocked}
+            onClick={() => request && respond(threadId, request.id, { confirmed: true })}
+          >
             {language === "zh" ? "仅允许本次" : "Allow once"}
           </button>
         </div>
@@ -434,6 +479,7 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
                   type="button"
                   className={`${checked ? "selected" : ""} ${option.recommended ? "recommended" : ""}`}
                   onClick={() => toggleMulti(option.value)}
+                  disabled={interactionLocked}
                 >
                   <span className={`extui-check ${checked ? "checked" : ""}`} aria-hidden="true">
                     {checked ? <Check size={10} /> : null}
@@ -443,7 +489,7 @@ export function ExtUiPromptCard({ threadId }: { threadId: string }) {
                 </button>
               );
             })}
-            <button type="button" className="other" onClick={openOther}>
+            <button type="button" className="other" onClick={openOther} disabled={interactionLocked}>
               <span className="extui-check" aria-hidden="true" />
               <span className="extui-option-text">
                 <span className="extui-option-label">{language === "zh" ? "其他（自己输入）" : OTHER_OPTION}</span>
