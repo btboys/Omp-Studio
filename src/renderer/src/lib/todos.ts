@@ -123,6 +123,32 @@ export function groupTodosByPhase(items: TodoItem[]): TodoPhaseGroup[] {
 }
 
 /**
+ * Convert omp todo toolResult `details.phases` into panel items. This is the
+ * richest source: tool call args often omit `phase`, while the result details
+ * always carry the phase tree (e.g. "Tasks") that the panel should show.
+ */
+export function todosFromPhases(
+  phases: { name?: string; tasks?: { content?: string; status?: string }[] }[] | null | undefined,
+): TodoItem[] {
+  if (!Array.isArray(phases) || phases.length === 0) return [];
+  const items: TodoItem[] = [];
+  for (const phase of phases) {
+    const phaseName = typeof phase?.name === "string" ? phase.name : "";
+    for (const task of phase?.tasks || []) {
+      const status = mapTodoStatus(task?.status);
+      const item: TodoItem = {
+        done: status === "done",
+        text: task?.content || "",
+        status,
+      };
+      if (phaseName) item.phase = phaseName;
+      items.push(item);
+    }
+  }
+  return items;
+}
+
+/**
  * Replay a session's `todo` tool calls in order to reconstruct the current
  * list. omp's todo tool is stateful (init/start/done/drop/block/unblock/rm/
  * append/view), and each toolCall block only carries one op's payload, so the
@@ -138,13 +164,16 @@ export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
   if (latestTodos) {
     return latestTodos.map((t) => {
       const status = mapTodoStatus(t.status);
-      const item: TodoItem = {
+      // omp stores Cursor-style full-state todos under phase "Tasks" even when
+      // the tool-call args omit `phase`. Default so the panel matches the
+      // toolResult details tree (e.g. "Tasks · 0/3").
+      const phase = t.phase || "Tasks";
+      return {
         done: status === "done",
         text: t.content || "",
         status,
+        phase,
       };
-      if (t.phase) item.phase = t.phase;
-      return item;
     });
   }
 
