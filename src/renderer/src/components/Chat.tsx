@@ -2,15 +2,23 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import { getDisplayThreadTitle, parseSkillBlock, useStore } from "../store";
 import { Markdown } from "../lib/markdown";
 import { formatClock, formatTokens } from "../lib/format";
-import { collectFileArtifacts } from "../lib/artifacts";
+import { collectFileArtifacts, type FileArtifact } from "../lib/artifacts";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
-import { groupTodosByPhase, replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
+import { groupTodosByPhase, replayTodoOps, todosFromPhases, type TodoItem, type TodoOp } from "../lib/todos";
 import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/subagents";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
 import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, ChevronUp, ChevronDown, Close, Undo, Search, Share } from "./icons";
 import appIconUrl from "../../../../resources/icon.png";
+/** Default user avatar SVG — consistent person silhouette, no emoji. */
+const DEFAULT_USER_AVATAR = (
+  <svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" className="msg-user-avatar-svg">
+    <circle cx="13" cy="10" r="4.5" fill="currentColor"/>
+    <path d="M5.5 22c0-4.14 3.36-7.5 7.5-7.5s7.5 3.36 7.5 7.5" fill="currentColor"/>
+  </svg>
+);
+
 
 export type { TodoItem } from "../lib/todos";
 
@@ -244,12 +252,31 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
   }, [userRails, thread?.messages.length, count]);
 
   // Current todos = the newest assistant message (committed or streaming) that
-  // carries one. Two sources: GFM checkbox lines in the message text (Claude
-  // Code-style), or `todo` tool calls — which are stateful, so their ops are
-  // replayed in session order to derive the current list. The owning message's
-  // todo lines are stripped from the stream and shown in the collapsible panel.
+  // carries one. Sources, in priority order:
+  // 1. todo toolResult `details.phases` (richest: includes phase names like "Tasks")
+  // 2. GFM checkbox lines in the message text (Claude Code-style)
+  // 3. replay of `todo` tool-call args (stateful ops / full-state todos)
+  // The owning message's todo lines are stripped from the stream and shown in
+  // the collapsible panel.
   const todoInfo = useMemo<TodoInfo | null>(() => {
     const msgs = thread ? [...thread.messages, ...(streaming ? [streaming] : [])] : [];
+    const toolRuns = thread?.toolRuns || {};
+
+    // Prefer the latest todo tool result details.phases — tool-call args often
+    // omit `phase`, while the result always carries the phase tree the panel
+    // should show (e.g. "Tasks · 0/3").
+    let fromDetails: TodoInfo | null = null;
+    for (const m of msgs) {
+      if (m.role !== "assistant") continue;
+      for (const b of m.blocks || []) {
+        if (b.type !== "toolCall" || b.name !== "todo") continue;
+        const phases = toolRuns[b.id]?.details?.phases;
+        const items = todosFromPhases(phases);
+        if (items.length) fromDetails = { sourceKey: m.key, items };
+      }
+    }
+    if (fromDetails) return fromDetails;
+
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role !== "assistant") continue;
@@ -272,7 +299,7 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
       if (items.length) return { sourceKey: m.key, items };
     }
     return null;
-  }, [thread?.messages, streaming]);
+  }, [thread?.messages, streaming, thread?.toolRuns]);
 
   // Current subagent batch = the newest assistant message (committed or
   // streaming) whose `task` tool calls have live runs. Shown in a collapsible
@@ -747,6 +774,88 @@ const MessageGroup = memo(MessageGroupInner, (prev, next) => {
   return true;
 });
 
+/** Collapsible grouped artifact tree: edit artifacts (writes/edits) and context artifacts (reads). */
+function ArtifactSection({
+  editArtifacts,
+  contextArtifacts,
+  language,
+  openArtifact,
+}: {
+  editArtifacts: FileArtifact[];
+  contextArtifacts: FileArtifact[];
+  language: string;
+  openArtifact: (a: FileArtifact) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+  const total = editArtifacts.length + contextArtifacts.length;
+
+  return (
+    <section className="msg-artifacts" aria-label={language === "zh" ? "文件产物" : "File outputs"}>
+      <div className="msg-artifacts-head" onClick={() => setCollapsed((v) => !v)} style={{ cursor: "pointer" }}>
+        <span className="msg-artifacts-toggle" aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+        <Files size={13} />
+        <span>{language === "zh" ? "文件产物" : "File outputs"}</span>
+        <span className="msg-artifacts-count">{total}</span>
+      </div>
+      {!collapsed && (
+        <div className="msg-artifacts-tree">
+          {editArtifacts.length > 0 && (
+            <div className="msg-artifacts-group">
+              <div className="msg-artifacts-group-head">
+                <span className="msg-artifacts-group-label">{language === "zh" ? "编辑产物" : "Edits"}</span>
+                <span className="msg-artifacts-group-count">{editArtifacts.length}</span>
+              </div>
+              {editArtifacts.map((a) => (
+                <ArtifactRow key={a.path.toLowerCase()} artifact={a} language={language} openArtifact={openArtifact} />
+              ))}
+            </div>
+          )}
+          {contextArtifacts.length > 0 && (
+            <div className="msg-artifacts-group">
+              <div className="msg-artifacts-group-head">
+                <span className="msg-artifacts-group-label">{language === "zh" ? "上下文读取" : "Context reads"}</span>
+                <span className="msg-artifacts-group-count">{contextArtifacts.length}</span>
+              </div>
+              {contextArtifacts.map((a) => (
+                <ArtifactRow key={a.path.toLowerCase()} artifact={a} language={language} openArtifact={openArtifact} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ArtifactRow({ artifact, language, openArtifact }: { artifact: FileArtifact; language: string; openArtifact: (a: FileArtifact) => void }) {
+  return (
+    <button
+      className="msg-artifact"
+      title={`${language === "zh" ? "在 Omp Studio 中查看" : "View in Omp Studio"} · ${artifact.path}`}
+      onClick={() => void openArtifact(artifact)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void window.pi.app.showFileContextMenu(artifact.path);
+      }}
+    >
+      <span className="msg-artifact-icon" aria-hidden="true">
+        {artifact.ext ? artifact.ext.slice(1, 5).toUpperCase() : <Files size={14} />}
+      </span>
+      <span className="msg-artifact-copy">
+        <span className="msg-artifact-name">{artifact.name}</span>
+        <span className="msg-artifact-path">{artifact.displayPath}</span>
+      </span>
+      <span className={`msg-artifact-action ${artifact.action}`}>
+        {language === "zh"
+          ? artifact.action === "created" ? "已生成" : "已更新"
+          : artifact.action === "created" ? "Created" : "Updated"}
+      </span>
+      <PanelRight size={14} className="msg-artifact-open" />
+    </button>
+  );
+}
+
 function MessageGroupInner({
   threadId,
   group,
@@ -776,6 +885,7 @@ function MessageGroupInner({
   const undoLastTurn = useStore((s) => s.undoLastTurn);
   const cwd = useStore((s) => s.threads[threadId]?.cwd || "");
   const language = useStore((s) => s.config?.language || "en");
+  const userAvatar = useStore((s) => s.config?.userAvatar);
   const showTokenUsage = useStore((s) => s.showTokenUsage);
   const q = (searchQuery || "").trim().toLowerCase();
   const highlightFor = (text: string) => (q && text.toLowerCase().includes(q) ? searchQuery : undefined);
@@ -882,10 +992,12 @@ function MessageGroupInner({
           </div>
         </div>
         <div className="msg-avatar" aria-label="用户">
-          <span className="msg-user-character" aria-hidden="true">
-            🧑
-          </span>
-        </div>
+            {userAvatar ? (
+              <img className="msg-user-avatar-img" src={userAvatar} alt="" />
+            ) : (
+              DEFAULT_USER_AVATAR
+            )}
+          </div>
       </div>
     );
   }
@@ -942,48 +1054,18 @@ function MessageGroupInner({
         {streaming && !hasBlocks && <span className="muted">思考中</span>}
         {streaming && <span className="streaming-dot" />}
         {last.errorMessage && <div style={{ color: "#c0392b", marginTop: 6 }}>{last.errorMessage}</div>}
-        {visibleArtifacts.length > 0 && (
-          <section className="msg-artifacts" aria-label={language === "zh" ? "文件产物" : "File outputs"}>
-            <div className="msg-artifacts-head">
-              <Files size={13} />
-              <span>{language === "zh" ? "文件产物" : "File outputs"}</span>
-              <span className="msg-artifacts-count">{visibleArtifacts.length}</span>
-            </div>
-            <div className="msg-artifacts-list">
-              {visibleArtifacts.map((artifact) => (
-                <button
-                  key={artifact.path.toLowerCase()}
-                  className="msg-artifact"
-                  title={`${language === "zh" ? "在 Omp Studio 中查看" : "View in Omp Studio"} · ${artifact.path}`}
-                  onClick={() => void openArtifact(artifact)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void window.pi.app.showFileContextMenu(artifact.path);
-                  }}
-                >
-                  <span className="msg-artifact-icon" aria-hidden="true">
-                    {artifact.ext ? artifact.ext.slice(1, 5).toUpperCase() : <Files size={14} />}
-                  </span>
-                  <span className="msg-artifact-copy">
-                    <span className="msg-artifact-name">{artifact.name}</span>
-                    <span className="msg-artifact-path">{artifact.displayPath}</span>
-                  </span>
-                  <span className={`msg-artifact-action ${artifact.action}`}>
-                    {language === "zh"
-                      ? artifact.action === "created"
-                        ? "已生成"
-                        : "已更新"
-                      : artifact.action === "created"
-                        ? "Created"
-                        : "Updated"}
-                  </span>
-                  <PanelRight size={14} className="msg-artifact-open" />
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+        {visibleArtifacts.length > 0 && (() => {
+          const editArts = visibleArtifacts.filter((a) => a.kind === "edit");
+          const contextArts = visibleArtifacts.filter((a) => a.kind === "context");
+          return (
+            <ArtifactSection
+              editArtifacts={editArts}
+              contextArtifacts={contextArts}
+              language={language}
+              openArtifact={openArtifact}
+            />
+          );
+        })()}
         {!streaming && (
           <div className="msg-footer">
             {last.model && <span>{last.model}</span>}
@@ -1048,7 +1130,14 @@ function TodoPanel({ threadId, items }: { threadId: string; items: TodoItem[] })
           <div className="todo-panel-body">
             {groups.map((group, gi) => (
               <div key={`${group.phase || "_"}-${gi}`} className="todo-phase">
-                {showPhases && group.phase ? <div className="todo-phase-title">{group.phase}</div> : null}
+                {showPhases && group.phase ? (
+                  <div className="todo-phase-title">
+                    {group.phase}
+                    <span className="todo-phase-count">
+                      {` · ${group.items.filter((it) => it.done).length}/${group.items.length}`}
+                    </span>
+                  </div>
+                ) : null}
                 <ul className="todo-panel-list">
                   {group.items.map((it, i) => (
                     <li key={`${it.text}-${i}`} className={`todo-item ${it.status}`}>

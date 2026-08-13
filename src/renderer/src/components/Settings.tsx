@@ -1070,7 +1070,9 @@ export function Settings() {
   const liveProviderKeys = Object.keys(liveProviders);
   // Hide baseUrl-less shells of providers the live registry confirms as
   // built-in — they are shown read-only above, not as empty custom configs.
-  const customProviderKeys = providerKeys.filter((k) => draft.providers[k]?.baseUrl || !liveProviders[k]);
+  const customProviderKeys = providerKeys
+    .filter((k) => draft.providers[k]?.baseUrl || !liveProviders[k])
+    .sort((a, b) => (liveProviders[b] ? 1 : 0) - (liveProviders[a] ? 1 : 0));
   // omp's live registry (providers with credentials) is larger than
   // models.yml; merge it so any model omp can actually run is selectable.
   // Keep the full ModelInfo (reasoning/thinkingLevelMap) — the thinking-level
@@ -1110,6 +1112,26 @@ export function Settings() {
   const changeTheme = async (theme: "dark" | "light" | "system") => {
     const next = await window.pi.app.setConfig({ theme });
     useStore.setState({ config: next });
+  };
+
+  const changeUserAvatar = async (value: string | undefined) => {
+    const next = await window.pi.app.setConfig({ userAvatar: value ?? null });
+    useStore.setState({ config: next });
+  };
+
+  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      pushToast("warning", language === "zh" ? "头像图片不能超过 512KB" : "Avatar image must be under 512KB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      void changeUserAvatar(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const desktopNotify = {
@@ -1179,6 +1201,27 @@ export function Settings() {
                 <option value="zh">中文</option>
               </select>
             </label>
+            <div className="set-avatar-row">
+              <span>{language === "zh" ? "用户头像" : "User avatar"}</span>
+              <div className="set-avatar-controls">
+                <div className="set-avatar-preview">
+                  {config?.userAvatar ? (
+                    <img src={config.userAvatar} alt="" />
+                  ) : (
+                    <svg viewBox="0 0 26 26" fill="none"><circle cx="13" cy="10" r="4.5" fill="currentColor"/><path d="M5.5 22c0-4.14 3.36-7.5 7.5-7.5s7.5 3.36 7.5 7.5" fill="currentColor"/></svg>
+                  )}
+                </div>
+                <label className="set-btn" style={{ cursor: "pointer" }}>
+                  {language === "zh" ? "选择图片" : "Choose image"}
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarFile} />
+                </label>
+                {config?.userAvatar && (
+                  <button className="set-btn" onClick={() => void changeUserAvatar(undefined)}>
+                    {language === "zh" ? "重置" : "Reset"}
+                  </button>
+                )}
+              </div>
+            </div>
             编辑会写入 <code>~/.omp/agent</code>，与终端 omp 共享。
           </div>
         </aside>
