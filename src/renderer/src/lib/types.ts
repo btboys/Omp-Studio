@@ -207,6 +207,10 @@ export interface ToolRun {
   resultText?: string;
   partialText?: string;
   argsStr?: string;
+  /** Structured tool result payload (e.g. todo `details.phases`). Kept so the
+   *  TodoPanel can render the task tree instead of the dry "N/M tasks completed"
+   *  summary text. */
+  details?: any;
   /** omp `task` tool: batch intent carried by tool_execution_start. */
   intent?: string;
   /** omp `task` tool: per-agent progress snapshots ({id, status}) streamed by
@@ -336,6 +340,8 @@ export interface AppConfig {
   language: "en" | "zh";
   threadPlanModes?: Record<string, boolean>;
   desktopNotify?: DesktopNotifyConfig;
+  skillsLoadGlobal?: boolean;
+  userAvatar?: string;
 }
 
 export interface AppRuntime {

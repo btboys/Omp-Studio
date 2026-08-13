@@ -491,6 +491,8 @@ export function Composer({ threadId }: { threadId: string }) {
     () =>
       (commands || [])
         .filter((command: any) => {
+          // Only show skills and plugin-injected skills; hide built-in prompts
+          if (command.source !== "skill" && command.source !== "extension") return false;
           const displayName = command.source === "skill" ? String(command.name).replace(/^skill:/, "") : String(command.name);
           return (
             !slashQuery ||
@@ -543,7 +545,13 @@ export function Composer({ threadId }: { threadId: string }) {
   }, [atMention?.start, atQuery, cwd, text]);
 
   const chooseSlashCommand = (command: any) => {
-    setText(`/${command.name} `);
+    let name = String(command.name);
+    // Plugin-injected skills (source: "extension") need the skill: prefix
+    // for omp to recognize them as skill invocations.
+    if (command.source === "extension" && !name.startsWith("skill:")) {
+      name = "skill:" + name;
+    }
+    setText(`/${name} `);
     setSlashDismissed(true);
     setAtDismissed(true);
     requestAnimationFrame(() => taRef.current?.focus());

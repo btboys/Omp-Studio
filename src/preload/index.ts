@@ -57,6 +57,7 @@ const api = {
     removePackage: (source: string) => ipcRenderer.invoke("plugins:removePackage", source),
     getSkills: (cwd?: string) => ipcRenderer.invoke("plugins:getSkills", cwd),
     setSkillEnabled: (path: string, enabled: boolean) => ipcRenderer.invoke("plugins:setSkillEnabled", { path, enabled }),
+    setSkillsLoadGlobal: (load: boolean) => ipcRenderer.invoke("plugins:setSkillsLoadGlobal", { load }),
     updatePackages: (source?: string) => ipcRenderer.invoke("plugins:updatePackages", source),
   },
   automation: {

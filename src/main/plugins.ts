@@ -323,7 +323,8 @@ function pathKey(path: string): string {
  * `~/.omp/agent/skills` (directory-per-skill with a SKILL.md inside). We also
  * scan the legacy pi/.agents roots so existing installs keep showing up.
  */
-function skillRoots(cwd?: string): string[] {
+/** All possible skill root directories (used by listSkills for display + setSkillsLoadGlobal for batch toggle). */
+function allSkillRoots(cwd?: string): string[] {
   const roots = [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills")];
   if (cwd) {
     roots.push(join(cwd, ".omp", "skills"), join(cwd, ".pi", "skills"));
@@ -335,6 +336,27 @@ function skillRoots(cwd?: string): string[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * omp's native skill locations are `<project>/.omp/skills` and
+ * `~/.omp/agent/skills` (directory-per-skill with a SKILL.md inside). We also
+ * scan the legacy pi/.agents roots so existing installs keep showing up.
+ *
+ * When skillsLoadGlobal is false, no roots are returned → skills are not listed
+ * or loaded by omp. setSkillsLoadGlobal still scans all roots to batch-toggle
+ * the frontmatter flag.
+ */
+function skillRoots(cwd?: string): string[] {
+  if (getConfig().skillsLoadGlobal === false) {
+    // Only project-level skills remain active when global loading is off.
+    const roots: string[] = [];
+    if (cwd) {
+      roots.push(join(cwd, ".omp", "skills"), join(cwd, ".pi", "skills"));
+    }
+    return roots;
+  }
+  return allSkillRoots(cwd);
 }
 
 export function listSkills(cwd?: string): SkillInfo[] {
@@ -375,6 +397,31 @@ export function listSkills(cwd?: string): SkillInfo[] {
     }
   }
   return out;
+}
+
+/**
+ * Batch-toggle ALL omp-discovered skills when the "load skills" switch changes.
+ * Scans every skill root (global, legacy, project-level) and updates each
+ * SKILL.md frontmatter so omp stops/starts loading them.
+ */
+export function setSkillsLoadGlobal(load: boolean): void {
+  // Only toggle global and legacy roots; project-level skills are always kept.
+  const globalRoots = [join(getAgentDir(), "skills"), join(homedir(), ".agents", "skills")];
+  for (const root of globalRoots) {
+    if (!existsSync(root)) continue;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
+      const skillFile = join(root, entry.name, "SKILL.md");
+      if (!existsSync(skillFile)) continue;
+      setSkillEnabled(skillFile, load);
+    }
+  }
 }
 
 /** Toggle a skill via omp's native frontmatter flag `enabled: false`. */

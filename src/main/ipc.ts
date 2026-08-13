@@ -73,6 +73,7 @@ import {
   runOmpCli,
   setPackageEnabled,
   setSkillEnabled,
+  setSkillsLoadGlobal,
 } from "./plugins";
 import { runTaskNow, startScheduler } from "./automation";
 
@@ -1083,7 +1084,8 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
 
   ipcMain.handle("thread:abort", async (_e, threadId: string) => {
     const h = bridges.get(threadId);
-    if (h) await h.bridge.abort();
+    if (!h) throw new Error("Thread not open: " + threadId);
+    await h.bridge.abort();
     return true;
   });
 
@@ -1215,6 +1217,13 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     setSkillEnabled(args.path, args.enabled);
     // A skill is loaded during pi startup. Recreate the warm spare so newly
     // opened tasks immediately observe enable/disable changes.
+    dropWarmBridge();
+    ensureWarmBridge();
+    return { ok: true };
+  });
+  ipcMain.handle("plugins:setSkillsLoadGlobal", async (_e, args: { load: boolean }) => {
+    updateConfig({ skillsLoadGlobal: args.load });
+    setSkillsLoadGlobal(args.load);
     dropWarmBridge();
     ensureWarmBridge();
     return { ok: true };

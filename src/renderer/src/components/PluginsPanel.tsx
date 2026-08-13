@@ -24,6 +24,8 @@ export function PluginsPanel() {
   const updatePackages = useStore((s) => s.updatePackages);
   const loadPlugins = useStore((s) => s.loadPlugins);
   const toggleSkill = useStore((s) => s.toggleSkill);
+  const toggleSkillsLoadGlobal = useStore((s) => s.toggleSkillsLoadGlobal);
+  const skillsLoadGlobal = useStore((s) => s.config?.skillsLoadGlobal ?? true);
   const language = useStore((s) => s.config?.language || "en");
 
   const [source, setSource] = useState("");
@@ -197,6 +199,15 @@ export function PluginsPanel() {
             <div className="plugins-section-head">
               Skills（{filteredSkills.length}
               {normalizedQuery ? ` / ${skills.length}` : ""}）
+            </div>
+            <div className="plugins-row" style={{ padding: "6px 0" }}>
+              <div className="plugins-row-main" style={{ flex: 1 }}>
+                <span className="plugins-row-name">{language === "zh" ? "自动加载全局技能" : "Auto-load global skills"}</span>
+                <span className="plugins-row-sub" style={{ fontSize: 11 }}>{language === "zh" ? "关闭后全局/遗留目录的技能不会自动注入对话，项目级技能不受影响，仍可通过 /skill:xxx 手动加载" : "Off: global/legacy skills won't auto-load; project skills and /skill:xxx still work"}</span>
+              </div>
+              <div className="plugins-row-actions">
+                <Toggle checked={skillsLoadGlobal} onChange={(v) => void toggleSkillsLoadGlobal(v)} />
+              </div>
             </div>
             {loading && skills.length === 0 && <div className="set-empty-mini">加载中…</div>}
             {!loading && skills.length === 0 && <div className="set-empty-mini">未在 ~/.omp/agent/skills 等目录发现独立 skill。</div>}

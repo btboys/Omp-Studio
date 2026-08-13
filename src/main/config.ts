@@ -64,6 +64,10 @@ export interface AppConfig {
   automationTasks: AutomationTask[];
   /** Built-in desktop notifications for idle / approval / error. */
   desktopNotify: DesktopNotifyConfig;
+  /** When false, global user skills (~/.omp/agent/skills) are excluded from loading. Project and managed skills unaffected. */
+  skillsLoadGlobal: boolean;
+  /** Custom user avatar as a data: URI or URL. Absent = default SVG. */
+  userAvatar?: string;
 }
 
 export type ScheduleFrequency = "hourly" | "daily" | "weekly";
@@ -115,6 +119,8 @@ const DEFAULTS: AppConfig = {
   threadPlanModes: {},
   automationTasks: [],
   desktopNotify: { ...DEFAULT_DESKTOP_NOTIFY },
+  skillsLoadGlobal: true,
+  userAvatar: undefined,
 };
 
 /** Map an OS locale (e.g. "zh-CN", "en-US") to the app language; non-Chinese locales fall back to English. */

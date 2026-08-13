@@ -309,10 +309,16 @@ function parseAdvisory(content: string): { severity?: string; guidance?: string;
 
 /** Convert a flat list of pi AgentMessages into renderable views + initial tool runs. */
 function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Record<string, ToolRun> } {
-  const toolResultById: Record<string, { text: string; isError: boolean }> = {};
+  const toolResultById: Record<string, { text: string; isError: boolean; details?: any }> = {};
   for (const m of messages || []) {
     if (m?.role === "toolResult" && m.toolCallId) {
-      toolResultById[m.toolCallId] = { text: textOfContent(m.content), isError: !!m.isError };
+      toolResultById[m.toolCallId] = {
+        text: textOfContent(m.content),
+        isError: !!m.isError,
+        // Preserve structured payloads (todo details.phases, task progress, …)
+        // so panels can render more than the summary result text.
+        details: m.details,
+      };
     }
   }
   const views: ViewMessage[] = [];
@@ -334,6 +340,7 @@ function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Recor
             completed: !!tr,
             isError: tr?.isError,
             resultText: tr?.text,
+            details: tr?.details,
           };
         }
       }
@@ -622,6 +629,9 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
             completed: true,
             isError: !!event.isError,
             resultText: textOfContent(event.result?.content),
+            // Keep todo details.phases (and any other structured result) so the
+            // TodoPanel can show the task tree, not just "N/M tasks completed".
+            details: event.result?.details,
             partialText: undefined,
           },
         },
@@ -827,6 +837,7 @@ interface PiStore {
   removePackage: (source: string) => Promise<void>;
   updatePackages: (source?: string) => Promise<void>;
   toggleSkill: (path: string, enabled: boolean) => Promise<void>;
+  toggleSkillsLoadGlobal: (load: boolean) => Promise<void>;
 
   // automation overlay
   automationOpen: boolean;
@@ -1267,7 +1278,7 @@ export const useStore = create<PiStore>()((set, get) => ({
       // Close live views from this folder. Session files remain untouched and
       // reappear exactly as before when the project is restored.
       const ids = Object.entries(get().threads)
-        .filter(([, thread]) => thread.cwd.toLowerCase() === cwd.toLowerCase())
+        .filter(([, thread]) => thread.cwd && thread.cwd.toLowerCase() === cwd.toLowerCase())
         .map(([id]) => id);
       for (const id of ids) await get().closeThread(id);
       await get().refreshProjects();
@@ -1847,6 +1858,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     const hasImg = !!images && images.length > 0;
     const hasAtt = !!attachments && attachments.length > 0;
     if (!trimmed && !hasImg && !hasAtt) return;
+
     const wasStreaming = !!get().threads[threadId]?.isStreaming;
     const optimistic: ViewMessage = {
       key: `opt-${uid()}`,
@@ -2356,6 +2368,18 @@ export const useStore = create<PiStore>()((set, get) => ({
     } catch (e: any) {
       get().pushToast("error", e?.message || "切换失败");
       get().loadPlugins();
+    }
+  },
+  toggleSkillsLoadGlobal: async (load) => {
+    try {
+      await window.pi.plugins.setSkillsLoadGlobal(load);
+      // Update config in store so UI stays in sync
+      const cfg = get().config;
+      if (cfg) set({ config: { ...cfg, skillsLoadGlobal: load } });
+      // Reload skills list to reflect the change
+      await get().loadPlugins();
+    } catch (e: any) {
+      get().pushToast("error", e?.message || "切换失败");
     }
   },
 
