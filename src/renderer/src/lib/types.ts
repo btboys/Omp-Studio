@@ -288,12 +288,15 @@ export interface FileDiffResult {
   error?: string;
 }
 
+/** omp ExtUI select options may be plain labels or `{label, description}`. */
+export type ExtUiSelectOption = string | { label: string; description?: string };
+
 export interface ExtUiRequest {
   id: string;
   method: "select" | "confirm" | "input" | "editor" | "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text" | string;
   title?: string;
   message?: string;
-  options?: string[];
+  options?: ExtUiSelectOption[];
   placeholder?: string;
   prefill?: string;
   notifyType?: "info" | "warning" | "error";

@@ -1,7 +1,20 @@
+/** Status of one todo item shown in the panel. */
+export type TodoStatus = "pending" | "in_progress" | "done" | "blocked";
+
 /** One todo item shown in the todo panel. */
 export interface TodoItem {
+  /** Convenience mirror of `status === "done"` for callers that only care about completion. */
   done: boolean;
   text: string;
+  /** Phase name when present (empty / omitted for flat lists and markdown checkboxes). */
+  phase?: string;
+  status: TodoStatus;
+}
+
+/** A phase group for panel rendering. */
+export interface TodoPhaseGroup {
+  phase: string;
+  items: TodoItem[];
 }
 
 /** Args of one `todo` tool call — either legacy op-based or new full-state. */
@@ -12,15 +25,101 @@ export interface TodoOp {
   items?: string[];
   list?: { phase: string; items: string[] }[];
   /** New omp format: full-state replacement per call. */
-  todos?: { content: string; status: string }[];
+  todos?: { content: string; status: string; phase?: string }[];
   merged?: boolean;
 }
+
+/** Operation names accepted by omp's todo tool. */
+type TodoOperation = "init" | "start" | "done" | "rm" | "drop" | "block" | "unblock" | "append" | "view";
 
 /** Replayed state of a single todo item. */
 interface TodoItemState {
   phase: string;
   text: string;
-  state: "pending" | "in_progress" | "done" | "blocked";
+  state: TodoStatus;
+}
+
+/**
+ * Infer a missing `op` from the raw argument shape. Mirrors omp's
+ * `inferTodoOp`: models routinely send `{list:[...]}` (or bare `items`)
+ * without `op`, and omp repairs that at execute time. Studio must do the
+ * same when replaying stored tool-call args, or the panel stays empty.
+ *
+ * Only unambiguous shapes are inferred:
+ * - `list` → `init` (list is init-only)
+ * - `items` + `phase` → `append`
+ * - bare `items` with no existing todos → `init`
+ */
+export function inferTodoOp(op: TodoOp, hasExistingItems: boolean): TodoOperation | undefined {
+  if (Array.isArray(op.list) && op.list.length > 0) return "init";
+  if (Array.isArray(op.items) && op.items.length > 0) {
+    if (typeof op.phase === "string" && op.phase) return "append";
+    if (!hasExistingItems) return "init";
+  }
+  return undefined;
+}
+
+/** Map an omp / full-state status string onto the panel's four statuses. */
+function mapTodoStatus(raw: string | undefined): TodoStatus {
+  switch ((raw || "").toLowerCase()) {
+    case "completed":
+    case "done":
+    case "abandoned":
+      return "done";
+    case "in_progress":
+    case "in-progress":
+      return "in_progress";
+    case "blocked":
+      return "blocked";
+    default:
+      return "pending";
+  }
+}
+
+/**
+ * Mirror omp's `normalizeInProgressTask`: at most one in_progress item, and
+ * when none is set, auto-promote the first pending task. Without this, the
+ * panel stays all-pending after init even though omp already marked the first
+ * open task as in progress.
+ */
+function normalizeInProgress(items: TodoItemState[]): void {
+  if (items.length === 0) return;
+  const inProgress = items.filter((it) => it.state === "in_progress");
+  if (inProgress.length > 1) {
+    for (const it of inProgress.slice(1)) it.state = "pending";
+  }
+  if (inProgress.length > 0) return;
+  const firstPending = items.find((it) => it.state === "pending");
+  if (firstPending) firstPending.state = "in_progress";
+}
+
+function toTodoItem(it: TodoItemState): TodoItem {
+  const item: TodoItem = {
+    done: it.state === "done",
+    text: it.text,
+    status: it.state,
+  };
+  if (it.phase) item.phase = it.phase;
+  return item;
+}
+
+/**
+ * Group items by phase, preserving first-seen phase order. Items without a
+ * phase land in a single trailing "" group so flat lists still render as one
+ * contiguous block.
+ */
+export function groupTodosByPhase(items: TodoItem[]): TodoPhaseGroup[] {
+  const order: string[] = [];
+  const map = new Map<string, TodoItem[]>();
+  for (const it of items) {
+    const phase = it.phase || "";
+    if (!map.has(phase)) {
+      map.set(phase, []);
+      order.push(phase);
+    }
+    map.get(phase)!.push(it);
+  }
+  return order.map((phase) => ({ phase, items: map.get(phase)! }));
 }
 
 /**
@@ -32,15 +131,21 @@ interface TodoItemState {
 export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
   // --- New omp format: each call carries the full list in `todos`. ---
   // Walk forward; last call with `todos` wins (full-state replacement).
-  let latestTodos: { content: string; status: string }[] | null = null;
+  let latestTodos: { content: string; status: string; phase?: string }[] | null = null;
   for (const op of ops) {
     if (Array.isArray(op.todos)) latestTodos = op.todos;
   }
   if (latestTodos) {
-    return latestTodos.map((t) => ({
-      done: t.status === "completed" || t.status === "done",
-      text: t.content || "",
-    }));
+    return latestTodos.map((t) => {
+      const status = mapTodoStatus(t.status);
+      const item: TodoItem = {
+        done: status === "done",
+        text: t.content || "",
+        status,
+      };
+      if (t.phase) item.phase = t.phase;
+      return item;
+    });
   }
 
   // --- Legacy op-based format (init/start/done/drop/…). ---
@@ -51,7 +156,18 @@ export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
       if (items[i].text === op.task || items[i].phase === op.phase) items.splice(i, 1);
     }
   };
-  for (const op of ops) {
+  const setState = (op: { task?: string; phase?: string }, state: TodoStatus) => {
+    if (op.phase) {
+      for (const it of items) if (it.phase === op.phase) it.state = state;
+      return;
+    }
+    const target = findTask(op.task);
+    if (target) target.state = state;
+  };
+  for (const raw of ops) {
+    const resolvedOp = (raw.op || inferTodoOp(raw, items.length > 0)) as TodoOperation | undefined;
+    if (!resolvedOp) continue;
+    const op = { ...raw, op: resolvedOp };
     switch (op.op) {
       case "init":
         items.length = 0;
@@ -74,29 +190,21 @@ export function replayTodoOps(ops: TodoOp[]): TodoItem[] {
         removeMatching(op);
         break;
       case "done":
-        if (op.phase) {
-          for (const it of items) if (it.phase === op.phase) it.state = "done";
-        } else {
-          const target = findTask(op.task);
-          if (target) target.state = "done";
-        }
+        setState(op, "done");
         break;
-      case "start": {
-        const target = findTask(op.task);
-        if (target) target.state = "in_progress";
+      case "start":
+        setState(op, "in_progress");
         break;
-      }
-      case "block": {
-        const target = findTask(op.task);
-        if (target) target.state = "blocked";
+      case "block":
+        setState(op, "blocked");
         break;
-      }
-      case "unblock": {
-        const target = findTask(op.task);
-        if (target) target.state = "pending";
+      case "unblock":
+        setState(op, "pending");
         break;
-      }
     }
+    // Match omp: after every mutating op, ensure exactly one in_progress
+    // (or auto-promote the first pending). view is a no-op above.
+    if (op.op !== "view") normalizeInProgress(items);
   }
-  return items.map((it) => ({ done: it.state === "done", text: it.text }));
+  return items.map(toTodoItem);
 }

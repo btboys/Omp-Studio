@@ -1533,6 +1533,20 @@ export const useStore = create<PiStore>()((set, get) => ({
           // (e.g. a fast first send on a brand-new thread); live history never
           // contains them, so without this they would be dropped on merge/remap.
           const optimistic = (prev?.messages || []).filter((m) => m.key.startsWith("opt-"));
+          // Opening a historical session renders the disk transcript first, then
+          // ensureConnected replaces it with live get_messages. If omp returns
+          // an empty/short list during switch_session (warm-adopt / mid-ask races),
+          // keep the richer disk view so the AI reply doesn't flash and vanish.
+          const diskMessages = (prev?.messages || []).filter((m) => !m.key.startsWith("opt-"));
+          const liveMessages = views;
+          const baseMessages =
+            liveMessages.length === 0 && diskMessages.length > 0
+              ? diskMessages
+              : liveMessages.length < diskMessages.length
+                ? diskMessages
+                : liveMessages;
+          const baseToolRuns = Object.keys(toolRuns).length > 0 ? toolRuns : prev?.toolRuns || {};
+          const mergedMessages = optimistic.length ? [...baseMessages, ...optimistic] : baseMessages;
           const merged: ThreadState = {
             ...emptyThread(res.cwd || t.cwd),
             sessionFile: res.sessionFile || t.sessionFile,
@@ -1544,9 +1558,9 @@ export const useStore = create<PiStore>()((set, get) => ({
             loading: false,
             connected: true,
             isStreaming: !!res.isStreaming || optimistic.length > 0,
-            messages: optimistic.length ? [...views, ...optimistic] : views,
-            cacheStats: cacheStatsOf(optimistic.length ? [...views, ...optimistic] : views),
-            toolRuns,
+            messages: mergedMessages,
+            cacheStats: cacheStatsOf(mergedMessages),
+            toolRuns: baseToolRuns,
             permission: res.permission || t.permission,
             advisory: res.advisory ?? prev?.advisory ?? false,
             pendingEditorText: prev?.pendingEditorText,

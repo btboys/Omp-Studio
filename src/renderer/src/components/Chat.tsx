@@ -5,7 +5,7 @@ import { formatClock, formatTokens } from "../lib/format";
 import { collectFileArtifacts } from "../lib/artifacts";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
-import { replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
+import { groupTodosByPhase, replayTodoOps, type TodoItem, type TodoOp } from "../lib/todos";
 import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/subagents";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
@@ -28,7 +28,7 @@ function extractTodos(text: string): TodoItem[] | null {
   const items: TodoItem[] = [];
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(TODO_LINE);
-    if (m) items.push({ done: m[1].toLowerCase() === "x", text: m[2].trim() });
+    if (m) items.push({ done: m[1].toLowerCase() === "x", text: m[2].trim(), status: m[1].toLowerCase() === "x" ? "done" : "pending" });
   }
   return items.length ? items : null;
 }
@@ -142,6 +142,17 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
   // Must stay above any early return: thread.loading used to skip this hook and
   // white-screen the app (React hook-order violation).
   const groups = useMemo(() => groupMessages(thread?.messages || []), [thread?.messages]);
+
+  // The 撤回 action anchors on the newest user message — the one undo removes.
+  // Keep this above early returns so hook order stays stable when thread is
+  // briefly missing during tab remap / history open.
+  const lastUserKey = useMemo(() => {
+    const messages = thread?.messages || [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return messages[i].key;
+    }
+    return null;
+  }, [thread?.messages]);
 
   // msgKey -> groupKey: assistant rounds share one DOM container per group, so
   // scrolling targets the group element that owns a matched message.
@@ -322,14 +333,6 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
 
   // Sharing needs a persisted, settled session so the uploaded snapshot is complete.
   const canShare = !thread.isStreaming && !!thread.sessionFile;
-
-  // The 撤回 action anchors on the newest user message — the one undo removes.
-  const lastUserKey = useMemo(() => {
-    for (let i = thread.messages.length - 1; i >= 0; i--) {
-      if (thread.messages[i].role === "user") return thread.messages[i].key;
-    }
-    return null;
-  }, [thread.messages]);
 
   const lastGroup = groups[groups.length - 1];
   const streamingExtends = !!streaming && !!lastGroup && lastGroup.role === "assistant";
@@ -1003,6 +1006,21 @@ function TodoPanel({ threadId, items }: { threadId: string; items: TodoItem[] })
   const setTodoCollapsed = useStore((s) => s.setTodoCollapsed);
   const language = useStore((s) => s.config?.language || "en");
   const done = items.filter((i) => i.done).length;
+  const active = items.find((i) => i.status === "in_progress");
+  const groups = groupTodosByPhase(items);
+  const showPhases = groups.some((g) => g.phase);
+  const statusLabel = (status: TodoItem["status"]) => {
+    if (language === "zh") {
+      if (status === "in_progress") return "进行中";
+      if (status === "blocked") return "阻塞";
+      if (status === "done") return "完成";
+      return "待办";
+    }
+    if (status === "in_progress") return "in progress";
+    if (status === "blocked") return "blocked";
+    if (status === "done") return "done";
+    return "pending";
+  };
   return (
     <section className={`stack-panel-wrap ${collapsed ? "collapsed" : ""}`}>
       <div className="stack-panel">
@@ -1018,21 +1036,41 @@ function TodoPanel({ threadId, items }: { threadId: string; items: TodoItem[] })
             {language === "zh" ? "待办" : "Todos"}
           </span>
           <span className="stack-panel-count">
-            {done}/{items.length}
+            {active
+              ? language === "zh"
+                ? `${done}/${items.length} · 进行中`
+                : `${done}/${items.length} · active`
+              : `${done}/${items.length}`}
           </span>
           <ChevronRight size={13} className="stack-panel-chevron" />
         </button>
         {!collapsed && (
-          <ul className="todo-panel-list">
-            {items.map((it, i) => (
-              <li key={i} className={`todo-item ${it.done ? "done" : ""}`}>
-                <span className={`todo-check ${it.done ? "checked" : ""}`} aria-hidden="true">
-                  {it.done && <Check size={9} />}
-                </span>
-                <span className="todo-text">{it.text}</span>
-              </li>
+          <div className="todo-panel-body">
+            {groups.map((group, gi) => (
+              <div key={`${group.phase || "_"}-${gi}`} className="todo-phase">
+                {showPhases && group.phase ? <div className="todo-phase-title">{group.phase}</div> : null}
+                <ul className="todo-panel-list">
+                  {group.items.map((it, i) => (
+                    <li key={`${it.text}-${i}`} className={`todo-item ${it.status}`}>
+                      <span className={`todo-check ${it.status}`} aria-hidden="true" title={statusLabel(it.status)}>
+                        {it.status === "done" ? (
+                          <Check size={9} />
+                        ) : it.status === "in_progress" ? (
+                          <span className="spinner" />
+                        ) : it.status === "blocked" ? (
+                          <Close size={9} />
+                        ) : null}
+                      </span>
+                      <span className="todo-text">{it.text}</span>
+                      {(it.status === "in_progress" || it.status === "blocked") && (
+                        <span className={`todo-badge ${it.status}`}>{statusLabel(it.status)}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </section>

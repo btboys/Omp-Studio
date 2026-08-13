@@ -1805,22 +1805,44 @@ body.sidebar-resizing * {
 .stack-panel-wrap.collapsed .stack-panel-chevron {
   transform: none;
 }
+.todo-panel-body {
+  padding: 0 0 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.todo-phase + .todo-phase {
+  margin-top: 6px;
+}
+.todo-phase-title {
+  padding: 2px 12px 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
 .todo-panel-list {
   margin: 0;
-  padding: 0 12px 10px;
+  padding: 0 12px 6px;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  max-height: 180px;
-  overflow-y: auto;
+  gap: 4px;
 }
 .todo-item {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 8px;
   font-size: 13px;
   line-height: 1.45;
+}
+.todo-item.in_progress {
+  background: var(--accent-soft);
+}
+.todo-item.blocked {
+  background: rgba(192, 57, 43, 0.06);
 }
 .todo-check {
   flex: 0 0 auto;
@@ -1833,13 +1855,54 @@ body.sidebar-resizing * {
   place-items: center;
   color: #fff;
 }
-.todo-check.checked {
+.todo-check.done {
   background: var(--accent);
   border-color: var(--accent);
+}
+.todo-check.in_progress {
+  border-color: var(--accent);
+  background: #fff;
+  color: var(--accent);
+}
+.todo-check.blocked {
+  border-color: #c0392b;
+  background: #c0392b;
+  color: #fff;
+}
+.todo-check .spinner {
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
+}
+.todo-text {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .todo-item.done .todo-text {
   color: var(--text-dim);
   text-decoration: line-through;
+}
+.todo-item.blocked .todo-text {
+  color: var(--text-dim);
+}
+.todo-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.todo-badge.in_progress {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.todo-badge.blocked {
+  background: rgba(192, 57, 43, 0.12);
+  color: #c0392b;
 }
 .subagent-list {
   margin: 0;
@@ -1974,7 +2037,7 @@ body.sidebar-resizing * {
 }
 .extui-card-options button {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 8px 10px;
@@ -1982,6 +2045,13 @@ body.sidebar-resizing * {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
+}
+.extui-card-options button > small {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.extui-card-options.multi .extui-check {
+  margin-top: 2px;
 }
 .extui-card-options button small {
   color: var(--text-faint);
@@ -2029,6 +2099,153 @@ body.sidebar-resizing * {
   font-size: 11px;
   line-height: 1.4;
   text-align: right;
+}
+.extui-card.ask-card .extui-card-title {
+  font-weight: 650;
+}
+.extui-card-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.extui-card-progress-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 650;
+}
+.extui-card-progress-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.extui-card-progress-chip.current {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.extui-card-progress-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.extui-card-progress-chip.answered {
+  color: var(--accent);
+}
+.extui-card-review-hint {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(148, 100, 25, 0.08);
+  color: #7a5414;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.extui-card-review-answers {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.extui-card-review-answers li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.extui-card-review-answers li svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.extui-card-options.multi button {
+  justify-content: flex-start;
+}
+.extui-card-options.multi button.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.extui-card-options.reviewing {
+  opacity: 0.72;
+}
+.extui-check {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #fff;
+}
+.extui-check.checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.extui-option-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+.extui-option-label {
+  min-width: 0;
+  width: 100%;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.extui-option-desc {
+  min-width: 0;
+  width: 100%;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+}
+.extui-card-custom {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.extui-card-custom input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+}
+.extui-card-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+.extui-card-nav .btn {
+  min-width: 96px;
 }
 .composer {
   max-width: 860px;

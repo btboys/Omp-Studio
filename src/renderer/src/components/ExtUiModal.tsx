@@ -47,11 +47,18 @@ function Dialog({
 
         {method === "select" && (
           <div className="modal-options">
-            {(req.options || []).map((o) => (
-              <button key={o} className="modal-option" onClick={() => respond(threadId, req.id, { value: o })}>
-                {o}
-              </button>
-            ))}
+            {(req.options || []).map((o) => {
+              const label = typeof o === "string" ? o : o.label;
+              const description = typeof o === "string" ? undefined : o.description;
+              return (
+                <button key={label} className="modal-option" onClick={() => respond(threadId, req.id, { value: label })}>
+                  <span className="extui-option-text">
+                    <span className="extui-option-label">{label}</span>
+                    {description ? <span className="extui-option-desc">{description}</span> : null}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 
