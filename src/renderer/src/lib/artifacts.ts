@@ -6,9 +6,12 @@ export interface FileArtifact {
   displayPath: string;
   ext: string;
   action: "created" | "updated";
+  /** "edit" = file was written/edited; "context" = file was read for AI context. */
+  kind: "edit" | "context";
 }
 
 const FILE_TOOL = /(?:^|[_-])(write|edit|create|save|export)(?:[_-]|$)/i;
+const READ_TOOL = /(?:^|[_-])(read|grep|glob|search|open|view|preview|cat|head|tail)(?:[_-]|$)/i;
 const COMMAND_TOOL = /(?:^|[_-])(bash|shell|exec|execute|command|run|python)(?:[_-]|$)/i;
 const OUTPUT_HINT = /(?:已生成|已创建|已保存|已就绪|输出(?:文件|路径)?|生成(?:文件|路径)?|保存(?:为|到|路径)?|写入(?:到)?|产物|generated|created|saved|written|output|exported|ready at)/i;
 const OUTPUT_EXTENSIONS =
@@ -135,7 +138,7 @@ export function collectFileArtifacts(
   const byPath = new Map<string, FileArtifact>();
   const roundToolIds = new Set<string>();
 
-  const addArtifact = (rawPath: string, action: FileArtifact["action"]) => {
+  const addArtifact = (rawPath: string, action: FileArtifact["action"], kind: FileArtifact["kind"]) => {
     const path = resolveArtifactPath(rawPath, cwd);
     const name = basename(path);
     const key = path.toLowerCase();
@@ -145,9 +148,17 @@ export function collectFileArtifacts(
       displayPath: relativeDisplayPath(path, cwd),
       ext: extension(name),
       action,
+      kind,
     };
     const previous = byPath.get(key);
-    byPath.set(key, previous ? { ...next, action: previous.action === "created" ? "created" : next.action } : next);
+    if (previous) {
+      // edit beats context; created beats updated
+      const mergedKind = previous.kind === "edit" ? "edit" : next.kind;
+      const mergedAction = previous.action === "created" ? "created" : next.action;
+      byPath.set(key, { ...next, action: mergedAction, kind: mergedKind });
+    } else {
+      byPath.set(key, next);
+    }
   };
 
   for (const message of messages) {
@@ -159,7 +170,10 @@ export function collectFileArtifacts(
         if (!run?.completed || run.running || run.isError) continue;
         if (FILE_TOOL.test(toolName)) {
           const rawPath = pathFromArgs(run?.args) || pathFromArgs(block.arguments);
-          if (rawPath) addArtifact(rawPath, actionForTool(toolName));
+          if (rawPath) addArtifact(rawPath, actionForTool(toolName), "edit");
+        } else if (READ_TOOL.test(toolName)) {
+          const rawPath = pathFromArgs(run?.args) || pathFromArgs(block.arguments);
+          if (rawPath) addArtifact(rawPath, "updated", "context");
         }
         continue;
       }
@@ -176,7 +190,7 @@ export function collectFileArtifacts(
     const run = toolRuns[id];
     if (!run?.completed || run.running || run.isError || !COMMAND_TOOL.test(run.name || "")) continue;
     for (const rawPath of outputPathsFromText(run.resultText || "", false)) {
-      addArtifact(rawPath, "created");
+      addArtifact(rawPath, "created", "edit");
     }
   }
 
