@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getDisplayThreadTitle, parseSkillBlock, useStore } from "../store";
 import { Markdown } from "../lib/markdown";
-import { formatClock, formatTokens } from "../lib/format";
+import { formatClock, formatTokens, estimateTokens } from "../lib/format";
 import { collectFileArtifacts, type FileArtifact } from "../lib/artifacts";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { ContentBlock, ToolRun, ViewMessage } from "../lib/types";
@@ -96,7 +96,10 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
   // context-usage popover
   const [ctxOpen, setCtxOpen] = useState(false);
   const [ctxStats, setCtxStats] = useState<any>(null);
+  const [ctxState, setCtxState] = useState<any>(null);
   const [ctxLoading, setCtxLoading] = useState(false);
+  const [ctxPromptOpen, setCtxPromptOpen] = useState(false);
+  const [ctxToolsOpen, setCtxToolsOpen] = useState(false);
   const ctxRef = useRef<HTMLDivElement>(null);
   useOutsideClose(ctxRef, ctxOpen, () => setCtxOpen(false));
 
@@ -386,9 +389,17 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
     setCtxLoading(true);
     try {
       const id = await useStore.getState().ensureConnected(threadId);
-      setCtxStats(id ? await window.pi.thread.getStats(id) : null);
+      if (!id) {
+        setCtxStats(null);
+        setCtxState(null);
+      } else {
+        const [stats, state] = await Promise.all([window.pi.thread.getStats(id), window.pi.thread.getState(id)]);
+        setCtxStats(stats);
+        setCtxState(state);
+      }
     } catch {
       setCtxStats(null);
+      setCtxState(null);
     }
     setCtxLoading(false);
   };
@@ -403,6 +414,37 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
   const ctxTotal = ctxUsage?.contextWindow ?? 0;
   const ctxRemaining = Math.max(0, ctxTotal - ctxUsed);
   const ctxPct = ctxUsage ? ctxUsage.percent ?? (ctxTotal ? Math.round((ctxUsed / ctxTotal) * 100) : 0) : 0;
+
+  // Default-loaded context: system prompt + tool schemas (from get_state).
+  // omp returns systemPrompt as an array of parts on recent versions.
+  const ctxPromptParts: string[] = Array.isArray(ctxState?.systemPrompt)
+    ? ctxState.systemPrompt.filter((s: unknown): s is string => typeof s === "string")
+    : typeof ctxState?.systemPrompt === "string"
+      ? [ctxState.systemPrompt]
+      : [];
+  const ctxPrompt = ctxPromptParts.join("\n\n");
+  const ctxPromptTokens = useMemo(() => estimateTokens(ctxPrompt), [ctxPrompt]);
+  const ctxToolRows = useMemo(() => {
+    const tools: any[] = Array.isArray(ctxState?.dumpTools) ? ctxState.dumpTools : [];
+    const rows = tools.map((t) => {
+      const name = String(t?.name || "");
+      const text = name + "\n" + (t?.description || "") + "\n" + JSON.stringify(t?.parameters || {}) + (t?.examples ? JSON.stringify(t.examples) : "");
+      const parts = name.split("__");
+      const group = parts.length >= 3 && parts[0] === "mcp" ? parts[1] : "内置";
+      return { name, tokens: estimateTokens(text), group };
+    });
+    rows.sort((a, b) => b.tokens - a.tokens);
+    const groups = new Map<string, { count: number; tokens: number }>();
+    for (const r of rows) {
+      const g = groups.get(r.group) || { count: 0, tokens: 0 };
+      g.count++;
+      g.tokens += r.tokens;
+      groups.set(r.group, g);
+    }
+    const groupRows = [...groups.entries()].map(([group, v]) => ({ group, ...v })).sort((a, b) => b.tokens - a.tokens);
+    return { rows, groupRows, total: rows.reduce((s, r) => s + r.tokens, 0) };
+  }, [ctxState]);
+  const ctxTokens = ctxStats?.tokens;
 
   // Scroll a message group into view and flash it so the current hit is
   // obvious among many matches.
@@ -590,6 +632,85 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
                 </>
               ) : (
                 <div className="ctx-empty">暂无上下文数据</div>
+              )}
+              {!ctxLoading && ctxState && (
+                <div className="ctx-ext">
+                  <div className="ctx-pop-sub">默认加载（本地估算）</div>
+                  <div className="ctx-rows">
+                    <div className="ctx-row">
+                      <span>系统提示词{ctxPromptParts.length > 1 ? `（${ctxPromptParts.length} 段）` : ""}</span>
+                      <b>
+                        ~{formatTokens(ctxPromptTokens)}
+                        <button className="ctx-mini-btn" onClick={() => setCtxPromptOpen((v) => !v)}>
+                          {ctxPromptOpen ? "收起" : "查看"}
+                        </button>
+                      </b>
+                    </div>
+                  </div>
+                  {ctxPromptOpen && <pre className="ctx-prompt-view">{ctxPrompt || "（空）"}</pre>}
+                  <div className="ctx-rows">
+                    <div className="ctx-row">
+                      <span>工具 schema（{ctxToolRows.rows.length} 个）</span>
+                      <b>
+                        ~{formatTokens(ctxToolRows.total)}
+                        <button className="ctx-mini-btn" onClick={() => setCtxToolsOpen((v) => !v)}>
+                          {ctxToolsOpen ? "收起" : "展开"}
+                        </button>
+                      </b>
+                    </div>
+                  </div>
+                  {ctxToolsOpen && (
+                    <div className="ctx-tools">
+                      {ctxToolRows.groupRows.map((g) => (
+                        <div key={g.group} className="ctx-row ctx-group-row">
+                          <span>
+                            {g.group}（{g.count}）
+                          </span>
+                          <b>~{formatTokens(g.tokens)}</b>
+                        </div>
+                      ))}
+                      {ctxToolRows.rows.map((r) => (
+                        <div key={r.name} className="ctx-row ctx-tool-row" title={r.name}>
+                          <span>{r.name}</span>
+                          <b>{formatTokens(r.tokens)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!ctxLoading && ctxTokens && (
+                <div className="ctx-ext">
+                  <div className="ctx-pop-sub">会话消耗</div>
+                  <div className="ctx-rows">
+                    <div className="ctx-row">
+                      <span>消息</span>
+                      <b>
+                        {ctxStats.totalMessages}（用户 {ctxStats.userMessages} / 助手 {ctxStats.assistantMessages} / 工具 {ctxStats.toolCalls}）
+                      </b>
+                    </div>
+                    <div className="ctx-row">
+                      <span>输入</span>
+                      <b>
+                        {formatTokens(ctxTokens.input)}
+                        {ctxTokens.cacheRead ? `（缓存 ${formatTokens(ctxTokens.cacheRead)}）` : ""}
+                      </b>
+                    </div>
+                    <div className="ctx-row">
+                      <span>输出</span>
+                      <b>
+                        {formatTokens(ctxTokens.output)}
+                        {ctxTokens.reasoning ? `（推理 ${formatTokens(ctxTokens.reasoning)}）` : ""}
+                      </b>
+                    </div>
+                    {ctxStats.cost > 0 && (
+                      <div className="ctx-row">
+                        <span>费用</span>
+                        <b>${ctxStats.cost.toFixed(4)}</b>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
               {((thread.extStatuses && Object.keys(thread.extStatuses).length > 0) ||
                 (thread.extWidgets && Object.keys(thread.extWidgets).length > 0)) && (

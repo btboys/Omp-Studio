@@ -1155,6 +1155,14 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     return h.bridge.getSessionStats();
   });
 
+  // Raw get_state for the context panel: system prompt text, tool schemas,
+  // model + context usage. Large payload — fetch only when the panel opens.
+  ipcMain.handle("thread:getState", async (_e, threadId: string) => {
+    const h = bridges.get(threadId);
+    if (!h) return null;
+    return h.bridge.getState();
+  });
+
   ipcMain.handle("thread:getCommands", async (_e, threadId: string) => {
     const h = bridges.get(threadId);
     if (!h) return { commands: [] };

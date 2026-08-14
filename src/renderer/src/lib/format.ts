@@ -50,6 +50,20 @@ export function formatTokens(n: number | null | undefined): string {
   return String(n);
 }
 
+/**
+ * Rough local token estimate for display only (no tokenizer in the bundle):
+ * CJK chars ≈ 1 token each, everything else ≈ 4 chars/token.
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  let cjk = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) || 0;
+    if (code >= 0x2e80 && code <= 0x9fff) cjk++;
+  }
+  return Math.ceil(cjk + (text.length - cjk) / 4);
+}
+
 const FILE_ICON: Record<string, string> = {
   ".pptx": "📙", ".ppt": "📙",
   ".ts": "🟦", ".tsx": "⚛️", ".js": "🟨", ".jsx": "⚛️", ".json": "🧾",

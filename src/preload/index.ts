@@ -117,6 +117,7 @@ const api = {
       ipcRenderer.invoke("thread:share", args),
     setName: (args: { threadId: string; name: string }) => ipcRenderer.invoke("thread:setName", args),
     getStats: (threadId: string) => ipcRenderer.invoke("thread:getStats", threadId),
+    getState: (threadId: string) => ipcRenderer.invoke("thread:getState", threadId),
     getCommands: (threadId: string) => ipcRenderer.invoke("thread:getCommands", threadId),
     extuiResponse: (args: { threadId: string; id: string; payload: Record<string, unknown> }) =>
       ipcRenderer.invoke("thread:extuiResponse", args),

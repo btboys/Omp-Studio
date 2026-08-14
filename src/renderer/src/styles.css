@@ -3289,6 +3289,9 @@ body.sidebar-resizing * {
 .ctx-pop {
   top: 42px;
   min-width: 216px;
+  width: 320px;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 .usage-pop {
   top: 42px;
@@ -3425,6 +3428,67 @@ body.sidebar-resizing * {
 }
 .ctx-ext-status + .ctx-ext-status {
   margin-top: 4px;
+}
+.ctx-ext .ctx-rows + .ctx-rows {
+  margin-top: 5px;
+}
+.ctx-mini-btn {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--border, #e5e5dd);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ctx-mini-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ctx-prompt-view {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--control, #f7f7f3);
+  border: 1px solid var(--border, #e5e5dd);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.ctx-tools {
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ctx-group-row {
+  font-size: 12px;
+  margin-top: 4px;
+}
+.ctx-group-row span {
+  font-weight: 600;
+  color: var(--text);
+}
+.ctx-tool-row {
+  font-size: 11.5px;
+}
+.ctx-tool-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-tool-row b {
+  font-weight: 500;
+  color: var(--text-faint);
 }
 .provider-usage-inline {
   display: flex;
