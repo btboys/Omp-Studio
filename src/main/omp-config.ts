@@ -22,7 +22,7 @@ export interface OmpConfigEntry {
   options?: string[];
 }
 
-export type OmpConfigSectionId = "appearance" | "context" | "files" | "interaction" | "model" | "memory" | "providers" | "advanced";
+export type OmpConfigSectionId = "appearance" | "context" | "skills" | "files" | "interaction" | "model" | "memory" | "providers" | "advanced";
 
 export interface OmpConfigSection {
   id: OmpConfigSectionId;
@@ -92,6 +92,23 @@ const CONFIG_GROUPS: { id: OmpConfigSectionId; keys: string[] }[] = [
       "ttsr.repeatMode",
       "ttsr.repeatGap",
       "ttsr.builtinRules",
+    ],
+  },
+  {
+    id: "skills",
+    keys: [
+      "skills.enabled",
+      "skills.enableSkillCommands",
+      "skills.includeSkills",
+      "skills.ignoredSkills",
+      "skills.customDirectories",
+      "skills.enablePiUser",
+      "skills.enablePiProject",
+      "skills.enableAgentsUser",
+      "skills.enableAgentsProject",
+      "skills.enableClaudeUser",
+      "skills.enableClaudeProject",
+      "skills.enableCodexUser",
     ],
   },
   {

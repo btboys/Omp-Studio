@@ -13,6 +13,7 @@ import { Refresh, Search } from "./icons";
 const SECTION_LABEL: Record<OmpConfigSectionId, [string, string]> = {
   appearance: ["外观", "Appearance"],
   context: ["上下文", "Context"],
+  skills: ["技能", "Skills"],
   files: ["文件与工具", "Files & Tools"],
   interaction: ["交互", "Interaction"],
   model: ["模型", "Model"],
@@ -26,8 +27,7 @@ const SECTION_LABEL: Record<OmpConfigSectionId, [string, string]> = {
  * description from `omp config list --json`). Kept here so the panel
  * localizes without touching the main-process IPC contract.
  */
-const ZH_DESC: Record<string, string> = {
-  // appearance
+const ZH_DESC: Record<string, string> = {  // appearance
   symbolPreset: "图标与符号使用的字形集（Unicode、Nerd Font 或 ASCII）",
   colorBlindMode: "使用蓝色代替绿色显示 diff 新增内容",
   "theme.dark": "终端为深色背景时使用的主题",
@@ -75,6 +75,19 @@ const ZH_DESC: Record<string, string> = {
   "ttsr.repeatMode": "规则可以重复触发的方式：每会话一次或消息间隔后",
   "ttsr.repeatGap": "规则可再次触发前需要间隔的消息数",
   "ttsr.builtinRules": "加载随 agent 附带的默认规则（可用 ttsr.disabledRules 逐条覆盖）",
+  // skills
+  "skills.enabled": "技能系统总开关。关闭后任何来源的技能都不加载，技能描述不再进入系统提示词",
+  "skills.enableSkillCommands": "把技能注册为 /skill:名称 斜杠命令，可在输入框直接调用",
+  "skills.includeSkills": "技能白名单（glob 数组）。非空时只加载匹配的技能，如 [\"omp-studio-*\"]",
+  "skills.ignoredSkills": "技能黑名单（glob 数组），匹配的技能不加载。二进制内置技能只能用此方式屏蔽",
+  "skills.customDirectories": "额外的技能扫描目录（JSON 数组），每个目录下按 <名称>/SKILL.md 组织",
+  "skills.enablePiUser": "加载用户级 omp/pi 技能（~/.omp/agent/skills、~/.pi/agent/skills）",
+  "skills.enablePiProject": "加载项目级 omp/pi 技能（<项目>/.omp/skills、.pi/skills）",
+  "skills.enableAgentsUser": "加载用户级 agents 技能（~/.agents/skills）",
+  "skills.enableAgentsProject": "加载项目级 agents 技能（<项目>/.agents/skills）",
+  "skills.enableClaudeUser": "加载用户级 Claude 技能（~/.claude/skills）",
+  "skills.enableClaudeProject": "加载项目级 Claude 技能（从项目目录向上回溯 .claude/skills）",
+  "skills.enableCodexUser": "加载 Codex 插件缓存中的技能（~/.codex/plugins/cache）",
   // files
   "edit.mode": "选择编辑工具变体（replace、patch、hashline 或 apply_patch）",
   "edit.fuzzyMatch": "接受空白差异的高置信度模糊匹配",
@@ -206,6 +219,30 @@ const ZH_DESC: Record<string, string> = {
   cycleOrder: "模型循环切换的顺序",
 };
 
+/**
+ * English fallbacks for keys whose omp schema description is empty
+ * (omp's own English text always wins when present).
+ */
+const EN_DESC: Record<string, string> = {
+  "skills.enabled": "Master switch for the skill system. When off, no skills from any source load and skill descriptions never enter the system prompt",
+  "skills.includeSkills": "Skill allowlist (glob array). When non-empty, only matching skills load, e.g. [\"omp-studio-*\"]",
+  "skills.ignoredSkills": "Skill denylist (glob array); matching skills never load. The only way to block binary built-in skills",
+  "skills.customDirectories": "Extra skill scan directories (JSON array), each organized as <name>/SKILL.md",
+  "skills.enablePiUser": "Load user-level omp/pi skills (~/.omp/agent/skills, ~/.pi/agent/skills)",
+  "skills.enablePiProject": "Load project-level omp/pi skills (<project>/.omp/skills, .pi/skills)",
+  "skills.enableAgentsUser": "Load user-level agents skills (~/.agents/skills)",
+  "skills.enableAgentsProject": "Load project-level agents skills (<project>/.agents/skills)",
+  "skills.enableClaudeUser": "Load user-level Claude skills (~/.claude/skills)",
+  "skills.enableClaudeProject": "Load project-level Claude skills (walks up from the project dir for .claude/skills)",
+  "skills.enableCodexUser": "Load skills from the Codex plugin cache (~/.codex/plugins/cache)",
+};
+
+/** Localized row description: zh prefers curated ZH, en prefers omp's own text, curated maps fill the gaps. */
+function descFor(key: string, ompDesc: string, language: string): string {
+  if (language === "zh") return ZH_DESC[key] ?? (ompDesc || EN_DESC[key] || "");
+  return ompDesc || EN_DESC[key] || "";
+}
+
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" className={`set-toggle ${checked ? "on" : ""}`} aria-checked={checked} role="switch" onClick={() => onChange(!checked)}>
@@ -234,7 +271,7 @@ function Row({ entry, language, saving, onCommit, onReset }: RowProps) {
   const [jsonOk, setJsonOk] = useState(true);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const areaRef = useRef<HTMLTextAreaElement | null>(null);
-  const desc = language === "zh" ? (ZH_DESC[entry.key] ?? entry.description) : entry.description;
+  const desc = descFor(entry.key, entry.description, language);
   // Latest text for blur commits: state updates flush after the input event,
   // so a blur arriving in the same tick would read a stale closure.
   const textRef = useRef(text);
@@ -418,7 +455,7 @@ export function OmpConfigPanel() {
       ...sec,
       entries: q
         ? sec.entries.filter((e) => {
-            const d = language === "zh" ? (ZH_DESC[e.key] ?? e.description) : e.description;
+            const d = descFor(e.key, e.description, language);
             return e.key.toLowerCase().includes(q) || d.toLowerCase().includes(q);
           })
         : sec.entries,
