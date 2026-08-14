@@ -724,6 +724,8 @@ interface PiStore {
   /** Permanently delete an archived project's session files. Irreversible. */
   deleteProject: (cwd: string) => Promise<void>;
   archiveThread: (cwd: string, file: string, title?: string) => Promise<void>;
+  /** Permanently delete a session's jsonl file. Irreversible. */
+  deleteThread: (file: string, title?: string) => Promise<void>;
   restoreThread: (file: string) => Promise<void>;
   /** Persist the sidebar top-level item order + user group memberships (see Sidebar drag). */
   applyProjectLayout: (order: string[], groups: Record<string, string[]>) => Promise<void>;
@@ -1356,6 +1358,37 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast("info", "会话已归档，可在设置的“归档会话”中恢复。");
     } catch (e: any) {
       get().pushToast("error", "归档会话失败：" + (e?.message || e));
+    }
+  },
+  deleteThread: async (file, title) => {
+    try {
+      if (!file || file.startsWith("opening-") || file.startsWith("boot:")) return;
+      const language = get().config?.language || "en";
+      const msg =
+        language === "zh"
+          ? `确定永久删除会话「${title || "未命名"}」？此操作不可恢复。`
+          : `Permanently delete session "${title || "Untitled"}"? This cannot be undone.`;
+      if (!window.confirm(msg)) return;
+
+      // Close any open tab first so its omp process stops writing the file.
+      const ids = Object.entries(get().threads)
+        .filter(([id, thread]) => (thread.sessionFile || id).toLowerCase() === file.toLowerCase())
+        .map(([id]) => id);
+      for (const id of ids) await get().closeThread(id);
+
+      const res = await window.pi.app.deleteThread(file);
+      if (!res?.ok) throw new Error(res?.error || "delete failed");
+      const cfg = get().config;
+      if (cfg && (cfg.archivedThreads || []).some((t) => t.file.toLowerCase() === file.toLowerCase())) {
+        const config = await window.pi.app.setConfig({
+          archivedThreads: (cfg.archivedThreads || []).filter((t) => t.file.toLowerCase() !== file.toLowerCase()),
+        });
+        set({ config });
+      }
+      await get().refreshProjects();
+      get().pushToast("success", language === "zh" ? "会话已删除。" : "Session deleted.");
+    } catch (e: any) {
+      get().pushToast("error", "删除会话失败：" + (e?.message || e));
     }
   },
   restoreThread: async (file) => {

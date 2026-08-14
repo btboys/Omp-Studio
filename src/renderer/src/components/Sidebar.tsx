@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { fileIcon, formatTokens } from "../lib/format";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import type { FileNode } from "../lib/types";
-import { Plus, Close, Folder, Archive, ChevronRight, Edit, Clock, At, Search, Settings, Refresh, Gauge, Branch, Grid, Sidebar as SidebarIcon, Plug } from "./icons";
+import { Plus, Close, Folder, Archive, Trash, ChevronRight, Edit, Clock, At, Search, Settings, Refresh, Gauge, Branch, Grid, Sidebar as SidebarIcon, Plug } from "./icons";
 import { GitPanel } from "./GitPanel";
 import { ThreadListModal } from "./ThreadListModal";
 
@@ -473,6 +473,7 @@ export function Sidebar() {
   const archiveProject = useStore((s) => s.archiveProject);
   const removeProject = useStore((s) => s.removeProject);
   const archiveThread = useStore((s) => s.archiveThread);
+  const deleteThread = useStore((s) => s.deleteThread);
   const setSidebarTab = useStore((s) => s.setSidebarTab);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const threadListProject = threadListCwd ? projects.find((p) => p.cwd === threadListCwd) || null : null;
@@ -599,6 +600,18 @@ export function Sidebar() {
                       }}
                     >
                       <Archive size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="thread-archive-btn thread-delete-btn"
+                      title="删除会话（不可恢复）"
+                      aria-label={`删除会话：${t.title}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deleteThread(t.file, t.title);
+                      }}
+                    >
+                      <Trash size={13} />
                     </button>
                   </div>
                   {t.preview && t.preview !== t.title && <div className="thread-preview">{t.preview}</div>}

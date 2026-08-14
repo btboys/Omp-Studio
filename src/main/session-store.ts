@@ -1,6 +1,6 @@
-import { createReadStream, existsSync, readFileSync, readdirSync, rmSync, statSync, truncateSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, truncateSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 /**
@@ -573,6 +573,25 @@ export async function deleteProjectSessions(cwd: string): Promise<number> {
     }
   }
   return removed;
+}
+
+/**
+ * Permanently delete one session jsonl file. The path must live under the
+ * sessions dir; also removes the (now empty) session directory it sat in.
+ */
+export async function deleteThreadSession(file: string): Promise<boolean> {
+  const root = getSessionsDir();
+  if (!file || !file.endsWith(".jsonl")) return false;
+  const resolved = resolve(file);
+  if (!resolved.startsWith(root + sep) || !existsSync(resolved)) return false;
+  try {
+    rmSync(resolved, { force: true });
+    const dir = dirname(resolved);
+    if (dir.startsWith(root + sep) && readdirSync(dir).length === 0) rmdirSync(dir);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Read every session file under the sessions dir, grouped by real cwd. */

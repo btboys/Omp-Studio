@@ -31,6 +31,7 @@ const api = {
     prewarm: (cwd: string) => ipcRenderer.invoke("app:prewarm", cwd),
     unpinProject: (absPath: string) => ipcRenderer.invoke("app:unpinProject", absPath),
     deleteProject: (cwd: string) => ipcRenderer.invoke("app:deleteProject", cwd),
+    deleteThread: (file: string) => ipcRenderer.invoke("app:deleteThread", file),
     showOpenDialog: (kind: "folder" | "file" | "files") => ipcRenderer.invoke("app:showOpenDialog", kind),
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     getFileTree: (cwd: string, rel?: string) => ipcRenderer.invoke("app:getFileTree", cwd, rel),

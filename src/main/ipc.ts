@@ -62,7 +62,7 @@ import { getActiveAuthSession, listAuthProviders, logoutAuthProvider, startAuthL
 import { createGateModeFile, ensureGateExtension, removeGateModeFile, writeGateMode } from "./permission-gate";
 import { initDesktopNotify, maybeDesktopNotify, setActiveNotifyThread, threadNotifyLabel } from "./notify";
 import { readPreview } from "./preview-service";
-import { deleteProjectSessions, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit, undoLastTurn } from "./session-store";
+import { deleteProjectSessions, deleteThreadSession, getAgentDir, getTotalUsage, type ProjectSummary, readThreadHistory, scanProjects, searchThreads, type ThreadSearchHit, undoLastTurn } from "./session-store";
 import { listMcpServers, probeMcpServers, removeMcpServer, saveMcpServer, setMcpLists, setMcpServerEnabled, type McpServerConfig } from "./mcp";
 import {
   isLocalExtensionSource,
@@ -612,6 +612,18 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       archivedThreads: (cfg.archivedThreads || []).filter((t) => t.cwd.toLowerCase() !== key),
     });
     return { ok: true, removed };
+  });
+
+  // Permanently delete one session file. Irreversible; the renderer closes any
+  // open tab (and its omp process) for this session before invoking.
+  ipcMain.handle("app:deleteThread", async (_e, file: string) => {
+    if (!file || typeof file !== "string") return { ok: false, error: "Invalid file" };
+    const removed = await deleteThreadSession(file);
+    if (!removed) return { ok: false, error: "Session file not found" };
+    const cfg = getConfig();
+    const key = file.toLowerCase();
+    updateConfig({ archivedThreads: (cfg.archivedThreads || []).filter((t) => t.file.toLowerCase() !== key) });
+    return { ok: true };
   });
 
   // Pre-warm the standby pi process for the project the user is looking at, so
