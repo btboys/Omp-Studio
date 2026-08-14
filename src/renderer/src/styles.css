@@ -5952,6 +5952,14 @@ mark.hl {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.plugins-row-desc {
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
 .plugins-row-actions {
   grid-column: 2;
   grid-row: 1 / span 2;

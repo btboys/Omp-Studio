@@ -197,20 +197,26 @@ export function PluginsPanel() {
 
           <section className="plugins-section">
             <div className="plugins-section-head">
-              Skills（{filteredSkills.length}
-              {normalizedQuery ? ` / ${skills.length}` : ""}）
+              Skills（{skillsLoadGlobal ? `${filteredSkills.length}${normalizedQuery ? ` / ${skills.length}` : ""}` : (language === "zh" ? "全局加载已关闭" : "global load off")}）
             </div>
-            <div className="plugins-row" style={{ padding: "6px 0" }}>
-              <div className="plugins-row-main" style={{ flex: 1 }}>
+            <div className="plugins-row">
+              <div className="plugins-row-main">
                 <span className="plugins-row-name">{language === "zh" ? "自动加载全局技能" : "Auto-load global skills"}</span>
-                <span className="plugins-row-sub" style={{ fontSize: 11 }}>{language === "zh" ? "关闭后全局/遗留目录的技能不会自动注入对话，项目级技能不受影响，仍可通过 /skill:xxx 手动加载" : "Off: global/legacy skills won't auto-load; project skills and /skill:xxx still work"}</span>
+              </div>
+              <div className="plugins-row-sub plugins-row-desc">
+                {language === "zh"
+                  ? "关闭后全局/遗留目录（~/.omp/agent/skills、~/.agents/skills 等）的技能不再自动注入对话；项目级技能和 /skill:xxx 手动调用不受影响"
+                  : "When off, skills in global/legacy dirs (~/.omp/agent/skills, ~/.agents/skills) no longer auto-load; project skills and /skill:xxx still work"}
               </div>
               <div className="plugins-row-actions">
                 <Toggle checked={skillsLoadGlobal} onChange={(v) => void toggleSkillsLoadGlobal(v)} />
               </div>
             </div>
             {loading && skills.length === 0 && <div className="set-empty-mini">加载中…</div>}
-            {!loading && skills.length === 0 && <div className="set-empty-mini">未在 ~/.omp/agent/skills 等目录发现独立 skill。</div>}
+            {!loading && skills.length === 0 && !skillsLoadGlobal && (
+              <div className="set-empty-mini">{language === "zh" ? "全局技能加载已关闭，开启上方开关后显示技能列表。" : "Global skill loading is off; enable the switch above to list skills."}</div>
+            )}
+            {!loading && skills.length === 0 && skillsLoadGlobal && <div className="set-empty-mini">未在 ~/.omp/agent/skills 等目录发现独立 skill。</div>}
             {skills.length > 0 && filteredSkills.length === 0 && <div className="set-empty-mini">没有匹配的 skill。</div>}
             {pageSkills.map((sk) => (
               <div className="plugins-row" key={sk.path}>
@@ -245,7 +251,7 @@ export function PluginsPanel() {
                 </button>
               </div>
             )}
-            <div className="muted plugins-note">停用 skill 会将其入口文件重命名为 *.disabled（可逆）；新增文件后可点击右上角刷新。</div>
+            <div className="muted plugins-note">停用 skill 会在其 SKILL.md 写入 enabled: false（可逆）；新增文件后可点击右上角刷新。</div>
           </section>
         </div>
       </div>
