@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
@@ -904,7 +905,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     }
   });
   ipcMain.handle("memory:openDir", async () => {
-    const err = await shell.openPath(getBanksDir());
+    const dir = getBanksDir();
+    await mkdir(dir, { recursive: true });
+    const err = await shell.openPath(dir);
     return err ? { ok: false, error: err } : { ok: true };
   });
 

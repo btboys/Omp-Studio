@@ -606,6 +606,7 @@ export function Settings() {
   const restoreProject = useStore((s) => s.restoreProject);
   const deleteProject = useStore((s) => s.deleteProject);
   const restoreThread = useStore((s) => s.restoreThread);
+  const deleteThread = useStore((s) => s.deleteThread);
   const refreshOpenThreadModels = useStore((s) => s.refreshOpenThreadModels);
   const language = config?.language || "en";
 
@@ -1577,7 +1578,7 @@ export function Settings() {
                 <div className="archived-thread-section">
                   <div className="set-card-title">已归档会话</div>
                   <div className="set-hint archived-project-hint">
-                    归档只会隐藏会话，不会删除会话文件；恢复后会话会重新出现在所属项目下。
+                    归档只会隐藏会话，不会删除会话文件；恢复后会话会重新出现在所属项目下；也可在此彻底删除会话文件，不可恢复。
                   </div>
                   {(config?.archivedThreads || []).length === 0 ? (
                     <div className="set-empty">暂无归档会话。</div>
@@ -1592,7 +1593,10 @@ export function Settings() {
                               <div className="archived-thread-name" title={thread.title}>{thread.title || thread.file}</div>
                               <div className="archived-thread-path" title={thread.file}>{projectName} · {thread.file}</div>
                             </div>
-                            <button className="set-btn" onClick={() => restoreThread(thread.file)}>恢复会话</button>
+                            <div className="archived-project-actions">
+                              <button className="set-btn" onClick={() => restoreThread(thread.file)}>恢复会话</button>
+                              <button className="set-btn danger" onClick={() => void deleteThread(thread.file, thread.title)}>彻底删除</button>
+                            </div>
                           </div>
                         );
                       })}
