@@ -416,6 +416,30 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
   };
 }
 
+
+/** True when a user bubble was queued via steer/follow-up during a live turn. */
+function isQueuedDuringStream(m: ViewMessage | undefined): boolean {
+  return !!m && m.role === "user" && (!!m.sendKind || m.key.startsWith("opt-"));
+}
+
+/** How many trailing mid-stream steer/follow-up user bubbles sit at the end of `messages`. */
+function trailingQueuedUserCount(messages: ViewMessage[]): number {
+  let n = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (!isQueuedDuringStream(messages[i])) break;
+    n++;
+  }
+  return n;
+}
+
+/** Finalize a streaming assistant *before* any mid-stream steer/follow-up bubbles. */
+function insertBeforeTrailingQueuedUsers(messages: ViewMessage[], item: ViewMessage): ViewMessage[] {
+  const n = trailingQueuedUserCount(messages);
+  if (n === 0) return [...messages, item];
+  const at = messages.length - n;
+  return [...messages.slice(0, at), item, ...messages.slice(at)];
+}
+
 /* ------------------------------------------------------------------ *
  * Event reducer (one thread)
  * ------------------------------------------------------------------ */
@@ -429,7 +453,7 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
       // If a streaming assistant message never got message_end, finalize it.
       const streaming = t.streaming;
       if (!streaming) return { ...t, isStreaming: false };
-      return { ...t, isStreaming: false, streaming: null, messages: [...t.messages, streaming] };
+      return { ...t, isStreaming: false, streaming: null, messages: insertBeforeTrailingQueuedUsers(t.messages, streaming) };
     }
     case "message_start": {
       const m = event.message;
@@ -526,7 +550,7 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
           usage: m.usage || t.streaming.usage,
           timestamp: m.timestamp || t.streaming.timestamp,
         };
-        return { ...t, streaming: null, messages: [...t.messages, final] };
+        return { ...t, streaming: null, messages: insertBeforeTrailingQueuedUsers(t.messages, final) };
       }
       return t;
     }

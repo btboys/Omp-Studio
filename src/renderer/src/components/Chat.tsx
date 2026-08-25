@@ -364,9 +364,21 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
   // Sharing needs a persisted, settled session so the uploaded snapshot is complete.
   const canShare = !thread.isStreaming && !!thread.sessionFile;
 
-  const lastGroup = groups[groups.length - 1];
+  // Mid-stream steer/follow-up bubbles are appended to `messages` while the live
+  // assistant still lives in `streaming`. Keep those queued user groups after the
+  // in-progress turn so they don't jump above the current reply.
+  let trailingQueued = 0;
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    const m = g.items[0];
+    if (g.role === "user" && m && (m.sendKind || m.key.startsWith("opt-"))) trailingQueued++;
+    else break;
+  }
+  const trailingGroups = trailingQueued ? groups.slice(-trailingQueued) : [];
+  const mainGroups = trailingQueued ? groups.slice(0, -trailingQueued) : groups;
+  const lastGroup = mainGroups[mainGroups.length - 1];
   const streamingExtends = !!streaming && !!lastGroup && lastGroup.role === "assistant";
-  const headGroups = streamingExtends ? groups.slice(0, -1) : groups;
+  const headGroups = streamingExtends ? mainGroups.slice(0, -1) : mainGroups;
 
   const startRename = () => {
     setEditValue(thread.sessionName || "");
@@ -808,6 +820,9 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
               canUndo={canUndo}
             />
           )}
+          {trailingGroups.map((g) => (
+            <MessageGroup key={g.key} threadId={threadId} group={g} toolRuns={thread.toolRuns} stripKey={todoInfo?.sourceKey ?? null} searchQuery={searchQuery} onPreviewImage={setPreviewImage} isLastUser={g.key === lastUserKey} canUndo={canUndo} />
+          ))}
           {thread.error && (
             <div className="msg system">
               <div className="msg-body">⚠ {thread.error}</div>
