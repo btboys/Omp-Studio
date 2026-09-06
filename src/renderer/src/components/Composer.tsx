@@ -4,12 +4,45 @@ import { modelShort } from "../lib/format";
 import { reasoningLevelLabel } from "../lib/reasoning";
 import { useOutsideClose } from "../lib/useOutsideClose";
 import { EMPTY_CACHE_STATS } from "../lib/cache";
-import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage, ProviderUsageReport } from "../lib/types";
+import type { EnhancePromptResult, FileNode, ModelInfo, PendingFile, PendingImage, PastedText, ProviderUsageReport } from "../lib/types";
 import { Plus, Paperclip, ImageIcon, Send, Stop, Smile, Shield, Edit, Zap, Folder, Search, Check, ChevronRight, Branch, MagicWand, Sparkle, Clipboard } from "./icons";
 import { CacheUsageInline, ProviderUsageInline, parseProviderUsage } from "./ProviderUsage";
 
 let _pid = 0;
 const pid = () => `p${_pid++}`;
+
+/** A pasted text block at/above this size collapses into an attachment-style
+ * chip instead of flooding the textarea (click the chip to preview it). */
+const PASTE_CHIP_MIN_CHARS = 80;
+const PASTE_CHIP_MIN_LINES = 2;
+
+function shouldCollapsePaste(text: string): boolean {
+  if (text.length >= PASTE_CHIP_MIN_CHARS) return true;
+  let lines = 1;
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) lines++;
+  return lines >= PASTE_CHIP_MIN_LINES;
+}
+
+/** Plain text carried by a paste. ClipboardData.getData("text/plain") is empty
+ * when the source only exposed rich text (e.g. copying rendered HTML from a
+ * web chat), so fall back to the first string item of any text type. */
+function pastedPlainText(data: DataTransfer | null): string {
+  if (!data) return "";
+  const plain = data.getData("text/plain");
+  if (plain) return plain;
+  for (const it of Array.from(data.items || [])) {
+    if (it.kind === "string" && it.type.startsWith("text/")) {
+      const fallback = data.getData(it.type);
+      if (fallback) return fallback;
+    }
+  }
+  return "";
+}
+
+/** Final prompt text: typed text first, then each collapsed paste chip. */
+function mergePasteText(text: string, pastes: PastedText[]): string {
+  return [text.trim(), ...pastes.map((p) => p.text.trim())].filter(Boolean).join("\n\n");
+}
 
 /**
  * Session mode selector (Build / Plan / Vibe / Goal) — entry hidden for now.
@@ -197,6 +230,8 @@ export function Composer({ threadId }: { threadId: string }) {
     setComposerDraft(threadId, typeof v === "function" ? v(useStore.getState().drafts[threadId] ?? "") : v);
   const [images, setImages] = useState<PendingImage[]>([]);
   const [files, setFiles] = useState<PendingFile[]>([]);
+  const [pastes, setPastes] = useState<PastedText[]>([]);
+  const [pasteView, setPasteView] = useState<PastedText | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
   const [permOpen, setPermOpen] = useState(false);
@@ -226,6 +261,19 @@ export function Composer({ threadId }: { threadId: string }) {
   useOutsideClose(modelRef, modelOpen, () => setModelOpen(false));
   useOutsideClose(projectRef, projectOpen, () => setProjectOpen(false));
   useOutsideClose(enhanceRef, enhanceOpen, () => setEnhanceOpen(false));
+
+  // Escape closes the pasted-content viewer.
+  useEffect(() => {
+    if (!pasteView) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setPasteView(null);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [pasteView]);
 
   // extension-injected editor text
   const lastInjected = useRef<string | undefined>(undefined);
@@ -295,22 +343,35 @@ export function Composer({ threadId }: { threadId: string }) {
       setImages((p) => [...p, ...imgs]);
       setFiles((p) => [...p, ...fs.filter((nf) => !p.some((x) => x.abs === nf.abs))]);
     }
+    // A big pasted prompt collapses into an attachment-style chip instead of
+    // flooding the textarea; its content is merged back in on send.
+    const pastedText = pastedPlainText(e.clipboardData);
+    if (pastedText && shouldCollapsePaste(pastedText)) {
+      e.preventDefault();
+      setPastes((p) => [...p, { id: pid(), text: pastedText }]);
+      useStore
+        .getState()
+        .pushToast("info", language === "zh" ? `长文本已收缩为粘贴附件（${pastedText.length} 字符）` : `Pasted text collapsed into a chip (${pastedText.length} chars)`);
+    }
   };
 
   const dispatchSend = async (t: string, mode?: "steer" | "followUp") => {
     const imgs = images.map((im) => ({ data: im.base64, mimeType: im.mimeType }));
     const atts = files.map((f) => ({ abs: f.abs, name: f.name }));
+    const full = mergePasteText(t, pastes);
+    const hadPastes = pastes.length > 0;
     setText("");
     setImages([]);
     setFiles([]);
+    setPastes([]);
     setEnhanceOpen(false);
     setEnhanceResult(null);
-    await sendPrompt(threadId, t, imgs.length ? imgs : undefined, atts.length ? atts : undefined, mode);
+    await sendPrompt(threadId, full, imgs.length ? imgs : undefined, atts.length ? atts : undefined, mode, hadPastes, t);
   };
 
   const send = async (mode?: "steer" | "followUp") => {
     const t = text.trim();
-    if (!t && !images.length && !files.length) return;
+    if (!t && !images.length && !files.length && !pastes.length) return;
     await dispatchSend(t, mode);
   };
 
@@ -349,10 +410,11 @@ export function Composer({ threadId }: { threadId: string }) {
       if (pending) {
         void dispatchSend(t, "followUp");
       } else {
-        setPendingFollowUp(threadId, { text: t, images, files });
+        setPendingFollowUp(threadId, { text: t, images, files, pastes: pastes.map((p) => p.text) });
         setText("");
         setImages([]);
         setFiles([]);
+        setPastes([]);
         setEnhanceOpen(false);
         setEnhanceResult(null);
       }
@@ -366,21 +428,25 @@ export function Composer({ threadId }: { threadId: string }) {
   // user re-edits it or promotes it to steering first.
   const queuePending = () => {
     const t = text.trim();
-    if (!t && !images.length && !files.length) return;
+    if (!t && !images.length && !files.length && !pastes.length) return;
     if (pending) {
       // A follow-up is already staged; queue this one straight into pi.
       const imgs = images.map((im) => ({ data: im.base64, mimeType: im.mimeType }));
       const atts = files.map((f) => ({ abs: f.abs, name: f.name }));
+      const full = mergePasteText(t, pastes);
+      const hadPastes = pastes.length > 0;
       setText("");
       setImages([]);
       setFiles([]);
-      sendPrompt(threadId, t, imgs.length ? imgs : undefined, atts.length ? atts : undefined, "followUp");
+      setPastes([]);
+      sendPrompt(threadId, full, imgs.length ? imgs : undefined, atts.length ? atts : undefined, "followUp", hadPastes, t);
       return;
     }
-    setPendingFollowUp(threadId, { text: t, images, files });
+    setPendingFollowUp(threadId, { text: t, images, files, pastes: pastes.map((p) => p.text) });
     setText("");
     setImages([]);
     setFiles([]);
+    setPastes([]);
   };
 
   const reEditPending = () => {
@@ -388,6 +454,7 @@ export function Composer({ threadId }: { threadId: string }) {
     setText(pending.text);
     setImages(pending.images);
     setFiles(pending.files);
+    setPastes((pending.pastes || []).map((text) => ({ id: pid(), text })));
     setPendingFollowUp(threadId, null);
     requestAnimationFrame(() => {
       taRef.current?.focus();
@@ -769,8 +836,32 @@ export function Composer({ threadId }: { threadId: string }) {
             </div>
           </div>
         )}
-        {(images.length > 0 || files.length > 0) && (
+        {(images.length > 0 || files.length > 0 || pastes.length > 0) && (
           <div className="composer-attachments">
+            {pastes.map((p) => (
+              <div
+                key={p.id}
+                className="attach-chip paste-chip"
+                role="button"
+                title={language === "zh" ? "粘贴的长文本 · 点击查看内容" : "Pasted text · click to view"}
+                onClick={() => setPasteView(p)}
+              >
+                <Clipboard size={13} />
+                <span className="nm">{p.text.trim().split("\n")[0].slice(0, 40)}</span>
+                <span className="paste-chip-count">{p.text.length} {language === "zh" ? "字符" : "chars"}</span>
+                <button
+                  className="rm"
+                  title={language === "zh" ? "移除" : "Remove"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPastes((prev) => prev.filter((x) => x.id !== p.id));
+                    setPasteView((view) => (view?.id === p.id ? null : view));
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
             {images.map((im) => (
               <div key={im.id} className="attach-chip">
                 <img src={im.dataUrl} alt="" />
@@ -802,7 +893,14 @@ export function Composer({ threadId }: { threadId: string }) {
                 待处理 follow-up
                 <span className="pf-sub">· 当前任务完成后自动发送</span>
               </div>
-              <div className="pf-text">{pending.text || `${pending.images.length + pending.files.length} 个附件`}</div>
+              <div className="pf-text">
+                {pending.text ||
+                  (pending.pastes?.length
+                    ? language === "zh"
+                      ? `粘贴的长文本 ×${pending.pastes.length}`
+                      : `${pending.pastes.length} pasted text block${pending.pastes.length > 1 ? "s" : ""}`
+                    : `${pending.images.length + pending.files.length} 个附件`)}
+              </div>
             </div>
             <div className="pf-actions">
               <button className="pf-btn" title="重新编辑" onClick={reEditPending}>
@@ -1055,7 +1153,7 @@ export function Composer({ threadId }: { threadId: string }) {
                   className="send-btn"
                   title="存为待处理 follow-up（Enter）；Alt+Enter 立即 steering"
                   onClick={() => queuePending()}
-                  disabled={(enhanceBusy || (!text.trim() && !images.length && !files.length))}
+                  disabled={(enhanceBusy || (!text.trim() && !images.length && !files.length && !pastes.length))}
                 >
                   <Send size={15} />
                 </button>
@@ -1064,7 +1162,7 @@ export function Composer({ threadId }: { threadId: string }) {
                 </button>
               </>
             ) : (
-              <button className="send-btn" title="Send" onClick={() => send()} disabled={enhanceBusy || (!text.trim() && !images.length && !files.length)}>
+              <button className="send-btn" title="Send" onClick={() => send()} disabled={enhanceBusy || (!text.trim() && !images.length && !files.length && !pastes.length)}>
                 <Send size={15} />
               </button>
             )}
@@ -1094,6 +1192,21 @@ export function Composer({ threadId }: { threadId: string }) {
           );
         })()}
       </div>
+      {pasteView && (
+        <div className="paste-view-overlay" onClick={() => setPasteView(null)}>
+          <div className="paste-view" onClick={(e) => e.stopPropagation()}>
+            <div className="paste-view-head">
+              <span>
+                {language === "zh" ? "粘贴内容" : "Pasted content"} · {pasteView.text.length} {language === "zh" ? "字符" : "chars"}
+              </span>
+              <button className="paste-view-close" title={language === "zh" ? "关闭" : "Close"} onClick={() => setPasteView(null)}>
+                ×
+              </button>
+            </div>
+            <pre className="paste-view-body">{pasteView.text}</pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

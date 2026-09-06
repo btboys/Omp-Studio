@@ -174,6 +174,15 @@ export interface ViewMessage {
   blocks?: ContentBlock[];
   /** how a user message was submitted while the agent was working */
   sendKind?: "steer" | "followUp";
+  /** The prompt carried collapsed paste-chip content: keep the bubble
+   *  collapsed (preview + click-to-view) regardless of the length heuristic.
+   *  Only set on this session's optimistic/echoed messages — history reloads
+   *  fall back to the length heuristic. */
+  hasPaste?: boolean;
+  /** With hasPaste: the hand-typed portion of the prompt (paste blocks
+   *  excluded), used as the collapsed preview so pasted content stays fully
+   *  hidden behind the expand button. */
+  pastePreview?: string;
   /** provider/model for assistant footer */
   provider?: string;
   model?: string;
@@ -225,6 +234,9 @@ export interface PendingFollowUp {
   text: string;
   images: PendingImage[];
   files: PendingFile[];
+  /** Large pasted blocks collapsed into chips while composing; appended after
+   *  `text` when the follow-up is delivered. */
+  pastes?: string[];
 }
 
 export interface ThreadState {
@@ -526,6 +538,14 @@ export interface PendingImage {
 export interface PendingFile {
   abs: string;
   name: string;
+}
+
+/** A large pasted text block collapsed into a composer chip instead of being
+ * inserted into the textarea. Sent as plain prompt text (appended after the
+ * typed text); only the chip is visible while composing. */
+export interface PastedText {
+  id: string;
+  text: string;
 }
 
 /** A single MCP server definition in mcp.json (stdio/http/sse). */

@@ -31,6 +31,13 @@ interface TodoInfo {
 /** GFM task-list line: `- [ ] foo`, `* [x] bar`, `1. [X] baz`. */
 const TODO_LINE = /^\s*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s+(.*)$/;
 
+/** User messages beyond this size render collapsed (preview + click to
+ *  expand) so a pasted long prompt never floods the transcript. Messages
+ *  flagged `hasPaste` (sent from composer paste chips) collapse regardless. */
+const USER_MSG_COLLAPSE_CHARS = 80;
+const USER_MSG_COLLAPSE_LINES = 2;
+const USER_MSG_PREVIEW_CHARS = 240;
+
 /** Extract markdown checkbox items from assistant text; null when none present. */
 function extractTodos(text: string): TodoItem[] | null {
   const items: TodoItem[] = [];
@@ -1023,6 +1030,9 @@ function MessageGroupInner({
   const language = useStore((s) => s.config?.language || "en");
   const userAvatar = useStore((s) => s.config?.userAvatar);
   const showTokenUsage = useStore((s) => s.showTokenUsage);
+  // Long user messages (e.g. a pasted block sent from a composer chip) stay
+  // collapsed behind a click-to-expand control instead of flooding the chat.
+  const [userTextExpanded, setUserTextExpanded] = useState(false);
   const q = (searchQuery || "").trim().toLowerCase();
   const highlightFor = (text: string) => (q && text.toLowerCase().includes(q) ? searchQuery : undefined);
   const artifacts = useMemo(
@@ -1075,6 +1085,10 @@ function MessageGroupInner({
   if (group.role === "user") {
     const m = group.items[0];
     const skillBlock = m.text ? parseSkillBlock(m.text) : null;
+    const longUserText =
+      !skillBlock &&
+      !!m.text &&
+      (!!m.hasPaste || m.text.length > USER_MSG_COLLAPSE_CHARS || m.text.split("\n").length > USER_MSG_COLLAPSE_LINES);
     return (
       <div className="msg user" data-msg-key={group.key}>
         <div className="msg-user-stack">
@@ -1092,11 +1106,41 @@ function MessageGroupInner({
                 )}
               </>
             ) : (
-              m.text && (
+              m.text &&
+              (longUserText ? (
+                <div className={`msg-user-collapsed${userTextExpanded ? " expanded" : ""}`}>
+                  {(() => {
+                    // hasPaste: preview shows only the hand-typed part; the
+                    // pasted blocks stay hidden behind the expand button.
+                    const preview = m.hasPaste ? (m.pastePreview || "") : m.text.slice(0, USER_MSG_PREVIEW_CHARS);
+                    return (
+                      (userTextExpanded || preview) && (
+                        <div className="msg-user-text">
+                          <HighlightText text={userTextExpanded ? m.text : preview} query={searchQuery} />
+                          {!userTextExpanded && " …"}
+                        </div>
+                      )
+                    );
+                  })()}
+                  <button className="msg-user-expand-btn" onClick={() => setUserTextExpanded((v) => !v)}>
+                    {userTextExpanded
+                      ? language === "zh"
+                        ? "收起"
+                        : "Collapse"
+                      : m.hasPaste
+                        ? language === "zh"
+                          ? `查看粘贴内容（${m.text.length} 字符）`
+                          : `View pasted content (${m.text.length} chars)`
+                        : language === "zh"
+                          ? `展开查看全部（${m.text.length} 字符）`
+                          : `Show full message (${m.text.length} chars)`}
+                  </button>
+                </div>
+              ) : (
                 <div className="msg-user-text">
                   <HighlightText text={m.text} query={searchQuery} />
                 </div>
-              )
+              ))
             )}
             {m.images && m.images.length > 0 && (
               <div className="msg-user-imgs">

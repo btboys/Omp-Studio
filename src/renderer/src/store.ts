@@ -374,6 +374,11 @@ function pendingToArgs(p: PendingFollowUp): {
   return { imgs: imgs.length ? imgs : undefined, atts: atts.length ? atts : undefined };
 }
 
+/** Full prompt text of a pending follow-up: typed text + collapsed paste chips. */
+function pendingFullText(p: PendingFollowUp): string {
+  return [p.text, ...(p.pastes || [])].map((s) => s.trim()).filter(Boolean).join("\n\n");
+}
+
 function emptyThread(cwd: string): ThreadState {
   return {
     cwd,
@@ -790,7 +795,7 @@ interface PiStore {
   reorderOpenThreads: (fromIndex: number, toIndex: number) => void;
   /** Cycle the active tab by delta (+1 next, -1 previous). */
   cycleOpenThread: (delta: number) => void;
-  sendPrompt: (threadId: string, text: string, images?: { data: string; mimeType: string }[], attachments?: { abs: string; name: string }[], mode?: "steer" | "followUp") => Promise<void>;
+  sendPrompt: (threadId: string, text: string, images?: { data: string; mimeType: string }[], attachments?: { abs: string; name: string }[], mode?: "steer" | "followUp", hasPaste?: boolean, pastePreview?: string) => Promise<void>;
   setPendingFollowUp: (threadId: string, pending: PendingFollowUp | null) => void;
   sendPendingSteering: (threadId: string) => Promise<void>;
   abortThread: (id: string) => Promise<void>;
@@ -987,7 +992,7 @@ function scheduleEventFlush(): void {
       if (p) {
         st.setPendingFollowUp(threadId, null);
         const { imgs, atts } = pendingToArgs(p);
-        st.sendPrompt(threadId, p.text, imgs, atts);
+        st.sendPrompt(threadId, pendingFullText(p), imgs, atts, undefined, !!p.pastes?.length, p.text);
       }
       // The first session entry may only be visible on disk once the turn has
       // settled. Keep the project/thread index in lockstep with that lifecycle.
@@ -1910,7 +1915,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
   },
 
-  sendPrompt: async (threadId, text, images, attachments, mode) => {
+  sendPrompt: async (threadId, text, images, attachments, mode, hasPaste, pastePreview) => {
     const trimmed = (text || "").trim();
     const hasImg = !!images && images.length > 0;
     const hasAtt = !!attachments && attachments.length > 0;
@@ -1924,6 +1929,8 @@ export const useStore = create<PiStore>()((set, get) => ({
       images: (images || []).map((im) => ({ dataUrl: `data:${im.mimeType};base64,${im.data}`, mimeType: im.mimeType })),
       timestamp: Date.now(),
       sendKind: wasStreaming ? (mode === "followUp" ? "followUp" : "steer") : undefined,
+      hasPaste: hasPaste || undefined,
+      pastePreview: hasPaste ? pastePreview || undefined : undefined,
     };
     // Show the user's bubble immediately, even if the process is still
     // connecting in the background — the chat must never look frozen.
@@ -1980,7 +1987,7 @@ export const useStore = create<PiStore>()((set, get) => ({
     if (!p) return;
     get().setPendingFollowUp(threadId, null);
     const { imgs, atts } = pendingToArgs(p);
-    await get().sendPrompt(threadId, p.text, imgs, atts, "steer");
+    await get().sendPrompt(threadId, pendingFullText(p), imgs, atts, "steer", !!p.pastes?.length, p.text);
   },
 
   abortThread: async (id) => {
