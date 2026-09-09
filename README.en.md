@@ -4,7 +4,7 @@
 
 Omp Studio is an independent Electron desktop client for [oh-my-pi](https://github.com/can1357/oh-my-pi) (omp, a fork of the [Pi coding agent](https://github.com/earendil-works/pi)). It brings omp projects, threads, model configuration, extensions, permission controls, automation, and file previews into one desktop workspace.
 
-Current release: `0.5.26` (Windows x64 and macOS arm64 installers).
+Current release: `0.5.27` (Windows x64 and macOS arm64 installers).
 
 > Omp Studio is an independent community project. It is not affiliated with or endorsed by the Pi or oh-my-pi maintainers.
 
@@ -60,7 +60,7 @@ npm run dist              # Bundle, build, and create the installer
 npm run pack              # Create an unpacked directory build
 ```
 
-Build output is written to `release/`. `npm run dist` creates the Electron installer with the omp runtime binary embedded inside it; the generated binary in `release/` is retained for QA and does not need to be uploaded separately. The repository pins the omp runtime `18.1.11` in `package.json` (`ompRuntimeVersion`), and the packaging script verifies that version against the latest GitHub release before downloading. Set `OMP_RUNTIME_VERSION` to package a different pinned version.
+Build output is written to `release/`. `npm run dist` creates the Electron installer with the omp runtime binary embedded inside it; the generated binary in `release/` is retained for QA and does not need to be uploaded separately. The repository pins the omp runtime `18.1.15` in `package.json` (`ompRuntimeVersion`), and the packaging script verifies that version against the latest GitHub release before downloading. Set `OMP_RUNTIME_VERSION` to package a different pinned version.
 
 ## Configuration and data
 
