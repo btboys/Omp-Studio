@@ -326,7 +326,14 @@ function historyToView(messages: any[]): { views: ViewMessage[]; toolRuns: Recor
   (messages || []).forEach((m, i) => {
     if (!m) return;
     if (m.role === "user") {
-      views.push({ key: `hu-${i}`, role: "user", text: textOfContent(m.content), images: imagesOfContent(m.content), timestamp: m.timestamp });
+      views.push({
+        key: `hu-${i}`,
+        role: "user",
+        text: textOfContent(m.content),
+        images: imagesOfContent(m.content),
+        timestamp: m.timestamp,
+        sendKind: m.steering ? "steer" : undefined,
+      });
     } else if (m.role === "assistant") {
       const blocks = blocksOfContent(m.content);
       for (const b of blocks) {
@@ -422,22 +429,21 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
 }
 
 
-/** True when a user bubble was queued via steer/follow-up during a live turn. */
-function isQueuedDuringStream(m: ViewMessage | undefined): boolean {
-  return !!m && m.role === "user" && (!!m.sendKind || m.key.startsWith("opt-"));
-}
-
-/** How many trailing mid-stream steer/follow-up user bubbles sit at the end of `messages`. */
+/** How many trailing optimistic steer/follow-up bubbles sit at the end of `messages`.
+ *  Only opt-* stay trailing past the live assistant — once message_start promotes
+ *  them, later assistant turns must append after (insertion order). sendKind alone
+ *  is a display badge and must NOT keep reordering forever. */
 function trailingQueuedUserCount(messages: ViewMessage[]): number {
   let n = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (!isQueuedDuringStream(messages[i])) break;
+    const m = messages[i];
+    if (!(m && m.role === "user" && m.key.startsWith("opt-"))) break;
     n++;
   }
   return n;
 }
 
-/** Finalize a streaming assistant *before* any mid-stream steer/follow-up bubbles. */
+/** Finalize a streaming assistant *before* any still-optimistic mid-stream bubbles. */
 function insertBeforeTrailingQueuedUsers(messages: ViewMessage[], item: ViewMessage): ViewMessage[] {
   const n = trailingQueuedUserCount(messages);
   if (n === 0) return [...messages, item];
@@ -466,33 +472,52 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
       if (m.role === "user") {
         const serverText = textOfContent(m.content);
         const serverImages = imagesOfContent(m.content);
+        // Steer/follow-up may arrive while the interrupted assistant is still in
+        // `streaming`. Commit it first so the user bubble keeps insertion order.
+        let messages = t.messages;
+        let streaming = t.streaming;
+        if (streaming) {
+          messages = insertBeforeTrailingQueuedUsers(messages, streaming);
+          streaming = null;
+        }
         let optimisticIndex = -1;
-        for (let i = t.messages.length - 1; i >= 0; i--) {
-          const candidate = t.messages[i];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const candidate = messages[i];
           if (!candidate?.key.startsWith("opt-")) continue;
           if (!serverText || candidate.text === serverText) {
             optimisticIndex = i;
             break;
           }
         }
+        const sendKind =
+          (optimisticIndex >= 0 ? messages[optimisticIndex].sendKind : undefined) ||
+          (m.steering ? "steer" : undefined);
         if (optimisticIndex >= 0) {
           // Connection remaps and concurrent events may append another message
           // after this bubble. Promote the matching optimistic item in place,
           // retaining local image data if the live Pi event omits its payload.
-          const optimistic = t.messages[optimisticIndex];
+          const optimistic = messages[optimisticIndex];
           const promoted: ViewMessage = {
             ...optimistic,
             key: `u-${uid()}`,
             text: serverText || optimistic.text,
             images: serverImages.length ? serverImages : optimistic.images,
             timestamp: m.timestamp,
+            sendKind,
           };
-          const messages = [...t.messages];
-          messages[optimisticIndex] = promoted;
-          return { ...t, messages };
+          const next = [...messages];
+          next[optimisticIndex] = promoted;
+          return { ...t, streaming, messages: next };
         }
-        const view: ViewMessage = { key: `u-${uid()}`, role: "user", text: serverText, images: serverImages, timestamp: m.timestamp };
-        return { ...t, messages: [...t.messages, view] };
+        const view: ViewMessage = {
+          key: `u-${uid()}`,
+          role: "user",
+          text: serverText,
+          images: serverImages,
+          timestamp: m.timestamp,
+          sendKind,
+        };
+        return { ...t, streaming, messages: [...messages, view] };
       }
       if (m.role === "custom") {
         // async-result: a background subagent spawned by a `task` batch finished.
