@@ -4,7 +4,7 @@
 
 Omp Studio 是 [oh-my-pi](https://github.com/can1357/oh-my-pi)（omp，[Pi 编程代理](https://github.com/earendil-works/pi) 的一个分支）的独立 Electron 桌面客户端。它把 omp 的项目、会话、模型配置、扩展、权限控制、自动化与文件预览整合到一个桌面工作区中。
 
-当前版本：`0.5.27`（Windows x64 与 macOS arm64 安装包）。
+当前版本：`0.5.28`（Windows x64 与 macOS arm64 安装包）。
 
 > Omp Studio 是一个独立的社区项目，与 Pi 或 oh-my-pi 维护者无隶属关系，也未获得其背书。
 
@@ -60,7 +60,7 @@ npm run dist              # bundle + build + 生成安装包
 npm run pack              # 生成未打包的目录构建
 ```
 
-构建产物输出到 `release/`。`npm run dist` 会生成内置 omp 运行时二进制的 Electron 安装包；`release/` 中生成的二进制用于 QA，无需单独上传。仓库在 `package.json`（`ompRuntimeVersion`）中固定了 omp 运行时 `18.1.15`，打包脚本会在下载前校验该版本与 GitHub 最新发布是否一致。设置 `OMP_RUNTIME_VERSION` 可打包其他固定版本。
+构建产物输出到 `release/`。`npm run dist` 会生成内置 omp 运行时二进制的 Electron 安装包；`release/` 中生成的二进制用于 QA，无需单独上传。仓库在 `package.json`（`ompRuntimeVersion`）中固定了 omp 运行时 `18.1.19`，打包脚本会在下载前校验该版本与 GitHub 最新发布是否一致。设置 `OMP_RUNTIME_VERSION` 可打包其他固定版本。
 
 ## 配置与数据
 
