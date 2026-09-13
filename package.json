@@ -26,7 +26,8 @@
     "finalize-runtime": "node scripts/finalize-runtime.mjs",
     "pack": "npm run bundle && npm run build && electron-builder --dir && npm run finalize-runtime",
     "dist": "npm run bundle && npm run build && electron-builder && npm run finalize-runtime",
-    "test:subagents": "node scripts/test-subagents.mjs"
+    "test:subagents": "node scripts/test-subagents.mjs",
+    "test:skill-prompt": "bun scripts/test-skill-prompt.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

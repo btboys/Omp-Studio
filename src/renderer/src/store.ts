@@ -170,6 +170,24 @@ export function getDisplayUserPrompt(text: string): string {
   return skill ? skill.userMessage || `skill: ${skill.name}` : text;
 }
 
+/** Optimistic `/skill:name` (or `/name`) matches Pi's expanded skill envelope. */
+export function optimisticMatchesServerText(optimisticText: string, serverText: string): boolean {
+  if (!serverText || optimisticText === serverText) return true;
+  const skill = parseSkillBlock(serverText);
+  if (!skill) return false;
+  const slash = optimisticText.match(/^\/(?:skill:)?([^\s/]+)(?:\s+([\s\S]*))?$/);
+  if (!slash) return false;
+  const name = slash[1];
+  if (name !== skill.name && name !== `skill:${skill.name}`) return false;
+  const extra = (slash[2] || "").trim();
+  return !extra || extra === (skill.userMessage || "");
+}
+
+/** Unconfirmed mid-stream steer/follow-up — not a first-prompt optimistic bubble. */
+export function isTrailingQueuedUser(m: ViewMessage | undefined): boolean {
+  return !!m && m.role === "user" && m.key.startsWith("opt-") && !!m.sendKind;
+}
+
 export function getDisplayThreadTitle(sessionName: string | null | undefined, promptText: string): string {
   const name = (sessionName || "").trim();
   const prompt = getDisplayUserPrompt(promptText).trim();
@@ -430,14 +448,13 @@ function threadFromResponse(res: any, fallback: ThreadState, pendingEditorText?:
 
 
 /** How many trailing optimistic steer/follow-up bubbles sit at the end of `messages`.
- *  Only opt-* stay trailing past the live assistant — once message_start promotes
- *  them, later assistant turns must append after (insertion order). sendKind alone
- *  is a display badge and must NOT keep reordering forever. */
+ *  Only opt-* with sendKind stay trailing past the live assistant — a first-prompt
+ *  optimistic bubble (e.g. `/skill:name` waiting for Pi to expand it) must stay
+ *  in front. Once message_start promotes them, later assistant turns append after. */
 function trailingQueuedUserCount(messages: ViewMessage[]): number {
   let n = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!(m && m.role === "user" && m.key.startsWith("opt-"))) break;
+    if (!isTrailingQueuedUser(messages[i])) break;
     n++;
   }
   return n;
@@ -455,7 +472,7 @@ function insertBeforeTrailingQueuedUsers(messages: ViewMessage[], item: ViewMess
  * Event reducer (one thread)
  * ------------------------------------------------------------------ */
 
-function reduceThread(t: ThreadState, event: any): ThreadState {
+export function reduceThread(t: ThreadState, event: any): ThreadState {
   if (!event || typeof event !== "object") return t;
   switch (event.type) {
     case "agent_start":
@@ -474,21 +491,27 @@ function reduceThread(t: ThreadState, event: any): ThreadState {
         const serverImages = imagesOfContent(m.content);
         // Steer/follow-up may arrive while the interrupted assistant is still in
         // `streaming`. Commit it first so the user bubble keeps insertion order.
+        // A delayed first-prompt user event (skill expansion) must stay in front.
         let messages = t.messages;
         let streaming = t.streaming;
-        if (streaming) {
+        if (streaming && trailingQueuedUserCount(messages) > 0) {
           messages = insertBeforeTrailingQueuedUsers(messages, streaming);
           streaming = null;
         }
         let optimisticIndex = -1;
+        let loneOpt = -1;
+        let optCount = 0;
         for (let i = messages.length - 1; i >= 0; i--) {
           const candidate = messages[i];
           if (!candidate?.key.startsWith("opt-")) continue;
-          if (!serverText || candidate.text === serverText) {
+          optCount++;
+          loneOpt = i;
+          if (optimisticMatchesServerText(candidate.text || "", serverText)) {
             optimisticIndex = i;
             break;
           }
         }
+        if (optimisticIndex < 0 && optCount === 1) optimisticIndex = loneOpt;
         const sendKind =
           (optimisticIndex >= 0 ? messages[optimisticIndex].sendKind : undefined) ||
           (m.steering ? "steer" : undefined);
