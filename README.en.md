@@ -4,7 +4,7 @@
 
 Omp Studio is an independent Electron desktop client for [oh-my-pi](https://github.com/can1357/oh-my-pi) (omp, a fork of the [Pi coding agent](https://github.com/earendil-works/pi)). It brings omp projects, threads, model configuration, extensions, permission controls, automation, and file previews into one desktop workspace.
 
-Current release: `0.5.30` (Windows x64 and macOS arm64 installers).
+Current release: `0.5.31` (Windows x64 and macOS arm64 installers).
 
 > Omp Studio is an independent community project. It is not affiliated with or endorsed by the Pi or oh-my-pi maintainers.
 

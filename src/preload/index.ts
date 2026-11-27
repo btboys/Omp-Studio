@@ -27,6 +27,7 @@ const api = {
     enhancePrompt: (cwd: string, text: string) => ipcRenderer.invoke("app:enhancePrompt", cwd, text),
     getGitInfo: (cwd: string) => ipcRenderer.invoke("app:getGitInfo", cwd),
     getHomeDir: () => ipcRenderer.invoke("app:getHomeDir"),
+    openExternal: (url: string) => ipcRenderer.invoke("app:openExternal", url),
     openProject: (absPath: string) => ipcRenderer.invoke("app:openProject", absPath),
     prewarm: (cwd: string) => ipcRenderer.invoke("app:prewarm", cwd),
     unpinProject: (absPath: string) => ipcRenderer.invoke("app:unpinProject", absPath),

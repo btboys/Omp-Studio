@@ -2373,6 +2373,105 @@ body.sidebar-resizing * {
 .extui-card-nav .btn {
   min-width: 96px;
 }
+.extui-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+.extui-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.extui-form-legend,
+.extui-form-heading {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.extui-form-text,
+.extui-form-list {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.extui-form-list {
+  padding-left: 18px;
+}
+.extui-form-pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+.extui-form-image {
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.extui-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.extui-form-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.extui-form-field input,
+.extui-form-field textarea,
+.extui-form-field select,
+.extui-form-other {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+.extui-form-field textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+.extui-form-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.extui-form-choices label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+.extui-form-choices input {
+  width: auto;
+  margin-top: 2px;
+}
+.extui-form-field.invalid input,
+.extui-form-field.invalid textarea,
+.extui-form-field.invalid select {
+  border-color: #b4544a;
+}
+.extui-form-hint,
+.extui-form-error {
+  color: #b4544a;
+  font-size: 12px;
+}
+.extui-form-error {
+  margin-top: 8px;
+}
 .composer {
   max-width: 860px;
   margin: 0 auto;
@@ -6727,6 +6826,13 @@ mark.hl {
 :root[data-theme="dark"] .extui-card-autopilot button:hover {
   border-color: #8a6b3d;
   background: #54452c;
+}
+:root[data-theme="dark"] .extui-form-field input,
+:root[data-theme="dark"] .extui-form-field textarea,
+:root[data-theme="dark"] .extui-form-field select,
+:root[data-theme="dark"] .extui-form-other {
+  background: var(--control);
+  color: var(--text);
 }
 
 /* ---- advisory severity chips in chat ---- */

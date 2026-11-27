@@ -311,7 +311,7 @@ export type ExtUiSelectOption = string | { label: string; description?: string }
 
 export interface ExtUiRequest {
   id: string;
-  method: "select" | "confirm" | "input" | "editor" | "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text" | string;
+  method: "select" | "confirm" | "input" | "editor" | "form" | "ask" | "open_url" | "cancel" | "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text" | string;
   title?: string;
   message?: string;
   options?: ExtUiSelectOption[];

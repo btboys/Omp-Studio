@@ -121,6 +121,10 @@ await destructive.call("bash", { command: "rm -rf build" });
 await destructive.call("bash", { command: "rm -rf build" });
 assert.equal(destructive.calls(), 2, "destructive operations must never be cached");
 
+const waitTool = makeHarness(() => "unused");
+await waitTool.call("wait", {});
+assert.equal(waitTool.calls(), 0, "wait is read-only coordination and must not prompt");
+
 const extensionTool = makeHarness((_title, options) => options.find((option) => option.startsWith("Allow tool")));
 await extensionTool.call("custom_lookup", { query: "one" });
 await extensionTool.call("custom_lookup", { query: "two" });
@@ -155,6 +159,16 @@ assert.equal(autoOutsideWrite.calls(), 1, "auto mode must still prompt for out-o
 const autoSubagent = makeHarness((_title, options) => options[0]);
 await autoSubagent.call("task", { task: "inspect" });
 assert.equal(autoSubagent.calls(), 1, "auto mode must still prompt for subagent escalation");
+
+const autoEval = makeHarness((_title, options) => options[0]);
+await autoEval.call("eval", { language: "js", code: "process.exit(0)" });
+await autoEval.call("eval", { language: "js", code: "process.exit(0)" });
+assert.equal(autoEval.calls(), 2, "auto mode must prompt for every eval and must not cache it");
+
+const autoSkill = makeHarness((_title, options) => options[0]);
+await autoSkill.call("manage_skill", { name: "demo" });
+await autoSkill.call("new_context", {});
+assert.equal(autoSkill.calls(), 2, "auto mode must still prompt for skill and context writes");
 
 const autoOutsideCp = makeHarness((_title, options) => options[0]);
 await autoOutsideCp.call("bash", { command: "cp package.json /tmp/pi-gate-outside-copy.json" });

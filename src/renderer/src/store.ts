@@ -2272,6 +2272,21 @@ export const useStore = create<PiStore>()((set, get) => ({
       get().pushToast(req.notifyType === "error" ? "error" : req.notifyType === "warning" ? "warning" : "info", (req.message || req.title || "") as string);
       return;
     }
+    // omp login / OAuth. Fire-and-forget: the host opens launchUrl (short loopback)
+    // or url and must not answer, or the RPC loop treats it as a dialog.
+    if (m === "open_url") {
+      const launch = typeof req.launchUrl === "string" && req.launchUrl.trim() ? req.launchUrl : req.url;
+      if (typeof launch === "string" && launch.trim()) window.pi.app.openExternal(launch).catch(() => {});
+      if (typeof req.instructions === "string" && req.instructions.trim()) get().pushToast("info", req.instructions);
+      return;
+    }
+    // omp already settled this dialog (timeout or abort) and will apply its own
+    // default. Drop it; a late `{ cancelled: true }` would be read as a user cancel.
+    if (m === "cancel") {
+      const targetId = typeof req.targetId === "string" ? req.targetId : "";
+      if (targetId) set((s) => ({ extuiQueue: s.extuiQueue.filter((q) => q.request.id !== targetId) }));
+      return;
+    }
     if (m === "set_editor_text") {
       set((s) => (s.threads[threadId] ? { threads: { ...s.threads, [threadId]: { ...s.threads[threadId], pendingEditorText: req.text as string } } } : s));
       return;
@@ -2326,11 +2341,11 @@ export const useStore = create<PiStore>()((set, get) => ({
     }
 
     // dialog methods -> queue
-    if (m === "select" || m === "confirm" || m === "input" || m === "editor") {
+    if (m === "select" || m === "confirm" || m === "input" || m === "editor" || m === "form") {
       set((s) => ({
         extuiQueue: [...s.extuiQueue, { threadId, request: req }],
         // Confirmation cards belong above the relevant thread's composer.
-        ...((m === "select" || m === "confirm") && s.threads[threadId] ? panesForActivate(s, threadId) : {}),
+        ...((m === "select" || m === "confirm" || m === "form") && s.threads[threadId] ? panesForActivate(s, threadId) : {}),
       }));
       return;
     }

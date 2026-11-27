@@ -136,8 +136,14 @@ const SAFE_TOOLS = new Set([
   // Session-local task tracking: mutates only in-memory todo state, never
   // files/network, so it is always safe to auto-approve.
   "todo",
+  // omp 19 coordination tool. Declares approval "read": it only waits on jobs,
+  // services, or a reply. Prompting it would stall every background command.
+  "wait",
 ]);
 const SUBAGENT_TOOLS = new Set(["task"]);
+// omp 19 tools whose own approval is "write" or arbitrary code execution.
+// Auto mode must not treat an unclassified name as routine and let it through.
+const ALWAYS_ASK_TOOLS = new Set(["eval", "manage_skill", "new_context"]);
 const MUTATING_TOOL_NAME = /(?:^|[_-])(write|edit|create|update|delete|remove|send|upload|publish|execute|deploy)(?:[_-]|$)/i;
 
 function cacheKey(command: string): string {
@@ -554,6 +560,23 @@ export default function permissionGate(pi: any) {
     }
 
     const toolName = String(event.toolName || "");
+    if (ALWAYS_ASK_TOOLS.has(toolName)) {
+      const lang = String(event.input?.language || "");
+      const code = String(event.input?.code || event.input?.command || "");
+      return requestApproval(
+        ctx,
+        toolName,
+        language() === "zh"
+          ? toolName === "eval"
+            ? "eval 会在本机执行模型给出的代码，不能自动放行。"
+            : "这个工具会改本机技能或上下文，不能自动放行。"
+          : toolName === "eval"
+            ? "eval runs model-authored code on this machine and cannot be auto-approved."
+            : "This tool writes local skills or context and cannot be auto-approved.",
+        [lang, code].filter(Boolean).join("\n"),
+        { cacheable: false },
+      );
+    }
     if (SAFE_TOOLS.has(toolName)) return undefined;
     if (SUBAGENT_TOOLS.has(toolName)) {
       return requestApproval(

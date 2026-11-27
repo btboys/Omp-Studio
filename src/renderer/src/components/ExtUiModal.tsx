@@ -10,7 +10,7 @@ import type { ExtUiRequest } from "../lib/types";
 export function ExtUiModal() {
   const queue = useStore((s) => s.extuiQueue);
   const respond = useStore((s) => s.respondExtUi);
-  const item = queue.find((q) => q.request.method !== "confirm" && q.request.method !== "select");
+  const item = queue.find((q) => q.request.method !== "confirm" && q.request.method !== "select" && q.request.method !== "form");
 
   if (!item) return null;
   return <Dialog key={item.request.id} threadId={item.threadId} req={item.request} respond={respond} />;

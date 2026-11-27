@@ -9,6 +9,7 @@ import { groupTodosByPhase, replayTodoOps, todosFromPhases, type TodoItem, type 
 import { subagentRowState, taskBatchOf, type SubagentRowState } from "../lib/subagents";
 import { Composer } from "./Composer";
 import { ExtUiPromptCard } from "./ExtUiPromptCard";
+import { ExtUiFormCard } from "./ExtUiFormCard";
 import { Sidebar, PanelRight, Copy, Refresh, Edit, Folder, Files, Gauge, Branch, Check, ChevronRight, ChevronUp, ChevronDown, Close, Undo, Search, Share } from "./icons";
 import appIconUrl from "../../../../resources/icon.png";
 /** Default user avatar SVG — consistent person silhouette, no emoji. */
@@ -842,6 +843,7 @@ export function Chat({ threadId, secondary = false }: { threadId: string; second
       {subagentInfo && <SubagentPanel threadId={threadId} rows={subagentInfo.rows} />}
 
       <div className="composer-confirmation-region" aria-live="assertive">
+        <ExtUiFormCard threadId={threadId} />
         <ExtUiPromptCard threadId={threadId} />
       </div>
       <Composer threadId={threadId} />

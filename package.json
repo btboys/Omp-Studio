@@ -1,6 +1,6 @@
 {
   "name": "omp-studio",
-  "version": "0.5.30",
+  "version": "0.5.31",
   "ompRuntimeVersion": "19.2.1",
   "private": true,
   "license": "MIT",
@@ -27,6 +27,7 @@
     "pack": "npm run bundle && npm run build && electron-builder --dir && npm run finalize-runtime",
     "dist": "npm run bundle && npm run build && electron-builder && npm run finalize-runtime",
     "test:subagents": "node scripts/test-subagents.mjs",
+    "test:html-form": "node scripts/test-html-form.mjs",
     "test:skill-prompt": "bun scripts/test-skill-prompt.mjs"
   },
   "dependencies": {

@@ -170,10 +170,11 @@ function createHandle(
     },
     onExtUi: (r) => {
       send("pi:extui", { threadId: id, request: r });
-      if (r?.method === "confirm" || r?.method === "select") {
+      if (r?.method === "confirm" || r?.method === "select" || r?.method === "form") {
         const zh = getConfig().language === "zh";
         const label = threadNotifyLabel(cwd, handle.sessionLabel);
-        const detail = String(r.title || r.message || (zh ? "Sandbox 等待授权" : "Sandbox is waiting for approval"));
+        const formText = r.method === "form" ? String(r.html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
+        const detail = String(r.title || r.message || formText || (zh ? "需要你的确认" : "Waiting for your answer"));
         maybeDesktopNotify({
           kind: "approval",
           title: zh ? `需要确认 · ${label}` : `Action required · ${label}`,
@@ -639,6 +640,12 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("app:getHomeDir", () => homedir());
+
+  ipcMain.handle("app:openExternal", (_e, url: string) => {
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url.trim())) return { ok: false };
+    void shell.openExternal(url.trim());
+    return { ok: true };
+  });
 
   ipcMain.handle("app:showOpenDialog", async (_e, kind: "folder" | "file" | "files") => {
     const w = getWin();
